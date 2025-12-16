@@ -1,0 +1,11 @@
+nohup: ignoring input
+✅ Firebase: استخدام الملف المحلي (Development)
+Traceback (most recent call last):
+  File "/workspaces/bothhhhhhhhhhhhh/app.py", line 49, in <module>
+    bot = telebot.TeleBot(TOKEN)
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/bothhhhhhhhhhhhh/.venv/lib/python3.12/site-packages/telebot/__init__.py", line 196, in __init__
+    util.validate_token(self.token)
+  File "/workspaces/bothhhhhhhhhhhhh/.venv/lib/python3.12/site-packages/telebot/util.py", line 698, in validate_token
+    raise ValueError('Token must contain a colon')
+ValueError: Token must contain a colon

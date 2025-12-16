@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: telegram-bot-app
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: SITE_URL
+        sync: false
+      - key: FIREBASE_CREDENTIALS
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: PORT
+        value: 10000

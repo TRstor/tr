@@ -1849,76 +1849,6 @@ HTML_PAGE = """
         </div>
     </div>
 
-    <!-- صف الأزرار العلوية - مخفي مؤقتاً -->
-    <!--
-    <div class="top-buttons-row">
-        <div class="account-btn" onclick="toggleAccount()" id="accountBtn">
-            <div class="account-btn-left">
-                <span class="account-icon">👤</span>
-                <span>حسابي</span>
-            </div>
-            <span class="arrow" id="accountArrow">▼</span>
-        </div>
-        
-        <div class="charge-btn" onclick="toggleCharge()" id="chargeBtn">
-            <div class="account-btn-left">
-                <span>💳</span>
-                <span>شحن كود</span>
-            </div>
-            <span class="arrow" id="chargeArrow">▼</span>
-        </div>
-    </div>
-    -->
-    
-    <!-- محتوى حسابي -->
-    <div class="account-content" id="accountContent">
-        <div class="account-details">
-            <div class="account-row">
-                <span class="account-label">الاسم:</span>
-                <span class="account-value" id="userName">جاري التحميل...</span>
-            </div>
-            <div class="account-row">
-                <span class="account-label">معرف تيليجرام:</span>
-                <span class="account-value" id="userId">-</span>
-            </div>
-            <div class="account-row balance-row">
-                <span class="account-label">💰 رصيدك:</span>
-                <span class="account-value"><span id="balance">0</span> ريال</span>
-            </div>
-            
-            <button class="logout-btn" onclick="logout()">🚪 تسجيل الخروج</button>
-        </div>
-    </div>
-    
-    <!-- محتوى شحن الكود -->
-    <div class="account-content" id="chargeContent">
-        <div class="account-details" style="background: linear-gradient(135deg, rgba(0, 184, 148, 0.1), rgba(85, 239, 196, 0.1)); border: 1px solid rgba(0, 184, 148, 0.3);">
-            <h4 style="color: #00b894; margin: 0 0 15px 0; text-align: center;">💳 شحن رصيدك</h4>
-            
-            <div style="margin-bottom: 20px;">
-                <label style="color: #888; font-size: 13px; display: block; margin-bottom: 8px; text-align: right;">أدخل كود الشحن هنا:</label>
-                <div style="display: flex; gap: 10px; align-items: center; flex-direction: row-reverse;">
-                    <input type="text" id="chargeCodeInput" placeholder="KEY-XXXXX-XXXX" 
-                           style="flex: 1; padding: 12px; border: 2px solid #444; border-radius: 10px; background: #2d3436; color: white; font-size: 14px; text-align: center; height: 46px; box-sizing: border-box; letter-spacing: 1px; font-family: monospace;">
-                    
-                    <button onclick="submitChargeCode()" 
-                            style="padding: 0 20px; background: linear-gradient(135deg, #00b894, #55efc4); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; white-space: nowrap; height: 46px; width: auto;">
-                        تفعيل ⚡
-                    </button>
-                </div>
-            </div>
-            
-            <div>
-                <label style="color: #888; font-size: 13px; display: block; margin-bottom: 10px;">شراء رصيد:</label>
-                <div class="quick-charge-row">
-                    <a href="#" class="quick-charge-btn" onclick="copyToClipboard('20')">20 ريال</a>
-                    <a href="#" class="quick-charge-btn" onclick="copyToClipboard('50')">50 ريال</a>
-                    <a href="#" class="quick-charge-btn" onclick="copyToClipboard('100')">100 ريال</a>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="categories-header">
         <h3>💎 الأقسام</h3>
         <small onclick="filterCategory('all')">عرض الكل</small>
@@ -2206,19 +2136,10 @@ HTML_PAGE = """
             fetchOrdersCount();
         } else if(currentUserId && currentUserId != 0) {
             // مستخدم مسجل دخول عبر الرابط المؤقت أو الجلسة
-            document.getElementById("userName").innerText = "{{ user_name }}";
-            document.getElementById("userId").innerText = currentUserId;
-            document.getElementById("balance").innerText = userBalance;
             updateNavBalance(userBalance);
             
             // جلب عدد الطلبات
             fetchOrdersCount();
-            
-            // فتح قسم الحساب تلقائياً
-            const content = document.getElementById("accountContent");
-            const arrow = document.getElementById("accountArrow");
-            content.classList.add("open");
-            arrow.classList.add("open");
         }
         
         // دالة لفتح/إغلاق قسم شحن الكود

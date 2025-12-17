@@ -4131,16 +4131,10 @@ CHARGE_PAGE = """
                 شحن بالكود
             </div>
             
-            <div class="code-input-wrapper">
-                <input type="text" id="chargeCode" class="code-input" placeholder="KEY-XXXXX-XXXXX" maxlength="20">
-                <button class="activate-btn" onclick="activateCode()" id="activateBtn">
-                    ⚡ تفعيل
-                </button>
-            </div>
-            
-            <p class="code-hint">
-                💡 احصل على كود الشحن من <a href="https://t.me/awedjabot" target="_blank">البوت</a> أو تواصل مع الموزع
-            </p>
+            <input type="text" id="chargeCode" class="code-input" placeholder="KEY-XXXXX-XXXXX" maxlength="20" style="width: 100%; margin-bottom: 15px;">
+            <button class="activate-btn" onclick="activateCode()" id="activateBtn" style="width: 100%;">
+                ⚡ تفعيل الكود
+            </button>
         </div>
         
         <!-- سجل الشحنات -->

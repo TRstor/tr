@@ -440,22 +440,21 @@ HTML_PAGE = """
         /* --- تصميم البار السفلي العائم (Floating Bottom Nav) --- */
         .floating-bottom-nav {
             position: fixed;
-            bottom: 20px;
+            bottom: 12px;
             left: 50%;
             transform: translateX(-50%);
-            width: 90%;
-            max-width: 320px;
-            height: 70px;
-            background: linear-gradient(135deg, #2d3436 0%, #1a1a2e 100%);
+            width: 94%;
+            max-width: 380px;
+            height: 56px;
+            background: linear-gradient(135deg, rgba(45, 52, 54, 0.95) 0%, rgba(26, 26, 46, 0.98) 100%);
             display: flex;
             justify-content: space-around;
             align-items: center;
-            border-radius: 50px;
-            box-shadow: 0 8px 30px rgba(108, 92, 231, 0.4), 0 0 20px rgba(0,0,0,0.5);
+            border-radius: 28px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(108, 92, 231, 0.2);
             z-index: 1000;
-            padding: 0 20px;
-            backdrop-filter: blur(10px);
-            border: 2px solid rgba(108, 92, 231, 0.2);
+            padding: 0 8px;
+            backdrop-filter: blur(15px);
         }
 
         .floating-nav-item {
@@ -464,55 +463,117 @@ HTML_PAGE = """
             align-items: center;
             justify-content: center;
             color: #888;
-            font-size: 11px;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.25s ease;
             position: relative;
-            width: 70px;
-            height: 70px;
+            flex: 1;
+            height: 100%;
+            max-width: 80px;
         }
 
         .floating-nav-icon {
-            font-size: 24px;
-            margin-bottom: 4px;
-            transition: all 0.3s;
-            filter: drop-shadow(0 0 5px rgba(0,0,0,0.3));
+            font-size: 20px;
+            margin-bottom: 2px;
+            transition: all 0.25s;
         }
 
         .floating-nav-label {
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 600;
-            transition: all 0.3s;
-            letter-spacing: 0.5px;
+            transition: all 0.25s;
+            white-space: nowrap;
         }
 
-        /* التأثير الذهبي/الأصفر عند التفعيل */
+        /* الشارة (Badge) للإشعارات */
+        .nav-badge {
+            position: absolute;
+            top: 6px;
+            right: 50%;
+            transform: translateX(12px);
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: white;
+            font-size: 9px;
+            font-weight: bold;
+            min-width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+            box-shadow: 0 2px 6px rgba(231, 76, 60, 0.5);
+            animation: pulse-badge 2s infinite;
+        }
+        
+        .nav-badge.hidden {
+            display: none;
+        }
+        
+        @keyframes pulse-badge {
+            0%, 100% { transform: translateX(12px) scale(1); }
+            50% { transform: translateX(12px) scale(1.1); }
+        }
+
+        /* الرصيد تحت الأيقونة */
+        .nav-balance {
+            font-size: 8px;
+            color: #55efc4;
+            font-weight: bold;
+            margin-top: -1px;
+        }
+
+        /* التأثير عند التفعيل */
         .floating-nav-item.active {
-            background: radial-gradient(circle, var(--active-color), #f39c12);
-            color: #1a1a2e;
-            transform: scale(1.15) translateY(-10px);
-            box-shadow: 0 8px 20px rgba(241, 196, 15, 0.6), inset 0 -2px 5px rgba(0,0,0,0.1);
-            border-radius: 50%;
+            color: #f1c40f;
         }
 
         .floating-nav-item.active .floating-nav-icon {
-            font-size: 28px;
-            margin-bottom: 2px;
-            filter: drop-shadow(0 2px 5px rgba(0,0,0,0.2));
+            font-size: 22px;
+            filter: drop-shadow(0 0 8px rgba(241, 196, 15, 0.6));
         }
 
         .floating-nav-item.active .floating-nav-label {
-            display: none;
+            color: #f1c40f;
+        }
+        
+        .floating-nav-item.active::after {
+            content: '';
+            position: absolute;
+            bottom: 4px;
+            width: 20px;
+            height: 3px;
+            background: linear-gradient(90deg, #f1c40f, #f39c12);
+            border-radius: 2px;
         }
 
         /* تأثير التحوم */
         .floating-nav-item:hover:not(.active) {
-            transform: translateY(-3px);
             color: #a29bfe;
         }
 
         .floating-nav-item:hover:not(.active) .floating-nav-icon {
-            font-size: 26px;
+            transform: translateY(-2px);
+        }
+        
+        /* تحسين للشاشات الصغيرة */
+        @media (max-width: 360px) {
+            .floating-bottom-nav {
+                width: 96%;
+                height: 52px;
+                bottom: 8px;
+                padding: 0 4px;
+            }
+            .floating-nav-icon {
+                font-size: 18px;
+            }
+            .floating-nav-label {
+                font-size: 8px;
+            }
+            .nav-badge {
+                font-size: 8px;
+                min-width: 14px;
+                height: 14px;
+            }
         }
         
         /* --- أقسام الصفحة (Views) --- */
@@ -2090,6 +2151,41 @@ HTML_PAGE = """
         // التحقق من أننا داخل Telegram Web App
         const isTelegramWebApp = tg.initData !== '';
         
+        // دالة لتحديث الرصيد في الشريط السفلي
+        function updateNavBalance(balance) {
+            const navBalanceEl = document.getElementById('navBalance');
+            if(navBalanceEl) {
+                navBalanceEl.textContent = balance + ' ر.س';
+            }
+        }
+        
+        // دالة لتحديث شارة الطلبات
+        function updateOrdersBadge(count) {
+            const badge = document.getElementById('ordersBadge');
+            if(badge) {
+                if(count > 0) {
+                    badge.textContent = count > 99 ? '99+' : count;
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+            }
+        }
+        
+        // جلب عدد الطلبات
+        async function fetchOrdersCount() {
+            if(!currentUserId || currentUserId == 0) return;
+            try {
+                const response = await fetch('/get_orders?user_id=' + currentUserId);
+                const data = await response.json();
+                if(data.orders) {
+                    updateOrdersBadge(data.orders.length);
+                }
+            } catch(e) {
+                console.log('Error fetching orders count');
+            }
+        }
+        
         // عرض بيانات المستخدم
         if(user && user.id) {
             // مستخدم Telegram Web App
@@ -2103,12 +2199,20 @@ HTML_PAGE = """
                 .then(data => {
                     userBalance = data.balance;
                     document.getElementById("balance").innerText = userBalance;
+                    updateNavBalance(userBalance);
                 });
+            
+            // جلب عدد الطلبات
+            fetchOrdersCount();
         } else if(currentUserId && currentUserId != 0) {
             // مستخدم مسجل دخول عبر الرابط المؤقت أو الجلسة
             document.getElementById("userName").innerText = "{{ user_name }}";
             document.getElementById("userId").innerText = currentUserId;
             document.getElementById("balance").innerText = userBalance;
+            updateNavBalance(userBalance);
+            
+            // جلب عدد الطلبات
+            fetchOrdersCount();
             
             // فتح قسم الحساب تلقائياً
             const content = document.getElementById("accountContent");
@@ -2169,6 +2273,7 @@ HTML_PAGE = """
                     userBalance = result.new_balance;
                     document.getElementById('balance').textContent = userBalance;
                     document.getElementById('sidebarBalance').textContent = userBalance;
+                    updateNavBalance(userBalance);
                     document.getElementById('chargeCodeInput').value = '';
                 } else {
                     alert('❌ ' + result.message);
@@ -2535,6 +2640,7 @@ HTML_PAGE = """
                         userBalance = data.new_balance;
                         document.getElementById('balance').textContent = userBalance;
                         document.getElementById('sidebarBalance').textContent = userBalance;
+                        updateNavBalance(userBalance);
                     }
                     showSuccessModal(data.hidden_data, data.message_sent);
                 } else {
@@ -2650,6 +2756,14 @@ HTML_PAGE = """
                             return;
                         }
                         window.location.href = '/my_purchases';
+                    } else if(action === 'charge') {
+                        // التحقق من تسجيل الدخول أولاً
+                        if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
+                            showLoginModal();
+                            return;
+                        }
+                        // فتح قسم الشحن
+                        toggleCharge();
                     } else if(action === 'account') {
                         // التحقق من تسجيل الدخول أولاً
                         if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
@@ -2684,12 +2798,18 @@ HTML_PAGE = """
             <div class="floating-nav-label">الرئيسية</div>
         </div>
         <div class="floating-nav-item" data-action="orders">
+            <span class="nav-badge hidden" id="ordersBadge">0</span>
             <div class="floating-nav-icon">📦</div>
             <div class="floating-nav-label">طلباتي</div>
+        </div>
+        <div class="floating-nav-item" data-action="charge">
+            <div class="floating-nav-icon">💳</div>
+            <div class="floating-nav-label">شحن</div>
         </div>
         <div class="floating-nav-item" data-action="account">
             <div class="floating-nav-icon">👤</div>
             <div class="floating-nav-label">حسابي</div>
+            <div class="nav-balance" id="navBalance">{{ balance }} ر.س</div>
         </div>
     </div>
 </body>

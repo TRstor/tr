@@ -425,63 +425,85 @@ HTML_PAGE = """
             background: var(--bg-color); 
             color: var(--text-color); 
             margin: 0; 
-            padding: 16px 16px 80px 16px; /* مسافة من الأسفل عشان البار */
+            padding: 16px 16px 120px 16px; /* مسافة من الأسفل للشريط العائم */
         }
 
-        /* --- تصميم البار السفلي (Bottom Nav) --- */
-        .bottom-nav {
+        /* --- تصميم البار السفلي العائم (Floating Bottom Nav) --- */
+        .floating-bottom-nav {
             position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 320px;
             height: 70px;
-            background: var(--nav-bg);
+            background: linear-gradient(135deg, #2d3436 0%, #1a1a2e 100%);
             display: flex;
             justify-content: space-around;
             align-items: center;
-            border-radius: 20px 20px 0 0;
-            box-shadow: 0 -5px 20px rgba(0,0,0,0.3);
+            border-radius: 50px;
+            box-shadow: 0 8px 30px rgba(108, 92, 231, 0.4), 0 0 20px rgba(0,0,0,0.5);
             z-index: 1000;
-            padding: 0 10px;
+            padding: 0 20px;
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(108, 92, 231, 0.2);
         }
 
-        .nav-item {
+        .floating-nav-item {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             color: #888;
-            font-size: 12px;
+            font-size: 11px;
             cursor: pointer;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
-            width: 60px;
-            height: 60px;
+            width: 70px;
+            height: 70px;
+        }
+
+        .floating-nav-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+            transition: all 0.3s;
+            filter: drop-shadow(0 0 5px rgba(0,0,0,0.3));
+        }
+
+        .floating-nav-label {
+            font-size: 10px;
+            font-weight: 600;
+            transition: all 0.3s;
+            letter-spacing: 0.5px;
+        }
+
+        /* التأثير الذهبي/الأصفر عند التفعيل */
+        .floating-nav-item.active {
+            background: radial-gradient(circle, var(--active-color), #f39c12);
+            color: #1a1a2e;
+            transform: scale(1.15) translateY(-10px);
+            box-shadow: 0 8px 20px rgba(241, 196, 15, 0.6), inset 0 -2px 5px rgba(0,0,0,0.1);
             border-radius: 50%;
         }
 
-        .nav-icon {
-            font-size: 20px;
-            margin-bottom: 4px;
-            transition: all 0.3s;
+        .floating-nav-item.active .floating-nav-icon {
+            font-size: 28px;
+            margin-bottom: 2px;
+            filter: drop-shadow(0 2px 5px rgba(0,0,0,0.2));
         }
 
-        /* التأثير الأصفر عند التفعيل */
-        .nav-item.active {
-            background: var(--active-color);
-            color: #1a1a2e; /* لون النص داخل الدائرة الصفراء */
-            transform: translateY(-15px); /* يرتفع للأعلى قليلاً */
-            box-shadow: 0 5px 15px rgba(241, 196, 15, 0.4);
-            border: 4px solid var(--bg-color); /* حدود لدمجه مع الخلفية */
+        .floating-nav-item.active .floating-nav-label {
+            display: none;
         }
 
-        .nav-item.active .nav-icon {
-            font-size: 24px;
-            margin-bottom: 0;
+        /* تأثير التحوم */
+        .floating-nav-item:hover:not(.active) {
+            transform: translateY(-3px);
+            color: #a29bfe;
         }
 
-        .nav-item.active span {
-            display: none; /* إخفاء النص عند التفعيل للتركيز على الأيقونة */
+        .floating-nav-item:hover:not(.active) .floating-nav-icon {
+            font-size: 26px;
         }
         
         /* --- أقسام الصفحة (Views) --- */
@@ -2589,8 +2611,73 @@ HTML_PAGE = """
         // تحميل أول قسم (نتفلكس) عند فتح الصفحة
         window.addEventListener('DOMContentLoaded', function() {
             filterCategory('نتفلكس');
+            initFloatingNav();
         });
+
+        // --- Floating Navigation Bar ---
+        function initFloatingNav() {
+            const navItems = document.querySelectorAll('.floating-nav-item');
+            
+            // تفعيل العنصر الأول افتراضياً
+            if(navItems.length > 0) {
+                navItems[0].classList.add('active');
+            }
+            
+            navItems.forEach((item, index) => {
+                item.addEventListener('click', function() {
+                    // إزالة active من جميع العناصر
+                    navItems.forEach(nav => nav.classList.remove('active'));
+                    // إضافة active للعنصر الحالي
+                    this.classList.add('active');
+                    
+                    // تنفيذ الإجراء المناسب
+                    const action = this.getAttribute('data-action');
+                    if(action === 'home') {
+                        scrollToTop();
+                    } else if(action === 'orders') {
+                        window.location.href = '/my_purchases';
+                    } else if(action === 'account') {
+                        toggleAccountMenu();
+                    }
+                });
+            });
+        }
+
+        function scrollToTop() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function toggleAccountMenu() {
+            const accountContent = document.querySelector('.account-content');
+            if(accountContent) {
+                accountContent.classList.toggle('open');
+                // تحديث زر القائمة الرئيسية
+                const accountBtn = document.querySelector('.account-btn');
+                if(accountBtn) {
+                    const arrow = accountBtn.querySelector('.arrow');
+                    if(arrow) {
+                        arrow.classList.toggle('open');
+                    }
+                }
+            }
+        }
     </script>
+    
+    <!-- شريط الملاحة السفلي العائم -->
+    <div class="floating-bottom-nav">
+        <div class="floating-nav-item active" data-action="home">
+            <div class="floating-nav-icon">🏠</div>
+            <div class="floating-nav-label">الرئيسية</div>
+        </div>
+        <div class="floating-nav-item" data-action="orders">
+            <div class="floating-nav-icon">📦</div>
+            <div class="floating-nav-label">طلباتي</div>
+        </div>
+        <div class="floating-nav-item" data-action="account">
+            <div class="floating-nav-icon">👤</div>
+            <div class="floating-nav-label">حسابي</div>
+        </div>
+    </div>
 </body>
 </html>
 """

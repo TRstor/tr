@@ -306,14 +306,96 @@ HTML_PAGE = """
     <title>سوق البوت</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
             --primary: #6c5ce7;
-            --bg-color: var(--tg-theme-bg-color, #1a1a1a);
-            --text-color: var(--tg-theme-text-color, #ffffff);
-            --card-bg: var(--tg-theme-secondary-bg-color, #2d2d2d);
-            --green: #00b894;
+            --bg-color: #1a1a2e;
+            --card-bg: #16213e;
+            --text-color: #ffffff;
+            --active-color: #f1c40f; /* اللون الأصفر */
+            --nav-bg: #0f3460;
         }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { 
+            font-family: 'Tajawal', sans-serif; 
+            background: var(--bg-color); 
+            color: var(--text-color); 
+            margin: 0; 
+            padding: 16px 16px 80px 16px; /* مسافة من الأسفل عشان البار */
+        }
+
+        /* --- تصميم البار السفلي (Bottom Nav) --- */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 70px;
+            background: var(--nav-bg);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -5px 20px rgba(0,0,0,0.3);
+            z-index: 1000;
+            padding: 0 10px;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #888;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+        }
+
+        .nav-icon {
+            font-size: 20px;
+            margin-bottom: 4px;
+            transition: all 0.3s;
+        }
+
+        /* التأثير الأصفر عند التفعيل */
+        .nav-item.active {
+            background: var(--active-color);
+            color: #1a1a2e; /* لون النص داخل الدائرة الصفراء */
+            transform: translateY(-15px); /* يرتفع للأعلى قليلاً */
+            box-shadow: 0 5px 15px rgba(241, 196, 15, 0.4);
+            border: 4px solid var(--bg-color); /* حدود لدمجه مع الخلفية */
+        }
+
+        .nav-item.active .nav-icon {
+            font-size: 24px;
+            margin-bottom: 0;
+        }
+
+        .nav-item.active span {
+            display: none; /* إخفاء النص عند التفعيل للتركيز على الأيقونة */
+        }
+        
+        /* --- أقسام الصفحة (Views) --- */
+        .view-section {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+        .view-section.active-view {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* --- باقي التصاميم السابقة --- */
+        .card { background: var(--card-bg); border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         body { font-family: 'Tajawal', sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 16px; }
         .card { background: var(--card-bg); border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         input { width: 100%; padding: 14px; margin-bottom: 12px; background: var(--bg-color); border: 1px solid #444; border-radius: 12px; color: var(--text-color); box-sizing: border-box;}

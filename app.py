@@ -4143,34 +4143,34 @@ CHARGE_PAGE = """
             </p>
         </div>
         
-        <!-- سجل المعاملات -->
+        <!-- سجل الشحنات -->
         <div class="section-card">
             <div class="section-title">
-                <span>📜</span>
-                سجل المعاملات
+                <span>💳</span>
+                سجل الشحنات
             </div>
             
             {% if transactions %}
                 {% for t in transactions %}
                 <div class="transaction-item">
                     <div class="transaction-info">
-                        <div class="transaction-icon {{ t.type }}">
-                            {% if t.type == 'income' %}⬆️{% else %}⬇️{% endif %}
+                        <div class="transaction-icon income">
+                            ⬆️
                         </div>
                         <div class="transaction-details">
                             <h4>{{ t.title }}</h4>
                             <p>{{ t.date }}</p>
                         </div>
                     </div>
-                    <div class="transaction-amount {{ t.type }}">
-                        {% if t.type == 'income' %}+{% else %}-{% endif %}{{ t.amount }} ر.س
+                    <div class="transaction-amount income">
+                        +{{ t.amount }} ر.س
                     </div>
                 </div>
                 {% endfor %}
             {% else %}
                 <div class="empty-transactions">
-                    <div class="icon">📋</div>
-                    <p>لا توجد معاملات بعد</p>
+                    <div class="icon">💳</div>
+                    <p>لا توجد شحنات بعد</p>
                 </div>
             {% endif %}
         </div>
@@ -4276,22 +4276,14 @@ def wallet_page():
                 'timestamp': data.get('timestamp', 0)
             })
         
-        # جلب المشتريات
+        # جلب عدد المشتريات فقط (للإحصائيات)
         orders_ref = query_where(db.collection('orders'), 'buyer_id', '==', str(user_id))
         for doc in orders_ref.stream():
-            data = doc.to_dict()
             purchases_count += 1
-            transactions.append({
-                'type': 'expense',
-                'title': data.get('item_name', 'شراء منتج'),
-                'amount': data.get('price', 0),
-                'date': data.get('created_at', 'غير محدد'),
-                'timestamp': data.get('created_at_ts', 0)
-            })
         
         # ترتيب من الأحدث
         transactions.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
-        transactions = transactions[:10]  # آخر 10 معاملات
+        transactions = transactions[:10]  # آخر 10 شحنات
         
     except Exception as e:
         print(f"❌ خطأ في جلب المعاملات: {e}")

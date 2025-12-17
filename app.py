@@ -2644,9 +2644,20 @@ HTML_PAGE = """
                     if(action === 'home') {
                         scrollToTop();
                     } else if(action === 'orders') {
+                        // التحقق من تسجيل الدخول أولاً
+                        if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
+                            showLoginModal();
+                            return;
+                        }
                         window.location.href = '/my_purchases';
                     } else if(action === 'account') {
-                        toggleAccountMenu();
+                        // التحقق من تسجيل الدخول أولاً
+                        if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
+                            showLoginModal();
+                            return;
+                        }
+                        // فتح اللوحة الجانبية
+                        toggleSidebar();
                     }
                 });
             });
@@ -2657,18 +2668,12 @@ HTML_PAGE = """
         }
 
         function toggleAccountMenu() {
-            const accountContent = document.querySelector('.account-content');
-            if(accountContent) {
-                accountContent.classList.toggle('open');
-                // تحديث زر القائمة الرئيسية
-                const accountBtn = document.querySelector('.account-btn');
-                if(accountBtn) {
-                    const arrow = accountBtn.querySelector('.arrow');
-                    if(arrow) {
-                        arrow.classList.toggle('open');
-                    }
-                }
+            // هذه الدالة للتوافق مع الكود القديم
+            if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
+                showLoginModal();
+                return;
             }
+            toggleSidebar();
         }
     </script>
     

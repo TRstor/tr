@@ -4283,10 +4283,18 @@ def buy_item():
 def getMessage():
     try:
         json_string = request.get_data().decode('utf-8')
+        print(f"📩 Webhook received: {json_string[:200]}...")  # طباعة أول 200 حرف
+        print(f"🤖 BOT_ACTIVE: {BOT_ACTIVE}")
         update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
+        if BOT_ACTIVE:
+            bot.process_new_updates([update])
+            print("✅ تم معالجة التحديث")
+        else:
+            print("⚠️ البوت غير نشط - لن يتم معالجة الرسالة")
     except Exception as e:
         print(f"❌ خطأ في معالجة Webhook: {e}")
+        import traceback
+        traceback.print_exc()
     return "!", 200
 
 @app.route("/set_webhook")

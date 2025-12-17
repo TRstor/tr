@@ -1849,9 +1849,9 @@ HTML_PAGE = """
         </div>
     </div>
 
-    <!-- صف الأزرار العلوية -->
+    <!-- صف الأزرار العلوية - مخفي مؤقتاً -->
+    <!--
     <div class="top-buttons-row">
-        <!-- زر حسابي -->
         <div class="account-btn" onclick="toggleAccount()" id="accountBtn">
             <div class="account-btn-left">
                 <span class="account-icon">👤</span>
@@ -1860,7 +1860,6 @@ HTML_PAGE = """
             <span class="arrow" id="accountArrow">▼</span>
         </div>
         
-        <!-- زر شحن الكود -->
         <div class="charge-btn" onclick="toggleCharge()" id="chargeBtn">
             <div class="account-btn-left">
                 <span>💳</span>
@@ -1869,6 +1868,7 @@ HTML_PAGE = """
             <span class="arrow" id="chargeArrow">▼</span>
         </div>
     </div>
+    -->
     
     <!-- محتوى حسابي -->
     <div class="account-content" id="accountContent">

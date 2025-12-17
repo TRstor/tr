@@ -2693,9 +2693,17 @@ HTML_PAGE = """
 
 # --- أوامر البوت ---
 
+# دالة مساعدة لتسجيل الرسائل
+def log_message(message, handler_name):
+    print("="*50)
+    print(f"📨 {handler_name}")
+    print(f"👤 المستخدم: {message.from_user.id} - {message.from_user.first_name}")
+    print(f"💬 النص: {message.text}")
+    print("="*50)
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    print(f"🚀 دالة start تعمل! من المستخدم: {message.from_user.id}")
+    log_message(message, "معالج /start")
     try:
         user_id = str(message.from_user.id)
         user_name = message.from_user.first_name
@@ -2710,7 +2718,6 @@ def send_welcome(message):
                 user_doc = user_ref.get()
                 
                 if not user_doc.exists:
-                    # مستخدم جديد - إنشاء حساب
                     user_ref.set({
                         'telegram_id': user_id,
                         'name': user_name,
@@ -2720,62 +2727,63 @@ def send_welcome(message):
                         'last_seen': firestore.SERVER_TIMESTAMP
                     })
                     users_wallets[user_id] = 0.0
+                    print(f"✅ مستخدم جديد تم إنشاؤه")
                 else:
-                    # مستخدم موجود - تحديث آخر ظهور
                     user_ref.update({
                         'name': user_name,
                         'username': username,
                         'last_seen': firestore.SERVER_TIMESTAMP
                     })
-                print(f"✅ تم حفظ المستخدم في Firebase")
+                    print(f"✅ مستخدم موجود تم تحديثه")
             except Exception as e:
-                print(f"⚠️ خطأ في حفظ معلومات المستخدم: {e}")
+                print(f"⚠️ خطأ في Firebase: {e}")
         
-        # إنشاء لوحة أزرار تفاعلية
+        # إنشاء لوحة أزرار
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        
-        # الأزرار
         btn_code = types.KeyboardButton("🔐 كود الدخول")
         btn_web = types.KeyboardButton("🏪 افتح السوق")
         btn_myid = types.KeyboardButton("🆔 معرفي")
-        
-        # إضافة الأزرار
         markup.add(btn_code, btn_web)
         markup.add(btn_myid)
         
-        # رسالة الترحيب
-        print(f"📤 جاري إرسال رسالة الترحيب...")
-        bot.send_message(
+        # إرسال الرسالة
+        print(f"📤 إرسال رسالة الترحيب...")
+        result = bot.send_message(
             message.chat.id,
-            "🌟 **أهلاً بك في السوق الآمن!** 🛡️\n\n"
+            "🌟 *أهلاً بك في السوق الآمن!* 🛡️\n\n"
             "منصة آمنة للبيع والشراء مع نظام حماية الأموال ❄️\n\n"
-            "📌 **اختر من الأزرار أدناه:**",
+            "📌 *اختر من الأزرار أدناه:*",
             reply_markup=markup,
             parse_mode="Markdown"
         )
-        print(f"✅ تم إرسال رسالة الترحيب بنجاح!")
+        print(f"✅ تم الإرسال! message_id: {result.message_id}")
+        
     except Exception as e:
-        print(f"❌ خطأ في دالة start: {e}")
+        print(f"❌ خطأ في send_welcome: {e}")
         import traceback
         traceback.print_exc()
 
-# معالج الرسائل النصية (الأزرار)
-@bot.message_handler(func=lambda message: message.text in [
-    "🔐 كود الدخول", "🏪 افتح السوق", "🆔 معرفي"
-])
-def handle_buttons(message):
-    if message.text == "🔐 كود الدخول":
-        get_verification_code(message)
-    
-    elif message.text == "🏪 افتح السوق":
-        open_web_app(message)
-    
-    elif message.text == "🆔 معرفي":
-        my_id(message)
-
 @bot.message_handler(commands=['my_id'])
 def my_id(message):
-    bot.reply_to(message, f"الآيدي الخاص بك: {message.from_user.id}\n\nأرسل هذا الرقم للمالك ليضيفك كمشرف!")
+    log_message(message, "معالج /my_id")
+    try:
+        bot.reply_to(message, f"الآيدي الخاص بك: {message.from_user.id}\n\nأرسل هذا الرقم للمالك ليضيفك كمشرف!")
+        print(f"✅ تم إرسال الآيدي")
+    except Exception as e:
+        print(f"❌ خطأ: {e}")
+
+@bot.message_handler(func=lambda message: message.text in ["🔐 كود الدخول", "🏪 افتح السوق", "🆔 معرفي"])
+def handle_buttons(message):
+    log_message(message, "معالج الأزرار")
+    try:
+        if message.text == "🔐 كود الدخول":
+            get_verification_code(message)
+        elif message.text == "🏪 افتح السوق":
+            open_web_app(message)
+        elif message.text == "🆔 معرفي":
+            my_id(message)
+    except Exception as e:
+        print(f"❌ خطأ في الزر: {e}")
 
 # أمر إضافة مشرف (فقط للمالك)
 @bot.message_handler(commands=['add_admin'])

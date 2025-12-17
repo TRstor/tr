@@ -62,16 +62,22 @@ ADMINS_LIST = [
     # 987654321,  # المشرف 3
 ]
 
-try:
-    bot = telebot.TeleBot(TOKEN)
-    # إعداد البوت لتجنب خطأ 429 (Too Many Requests)
-    telebot.apihelper.RETRY_ON_ERROR = True
-    BOT_ACTIVE = True
-    print(f"✅ البوت: متصل بنجاح")
-except Exception as e:
+# التحقق من أن التوكن صحيح (ليس القيمة الافتراضية)
+if TOKEN.startswith("default_token"):
+    print("⚠️ BOT_TOKEN غير محدد - استخدم متغير البيئة BOT_TOKEN")
+    bot = telebot.TeleBot("dummy_token")  # إنشاء بوت وهمي لتجنب الأخطاء
     BOT_ACTIVE = False
-    bot = None
-    print(f"⚠️ البوت غير متاح: {e}")
+else:
+    try:
+        bot = telebot.TeleBot(TOKEN)
+        # إعداد البوت لتجنب خطأ 429 (Too Many Requests)
+        telebot.apihelper.RETRY_ON_ERROR = True
+        BOT_ACTIVE = True
+        print(f"✅ البوت: متصل بنجاح")
+    except Exception as e:
+        BOT_ACTIVE = False
+        bot = telebot.TeleBot("dummy_token")  # إنشاء بوت وهمي لتجنب الأخطاء
+        print(f"⚠️ البوت غير متاح: {e}")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key-here-change-it")

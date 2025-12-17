@@ -4135,6 +4135,13 @@ CHARGE_PAGE = """
             <button class="activate-btn" onclick="activateCode()" id="activateBtn" style="width: 100%;">
                 ⚡ تفعيل الكود
             </button>
+            
+            <div style="text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+                <p style="color: #888; font-size: 14px; margin-bottom: 12px;">🛒 ليس لديك كود؟</p>
+                <a href="https://tr-store1.com/" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #6c5ce7, #a29bfe); color: white; padding: 12px 30px; border-radius: 25px; text-decoration: none; font-weight: bold; font-size: 15px; transition: all 0.3s; box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4);">
+                    💳 اشترِ كود الآن
+                </a>
+            </div>
         </div>
         
         <!-- سجل الشحنات -->

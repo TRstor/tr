@@ -2738,13 +2738,13 @@ def send_welcome(message):
             except Exception as e:
                 print(f"⚠️ خطأ في Firebase: {e}")
         
-        # إنشاء لوحة أزرار
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        btn_code = types.KeyboardButton("🔐 كود الدخول")
-        btn_web = types.KeyboardButton("🏪 افتح السوق")
-        btn_myid = types.KeyboardButton("🆔 معرفي")
-        markup.add(btn_code, btn_web)
-        markup.add(btn_myid)
+        # إنشاء أزرار Inline داخل الرسالة
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        btn_shop = types.InlineKeyboardButton("🏪 افتح السوق", callback_data="open_shop")
+        btn_code = types.InlineKeyboardButton("🔐 كود الدخول", callback_data="get_code")
+        btn_myid = types.InlineKeyboardButton("🆔 معرفي", callback_data="my_id")
+        markup.add(btn_shop)
+        markup.add(btn_code, btn_myid)
         
         # إرسال الرسالة
         print(f"📤 إرسال رسالة الترحيب...")
@@ -2763,27 +2763,58 @@ def send_welcome(message):
         import traceback
         traceback.print_exc()
 
+# معالج أزرار Inline
+@bot.callback_query_handler(func=lambda call: call.data in ["open_shop", "get_code", "my_id"])
+def handle_inline_buttons(call):
+    try:
+        if call.data == "open_shop":
+            # إرسال زر WebApp لفتح السوق
+            markup = types.InlineKeyboardMarkup()
+            web_app = types.WebAppInfo(url=SITE_URL)
+            btn = types.InlineKeyboardButton("🛒 الدخول للسوق", web_app=web_app)
+            markup.add(btn)
+            bot.send_message(
+                call.message.chat.id,
+                "🏪 *اضغط الزر أدناه لفتح السوق:*",
+                reply_markup=markup,
+                parse_mode="Markdown"
+            )
+        elif call.data == "get_code":
+            # إنشاء كود التحقق
+            user_id = str(call.from_user.id)
+            code = str(random.randint(100000, 999999))
+            verification_codes[user_id] = {
+                'code': code,
+                'expires': time.time() + 300
+            }
+            bot.send_message(
+                call.message.chat.id,
+                f"🔐 *كود الدخول الخاص بك:*\n\n"
+                f"`{code}`\n\n"
+                f"⏱ صالح لمدة 5 دقائق\n"
+                f"📋 انسخ الكود وأدخله في الموقع",
+                parse_mode="Markdown"
+            )
+        elif call.data == "my_id":
+            bot.send_message(
+                call.message.chat.id,
+                f"🆔 *الآيدي الخاص بك:*\n\n`{call.from_user.id}`\n\nأرسل هذا الرقم للمالك ليضيفك كمشرف!",
+                parse_mode="Markdown"
+            )
+        # إزالة علامة التحميل من الزر
+        bot.answer_callback_query(call.id)
+    except Exception as e:
+        print(f"❌ خطأ في inline button: {e}")
+        bot.answer_callback_query(call.id, "حدث خطأ!")
+
 @bot.message_handler(commands=['my_id'])
 def my_id(message):
     log_message(message, "معالج /my_id")
     try:
-        bot.reply_to(message, f"الآيدي الخاص بك: {message.from_user.id}\n\nأرسل هذا الرقم للمالك ليضيفك كمشرف!")
+        bot.reply_to(message, f"🆔 الآيدي الخاص بك: `{message.from_user.id}`\n\nأرسل هذا الرقم للمالك ليضيفك كمشرف!", parse_mode="Markdown")
         print(f"✅ تم إرسال الآيدي")
     except Exception as e:
         print(f"❌ خطأ: {e}")
-
-@bot.message_handler(func=lambda message: message.text in ["🔐 كود الدخول", "🏪 افتح السوق", "🆔 معرفي"])
-def handle_buttons(message):
-    log_message(message, "معالج الأزرار")
-    try:
-        if message.text == "🔐 كود الدخول":
-            get_verification_code(message)
-        elif message.text == "🏪 افتح السوق":
-            open_web_app(message)
-        elif message.text == "🆔 معرفي":
-            my_id(message)
-    except Exception as e:
-        print(f"❌ خطأ في الزر: {e}")
 
 # أمر إضافة مشرف (فقط للمالك)
 @bot.message_handler(commands=['add_admin'])

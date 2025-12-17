@@ -23,42 +23,58 @@ except ImportError:
 # --- إعدادات Firebase ---
 # التحقق من وجود متغير البيئة أولاً (للإنتاج في Render)
 firebase_credentials_json = os.environ.get("FIREBASE_CREDENTIALS")
+db = None
 
-if firebase_credentials_json:
-    # استخدام المتغير البيئي (Render)
-    cred_dict = json.loads(firebase_credentials_json)
-    cred = credentials.Certificate(cred_dict)
-    print("✅ Firebase: استخدام المتغير البيئي (Production)")
-else:
-    # استخدام الملف المحلي (للتطوير)
-    cred = credentials.Certificate('serviceAccountKey.json')
-    print("✅ Firebase: استخدام الملف المحلي (Development)")
+try:
+    if firebase_credentials_json:
+        # استخدام المتغير البيئي (Render)
+        cred_dict = json.loads(firebase_credentials_json)
+        cred = credentials.Certificate(cred_dict)
+        print("✅ Firebase: استخدام المتغير البيئي (Production)")
+    else:
+        # استخدام الملف المحلي (للتطوير)
+        if os.path.exists('serviceAccountKey.json'):
+            cred = credentials.Certificate('serviceAccountKey.json')
+            print("✅ Firebase: استخدام الملف المحلي (Development)")
+        else:
+            raise FileNotFoundError("Firebase credentials not found")
 
-firebase_admin.initialize_app(cred)
-db = firestore.client()
+    firebase_admin.initialize_app(cred)
+    db = firestore.client()
+except Exception as e:
+    print(f"⚠️ Firebase غير متاح: {e}")
+    print("⚠️ سيتم العمل بدون قاعدة بيانات Firebase (في الذاكرة فقط)")
+    db = None
 
 # --- إعدادات البوت ---
 # غير هذا الرقم إلى الآيدي الخاص بك في تيليجرام لتتمكن من شحن الأرصدة
-ADMIN_ID = 5665438577  
-TOKEN = os.environ.get("BOT_TOKEN", "default_token")
-SITE_URL = os.environ.get("SITE_URL", "https://example.com")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 5665438577))
+TOKEN = os.environ.get("BOT_TOKEN", "default_token_123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh")
+SITE_URL = os.environ.get("SITE_URL", "http://localhost:5000")
 
 # قائمة المشرفين (آيدي تيليجرام)
 # يتم إرسال الطلبات لهم مباشرة في الخاص
 # يمكن إضافة حتى 10 مشرفين
 ADMINS_LIST = [
-    5665438577,  # المشرف 1
+    ADMIN_ID,  # المشرف 1
     # أضف المزيد من المشرفين هنا (حتى 10)
     # 123456789,  # المشرف 2
     # 987654321,  # المشرف 3
 ]
 
-bot = telebot.TeleBot(TOKEN)
+try:
+    bot = telebot.TeleBot(TOKEN)
+    BOT_ACTIVE = True
+    print(f"✅ البوت: متصل بنجاح")
+except Exception as e:
+    BOT_ACTIVE = False
+    print(f"⚠️ البوت غير متاح: {e}")
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key-here-change-it")
 
-# --- قواعد البيانات (في الذاكرة حالياً) ---
-# ملاحظة: هذه البيانات ستمسح عند إعادة تشغيل السيرفر.
+# --- قواعد البيانات ---
+# جميع البيانات تُحفظ في Firebase (الإنتاج) وتُحمل في الذاكرة للعرض السريع
 
 # قائمة المنتجات/الخدمات
 # الشكل: { item_name, price, seller_id, seller_name, hidden_data, image_url, category }
@@ -82,6 +98,93 @@ transactions = {}
 # رموز التحقق للمستخدمين
 # الشكل: { user_id: {code, name, created_at} }
 verification_codes = {}
+
+# مفاتيح الشحن المولدة
+# الشكل: { key_code: {amount, used, used_by, created_at} }
+charge_keys = {}
+
+# دالة تحميل جميع البيانات من Firebase عند بدء التطبيق
+def load_all_data_from_firebase():
+    """تحميل جميع البيانات من Firebase عند بدء التطبيق"""
+    global marketplace_items, users_wallets, charge_keys, active_orders
+    
+    if not db:
+        print("⚠️ Firebase غير متاح - سيتم استخدام البيانات الفارغة")
+        return
+    
+    try:
+        print("📥 جاري تحميل البيانات من Firebase...")
+        
+        # 1️⃣ تحميل المنتجات (المتاحة فقط)
+        try:
+            products_ref = query_where(db.collection('products'), 'sold', '==', False)
+            marketplace_items = []
+            count = 0
+            for doc in products_ref.stream():
+                data = doc.to_dict()
+                data['id'] = doc.id
+                marketplace_items.append(data)
+                count += 1
+            print(f"✅ تم تحميل {count} منتج متاح")
+        except Exception as e:
+            print(f"⚠️ خطأ في تحميل المنتجات: {e}")
+        
+        # 2️⃣ تحميل أرصدة المستخدمين
+        try:
+            users_ref = db.collection('users')
+            users_wallets = {}
+            count = 0
+            for doc in users_ref.stream():
+                data = doc.to_dict()
+                users_wallets[doc.id] = data.get('balance', 0.0)
+                count += 1
+            print(f"✅ تم تحميل أرصدة {count} مستخدم")
+        except Exception as e:
+            print(f"⚠️ خطأ في تحميل أرصدة المستخدمين: {e}")
+        
+        # 3️⃣ تحميل مفاتيح الشحن (غير المستخدمة)
+        try:
+            keys_ref = query_where(db.collection('charge_keys'), 'used', '==', False)
+            charge_keys = {}
+            count = 0
+            for doc in keys_ref.stream():
+                data = doc.to_dict()
+                charge_keys[doc.id] = {
+                    'amount': data.get('amount', 0),
+                    'used': data.get('used', False),
+                    'used_by': data.get('used_by'),
+                    'created_at': data.get('created_at', time.time())
+                }
+                count += 1
+            print(f"✅ تم تحميل {count} مفتاح شحن نشط")
+        except Exception as e:
+            print(f"⚠️ خطأ في تحميل مفاتيح الشحن: {e}")
+        
+        # 4️⃣ تحميل الطلبات النشطة (pending أو claimed)
+        try:
+            active_orders = {}
+            # تحميل الطلبات النشطة
+            orders_ref = db.collection('orders')
+            orders_query = orders_ref.where('status', 'in', ['pending', 'claimed'])
+            for doc in orders_query.stream():
+                data = doc.to_dict()
+                active_orders[doc.id] = data
+            print(f"✅ تم تحميل {len(active_orders)} طلب نشط")
+        except Exception as e:
+            print(f"⚠️ خطأ في تحميل الطلبات: {e}")
+        
+        print("🎉 اكتمل تحميل البيانات من Firebase!")
+        
+    except Exception as e:
+        print(f"❌ خطأ عام في تحميل البيانات: {e}")
+
+# دالة للتعامل مع where بالطريقة المتوافقة
+def query_where(collection_ref, field, op, value):
+    """استخدام where بطريقة متوافقة مع جميع النسخ"""
+    if USE_FIELD_FILTER:
+        return collection_ref.where(filter=FieldFilter(field, op, value))
+    else:
+        return collection_ref.where(field, op, value)
 
 # مفاتيح الشحن المولدة
 # الشكل: { key_code: {amount, used, used_by, created_at} }
@@ -4889,7 +4992,7 @@ def logout_admin():
 if __name__ == "__main__":
     # تحميل البيانات من Firebase عند بدء التشغيل
     print("🚀 بدء تشغيل التطبيق...")
-    load_data_from_firebase()
+    load_all_data_from_firebase()
     
     # التأكد من أن جميع المنتجات لديها UUID
     ensure_product_ids()

@@ -2696,30 +2696,31 @@ def send_welcome(message):
     username = message.from_user.username or ''
     
     # حفظ معلومات المستخدم في Firebase
-    try:
-        user_ref = db.collection('users').document(user_id)
-        user_doc = user_ref.get()
-        
-        if not user_doc.exists:
-            # مستخدم جديد - إنشاء حساب
-            user_ref.set({
-                'telegram_id': user_id,
-                'name': user_name,
-                'username': username,
-                'balance': 0.0,
-                'created_at': firestore.SERVER_TIMESTAMP,
-                'last_seen': firestore.SERVER_TIMESTAMP
-            })
-            users_wallets[user_id] = 0.0
-        else:
-            # مستخدم موجود - تحديث آخر ظهور
-            user_ref.update({
-                'name': user_name,
-                'username': username,
-                'last_seen': firestore.SERVER_TIMESTAMP
-            })
-    except Exception as e:
-        print(f"⚠️ خطأ في حفظ معلومات المستخدم: {e}")
+    if db:
+        try:
+            user_ref = db.collection('users').document(user_id)
+            user_doc = user_ref.get()
+            
+            if not user_doc.exists:
+                # مستخدم جديد - إنشاء حساب
+                user_ref.set({
+                    'telegram_id': user_id,
+                    'name': user_name,
+                    'username': username,
+                    'balance': 0.0,
+                    'created_at': firestore.SERVER_TIMESTAMP,
+                    'last_seen': firestore.SERVER_TIMESTAMP
+                })
+                users_wallets[user_id] = 0.0
+            else:
+                # مستخدم موجود - تحديث آخر ظهور
+                user_ref.update({
+                    'name': user_name,
+                    'username': username,
+                    'last_seen': firestore.SERVER_TIMESTAMP
+                })
+        except Exception as e:
+            print(f"⚠️ خطأ في حفظ معلومات المستخدم: {e}")
     
     # إنشاء لوحة أزرار تفاعلية
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -4274,9 +4275,12 @@ def buy_item():
 # لاستقبال تحديثات تيليجرام (Webhook)
 @app.route('/webhook', methods=['POST'])
 def getMessage():
-    json_string = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
-    bot.process_new_updates([update])
+    try:
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+    except Exception as e:
+        print(f"❌ خطأ في معالجة Webhook: {e}")
     return "!", 200
 
 @app.route("/set_webhook")

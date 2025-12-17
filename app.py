@@ -2768,14 +2768,14 @@ def send_welcome(message):
 def handle_inline_buttons(call):
     try:
         if call.data == "open_shop":
-            # إرسال زر WebApp لفتح السوق
+            # إرسال زر برابط الموقع
             markup = types.InlineKeyboardMarkup()
-            web_app = types.WebAppInfo(url=SITE_URL)
-            btn = types.InlineKeyboardButton("🛒 الدخول للسوق", web_app=web_app)
+            btn = types.InlineKeyboardButton("🛒 الدخول للسوق", url=SITE_URL)
             markup.add(btn)
             bot.send_message(
                 call.message.chat.id,
-                "🏪 *اضغط الزر أدناه لفتح السوق:*",
+                f"🏪 *اضغط الزر أدناه لفتح السوق:*\n\n"
+                f"🔗 الرابط: {SITE_URL}",
                 reply_markup=markup,
                 parse_mode="Markdown"
             )

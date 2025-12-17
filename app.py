@@ -4316,11 +4316,18 @@ def getMessage():
         if BOT_ACTIVE:
             # التحقق من عدد المعالجات المسجلة
             print(f"🔢 عدد معالجات الرسائل: {len(bot.message_handlers)}")
-            for i, handler in enumerate(bot.message_handlers):
-                print(f"   Handler {i}: {handler}")
             
-            bot.process_new_updates([update])
-            print("✅ تم معالجة التحديث")
+            # تعطيل الـ threaded mode مؤقتاً للتشخيص
+            bot.threaded = False
+            
+            try:
+                print("🔄 بدء process_new_updates...")
+                bot.process_new_updates([update])
+                print("✅ تم معالجة التحديث بدون أخطاء")
+            except Exception as proc_error:
+                print(f"❌ خطأ في process_new_updates: {proc_error}")
+                import traceback
+                traceback.print_exc()
         else:
             print("⚠️ البوت غير نشط - لن يتم معالجة الرسالة")
     except Exception as e:

@@ -2907,16 +2907,20 @@ def handle_inline_buttons(call):
         elif call.data == "get_code":
             # إنشاء كود التحقق
             user_id = str(call.from_user.id)
+            user_name = call.from_user.first_name
+            if call.from_user.last_name:
+                user_name += ' ' + call.from_user.last_name
             code = str(random.randint(100000, 999999))
             verification_codes[user_id] = {
                 'code': code,
-                'expires': time.time() + 300
+                'name': user_name,
+                'created_at': time.time()
             }
             bot.send_message(
                 call.message.chat.id,
                 f"🔐 *كود الدخول الخاص بك:*\n\n"
                 f"`{code}`\n\n"
-                f"⏱ صالح لمدة 5 دقائق\n"
+                f"⏱ صالح لمدة 10 دقائق\n"
                 f"📋 انسخ الكود وأدخله في الموقع",
                 parse_mode="Markdown"
             )

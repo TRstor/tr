@@ -4300,10 +4300,25 @@ def buy_item():
 def getMessage():
     try:
         json_string = request.get_data().decode('utf-8')
-        print(f"📩 Webhook received: {json_string[:200]}...")  # طباعة أول 200 حرف
+        print(f"📩 Webhook received: {json_string[:200]}...")
         print(f"🤖 BOT_ACTIVE: {BOT_ACTIVE}")
+        print(f"🔧 Bot Token (first 20): {TOKEN[:20]}...")
+        print(f"🔧 Bot ID: {bot.token.split(':')[0] if bot and bot.token else 'N/A'}")
+        
         update = telebot.types.Update.de_json(json_string)
+        
+        # طباعة تفاصيل التحديث
+        if update.message:
+            print(f"📝 Message text: {update.message.text}")
+            print(f"📝 Message from: {update.message.from_user.id}")
+            print(f"📝 Chat ID: {update.message.chat.id}")
+        
         if BOT_ACTIVE:
+            # التحقق من عدد المعالجات المسجلة
+            print(f"🔢 عدد معالجات الرسائل: {len(bot.message_handlers)}")
+            for i, handler in enumerate(bot.message_handlers):
+                print(f"   Handler {i}: {handler}")
+            
             bot.process_new_updates([update])
             print("✅ تم معالجة التحديث")
         else:

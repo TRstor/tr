@@ -2683,8 +2683,8 @@ HTML_PAGE = """
                             showLoginModal();
                             return;
                         }
-                        // فتح قسم الشحن
-                        toggleCharge();
+                        // الانتقال لصفحة المحفظة
+                        window.location.href = '/wallet?user_id=' + currentUserId;
                     } else if(action === 'account') {
                         // التحقق من تسجيل الدخول أولاً
                         if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
@@ -3771,6 +3771,538 @@ def index():
                                   balance=balance, 
                                   current_user_id=user_id or 0, 
                                   user_name=user_name)
+
+# صفحة الشحن المنفصلة
+CHARGE_PAGE = """
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>💳 محفظتي - سوق البوت</title>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6c5ce7;
+            --primary-light: #a29bfe;
+            --bg-color: #0f0f1a;
+            --card-bg: #1a1a2e;
+            --text-color: #ffffff;
+            --green: #00b894;
+            --gold: #f1c40f;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Tajawal', sans-serif; 
+            background: var(--bg-color); 
+            color: var(--text-color); 
+            min-height: 100vh;
+        }
+        
+        /* الهيدر */
+        .page-header {
+            background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 20px rgba(108, 92, 231, 0.4);
+        }
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .back-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+        .page-title {
+            font-size: 20px;
+            font-weight: bold;
+        }
+        .header-spacer {
+            width: 40px;
+        }
+        
+        /* المحتوى */
+        .page-content {
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+            padding-bottom: 100px;
+        }
+        
+        /* بطاقة الرصيد */
+        .balance-card {
+            background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
+            border-radius: 24px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 25px;
+            border: 2px solid rgba(108, 92, 231, 0.3);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        .balance-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(108, 92, 231, 0.1) 0%, transparent 70%);
+        }
+        .balance-label {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .balance-amount {
+            font-size: 48px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #f1c40f, #f39c12);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 5px;
+        }
+        .balance-currency {
+            color: #888;
+            font-size: 16px;
+        }
+        
+        /* قسم الشحن بالكود */
+        .section-card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: var(--primary-light);
+        }
+        .section-title span {
+            font-size: 24px;
+        }
+        
+        /* حقل الكود */
+        .code-input-wrapper {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .code-input {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #333;
+            border-radius: 12px;
+            background: #0f0f1a;
+            color: white;
+            font-size: 16px;
+            text-align: center;
+            font-family: monospace;
+            letter-spacing: 2px;
+            transition: border-color 0.3s;
+        }
+        .code-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .code-input::placeholder {
+            color: #555;
+            letter-spacing: 1px;
+        }
+        .activate-btn {
+            padding: 15px 25px;
+            background: linear-gradient(135deg, var(--green), #55efc4);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: 'Tajawal', sans-serif;
+        }
+        .activate-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(0, 184, 148, 0.4);
+        }
+        .activate-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .code-hint {
+            color: #666;
+            font-size: 13px;
+            text-align: center;
+        }
+        .code-hint a {
+            color: var(--primary-light);
+            text-decoration: none;
+        }
+        
+        /* سجل المعاملات */
+        .transaction-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+        .transaction-item:hover {
+            background: rgba(255, 255, 255, 0.06);
+        }
+        .transaction-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .transaction-icon {
+            width: 45px;
+            height: 45px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+        .transaction-icon.income {
+            background: linear-gradient(135deg, rgba(0, 184, 148, 0.2), rgba(85, 239, 196, 0.1));
+            color: #55efc4;
+        }
+        .transaction-icon.expense {
+            background: linear-gradient(135deg, rgba(231, 76, 60, 0.2), rgba(255, 118, 117, 0.1));
+            color: #ff7675;
+        }
+        .transaction-details h4 {
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+        .transaction-details p {
+            font-size: 12px;
+            color: #666;
+        }
+        .transaction-amount {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .transaction-amount.income {
+            color: #55efc4;
+        }
+        .transaction-amount.expense {
+            color: #ff7675;
+        }
+        
+        /* رسالة فارغة */
+        .empty-transactions {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+        .empty-transactions .icon {
+            font-size: 50px;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+        
+        /* إحصائيات */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 15px 10px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--primary-light);
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 11px;
+            color: #666;
+        }
+        
+        /* رسالة النجاح */
+        .success-toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: linear-gradient(135deg, var(--green), #55efc4);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-weight: bold;
+            box-shadow: 0 5px 25px rgba(0, 184, 148, 0.4);
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+        .success-toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+        
+        /* أنيميشن */
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        .balance-card {
+            animation: pulse 3s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <div class="header-content">
+            <a href="/" class="back-btn">←</a>
+            <h1 class="page-title">💳 محفظتي</h1>
+            <div class="header-spacer"></div>
+        </div>
+    </div>
+    
+    <div class="page-content">
+        <!-- بطاقة الرصيد -->
+        <div class="balance-card">
+            <div class="balance-label">💰 رصيدك الحالي</div>
+            <div class="balance-amount" id="currentBalance">{{ balance }}</div>
+            <div class="balance-currency">ريال سعودي</div>
+        </div>
+        
+        <!-- إحصائيات سريعة -->
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-value">{{ total_charges }}</div>
+                <div class="stat-label">إجمالي الشحن</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ charges_count }}</div>
+                <div class="stat-label">عدد الشحنات</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{ purchases_count }}</div>
+                <div class="stat-label">المشتريات</div>
+            </div>
+        </div>
+        
+        <!-- قسم الشحن بالكود -->
+        <div class="section-card">
+            <div class="section-title">
+                <span>🔑</span>
+                شحن بالكود
+            </div>
+            
+            <div class="code-input-wrapper">
+                <input type="text" id="chargeCode" class="code-input" placeholder="KEY-XXXXX-XXXXX" maxlength="20">
+                <button class="activate-btn" onclick="activateCode()" id="activateBtn">
+                    ⚡ تفعيل
+                </button>
+            </div>
+            
+            <p class="code-hint">
+                💡 احصل على كود الشحن من <a href="https://t.me/awedjabot" target="_blank">البوت</a> أو تواصل مع الموزع
+            </p>
+        </div>
+        
+        <!-- سجل المعاملات -->
+        <div class="section-card">
+            <div class="section-title">
+                <span>📜</span>
+                سجل المعاملات
+            </div>
+            
+            {% if transactions %}
+                {% for t in transactions %}
+                <div class="transaction-item">
+                    <div class="transaction-info">
+                        <div class="transaction-icon {{ t.type }}">
+                            {% if t.type == 'income' %}⬆️{% else %}⬇️{% endif %}
+                        </div>
+                        <div class="transaction-details">
+                            <h4>{{ t.title }}</h4>
+                            <p>{{ t.date }}</p>
+                        </div>
+                    </div>
+                    <div class="transaction-amount {{ t.type }}">
+                        {% if t.type == 'income' %}+{% else %}-{% endif %}{{ t.amount }} ر.س
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-transactions">
+                    <div class="icon">📋</div>
+                    <p>لا توجد معاملات بعد</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- رسالة النجاح -->
+    <div class="success-toast" id="successToast">✅ تم الشحن بنجاح!</div>
+    
+    <script>
+        const userId = '{{ user_id }}';
+        
+        async function activateCode() {
+            const code = document.getElementById('chargeCode').value.trim();
+            const btn = document.getElementById('activateBtn');
+            
+            if(!code) {
+                alert('❌ الرجاء إدخال كود الشحن');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.textContent = '⏳ جاري التفعيل...';
+            
+            try {
+                const response = await fetch('/charge_balance', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        user_id: userId,
+                        charge_key: code
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if(result.success) {
+                    // تحديث الرصيد
+                    document.getElementById('currentBalance').textContent = result.new_balance;
+                    document.getElementById('chargeCode').value = '';
+                    
+                    // إظهار رسالة النجاح
+                    showToast('✅ ' + result.message);
+                    
+                    // إعادة تحميل الصفحة لتحديث السجل
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    alert('❌ ' + result.message);
+                }
+            } catch(error) {
+                alert('❌ حدث خطأ في الاتصال');
+            }
+            
+            btn.disabled = false;
+            btn.textContent = '⚡ تفعيل';
+        }
+        
+        function showToast(message) {
+            const toast = document.getElementById('successToast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+        
+        // تفعيل بالضغط على Enter
+        document.getElementById('chargeCode').addEventListener('keypress', function(e) {
+            if(e.key === 'Enter') activateCode();
+        });
+    </script>
+</body>
+</html>
+"""
+
+@app.route('/wallet')
+def wallet_page():
+    """صفحة المحفظة والشحن"""
+    user_id = session.get('user_id') or request.args.get('user_id')
+    
+    if not user_id:
+        return redirect('/')
+    
+    # جلب الرصيد
+    balance = get_balance(user_id)
+    
+    # جلب المعاملات من Firebase
+    transactions = []
+    total_charges = 0
+    charges_count = 0
+    purchases_count = 0
+    
+    try:
+        # جلب الشحنات
+        charges_ref = query_where(db.collection('charge_history'), 'user_id', '==', str(user_id))
+        for doc in charges_ref.stream():
+            data = doc.to_dict()
+            amount = data.get('amount', 0)
+            total_charges += amount
+            charges_count += 1
+            transactions.append({
+                'type': 'income',
+                'title': 'شحن رصيد',
+                'amount': amount,
+                'date': data.get('date', 'غير محدد'),
+                'timestamp': data.get('timestamp', 0)
+            })
+        
+        # جلب المشتريات
+        orders_ref = query_where(db.collection('orders'), 'buyer_id', '==', str(user_id))
+        for doc in orders_ref.stream():
+            data = doc.to_dict()
+            purchases_count += 1
+            transactions.append({
+                'type': 'expense',
+                'title': data.get('item_name', 'شراء منتج'),
+                'amount': data.get('price', 0),
+                'date': data.get('created_at', 'غير محدد'),
+                'timestamp': data.get('created_at_ts', 0)
+            })
+        
+        # ترتيب من الأحدث
+        transactions.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+        transactions = transactions[:10]  # آخر 10 معاملات
+        
+    except Exception as e:
+        print(f"❌ خطأ في جلب المعاملات: {e}")
+    
+    return render_template_string(CHARGE_PAGE, 
+                                  user_id=user_id,
+                                  balance=balance,
+                                  transactions=transactions,
+                                  total_charges=total_charges,
+                                  charges_count=charges_count,
+                                  purchases_count=purchases_count)
 
 # صفحة مشترياتي المنفصلة
 MY_PURCHASES_PAGE = """

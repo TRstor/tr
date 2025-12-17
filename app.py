@@ -64,10 +64,13 @@ ADMINS_LIST = [
 
 try:
     bot = telebot.TeleBot(TOKEN)
+    # إعداد البوت لتجنب خطأ 429 (Too Many Requests)
+    telebot.apihelper.RETRY_ON_ERROR = True
     BOT_ACTIVE = True
     print(f"✅ البوت: متصل بنجاح")
 except Exception as e:
     BOT_ACTIVE = False
+    bot = None
     print(f"⚠️ البوت غير متاح: {e}")
 
 app = Flask(__name__)

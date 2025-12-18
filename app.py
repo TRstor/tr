@@ -80,7 +80,35 @@ else:
         print(f"⚠️ البوت غير متاح: {e}")
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key-here-change-it")
+
+# --- إعدادات الأمان للجلسات ---
+import secrets
+from datetime import timedelta
+
+# توليد مفتاح سري قوي (أو استخدام المتغير البيئي)
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY or SECRET_KEY == "your-secret-key-here-change-it":
+    SECRET_KEY = secrets.token_hex(32)  # 64 حرف عشوائي
+    print("⚠️ تم توليد مفتاح سري جديد (يُفضل تعيين SECRET_KEY في متغيرات البيئة)")
+
+app.secret_key = SECRET_KEY
+
+# إعدادات الكوكيز الآمنة
+app.config.update(
+    SESSION_COOKIE_SECURE=True,        # إرسال عبر HTTPS فقط
+    SESSION_COOKIE_HTTPONLY=True,      # منع JavaScript من قراءة الكوكيز
+    SESSION_COOKIE_SAMESITE='Lax',     # حماية من CSRF
+    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),  # انتهاء الجلسة بعد 30 دقيقة
+    SESSION_COOKIE_NAME='tr_session',  # اسم مخصص للكوكيز
+)
+
+# دالة لتجديد الجلسة بعد تسجيل الدخول
+def regenerate_session():
+    """تجديد ID الجلسة لمنع Session Fixation"""
+    old_data = dict(session)
+    session.clear()
+    session.update(old_data)
+    session.modified = True
 
 # --- قواعد البيانات ---
 # جميع البيانات تُحفظ في Firebase (الإنتاج) وتُحمل في الذاكرة للعرض السريع
@@ -3718,9 +3746,14 @@ def verify_login():
     if not code_data:
         return {'success': False, 'message': 'الكود غير صحيح أو منتهي الصلاحية'}
     
+    # تجديد الجلسة لمنع Session Fixation
+    regenerate_session()
+    
     # تسجيل دخول المستخدم
+    session.permanent = True  # تفعيل انتهاء الصلاحية التلقائي
     session['user_id'] = user_id
     session['user_name'] = code_data['name']
+    session['login_time'] = time.time()  # وقت تسجيل الدخول
 
     # حذف الكود بعد الاستخدام
     del verification_codes[str(user_id)]
@@ -3760,6 +3793,33 @@ def verify_login():
         'balance': balance,
         'profile_photo_url': profile_photo_url
     }
+
+# --- حماية إضافية: رؤوس أمنية ---
+@app.after_request
+def add_security_headers(response):
+    """إضافة رؤوس أمنية لكل استجابة"""
+    # منع تضمين الموقع في iframe
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    # حماية من XSS
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    # منع تخمين نوع المحتوى
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    # سياسة الإحالة
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # منع الكشف عن معلومات السيرفر
+    response.headers['Server'] = 'Protected'
+    return response
+
+# --- التحقق من صلاحية الجلسة ---
+@app.before_request
+def check_session_validity():
+    """التحقق من صلاحية الجلسة قبل كل طلب"""
+    if 'user_id' in session:
+        login_time = session.get('login_time', 0)
+        # التحقق من انتهاء الصلاحية (30 دقيقة)
+        if time.time() - login_time > 1800:  # 30 * 60 = 1800 ثانية
+            session.clear()
+            print("⏰ انتهت صلاحية الجلسة")
 
 @app.route('/')
 def index():

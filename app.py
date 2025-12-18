@@ -4869,8 +4869,6 @@ MY_PURCHASES_PAGE = """
 </body>
 </html>
 """
-</html>
-"""
 
 @app.route('/my_purchases')
 def my_purchases_page():

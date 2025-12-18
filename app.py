@@ -1985,25 +1985,30 @@ HTML_PAGE = """
     <!-- نافذة النجاح -->
     <div id="successModal" class="modal">
         <div class="modal-content success-modal">
-            <div class="modal-header">
-                <h2>✅ تم الشراء بنجاح</h2>
+            <div class="modal-header" style="background: linear-gradient(135deg, #00b894, #00cec9);">
+                <h2>✅ تم الشراء بنجاح!</h2>
             </div>
             <div class="modal-body">
-                <div class="success-icon">🎉</div>
-                <div class="success-message">
-                    تم شراء المنتج بنجاح!
+                <div class="success-icon" style="font-size: 60px; margin: 15px 0;">🎉</div>
+                <div class="success-message" style="font-size: 18px; font-weight: bold; margin-bottom: 15px;">
+                    تهانينا! تم شراء المنتج بنجاح
                 </div>
-                <div id="purchaseDataContainer" style="display: none; background: #1a1a2e; border-radius: 10px; padding: 15px; margin: 15px 0; text-align: right;">
-                    <div style="color: #00b894; font-weight: bold; margin-bottom: 10px;">🔐 بيانات الاشتراك:</div>
-                    <div id="purchaseHiddenData" style="background: #2d3436; padding: 12px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; word-break: break-all; color: #fdcb6e; font-size: 14px;"></div>
-                    <button onclick="copyPurchaseData()" style="margin-top: 10px; padding: 8px 20px; background: #00b894; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">📋 نسخ البيانات</button>
+                <div id="purchaseDataContainer" style="display: none; background: linear-gradient(135deg, #1a1a2e, #16213e); border: 2px solid #00b894; border-radius: 15px; padding: 20px; margin: 15px 0; text-align: right;">
+                    <div style="color: #00b894; font-weight: bold; margin-bottom: 12px; font-size: 16px;">🔐 بيانات الاشتراك:</div>
+                    <div id="purchaseHiddenData" style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 10px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-break: break-all; color: #55efc4; font-size: 14px; border: 1px dashed #00b894;"></div>
+                    <button onclick="copyPurchaseData()" style="margin-top: 12px; padding: 10px 25px; background: linear-gradient(135deg, #00b894, #00cec9); color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.3s;">📋 نسخ البيانات</button>
                 </div>
-                <div id="botMessageNote" class="success-note">
+                <div id="botMessageNote" class="success-note" style="padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 13px;">
                     📱 تحقق أيضاً من رسائل البوت
+                </div>
+                <div style="background: rgba(108, 92, 231, 0.1); border-radius: 10px; padding: 12px; margin-top: 15px; border: 1px solid rgba(108, 92, 231, 0.3);">
+                    <a href="/my_purchases" style="color: #a29bfe; text-decoration: none; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                        📦 عرض جميع مشترياتي
+                    </a>
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="modal-btn modal-btn-confirm" onclick="closeSuccessModal()" style="width: 100%;">حسناً 👍</button>
+                <button class="modal-btn modal-btn-confirm" onclick="closeSuccessModal()" style="width: 100%; background: linear-gradient(135deg, #00b894, #00cec9);">تم 👍</button>
             </div>
         </div>
     </div>
@@ -4434,13 +4439,33 @@ def wallet_page():
         for doc in orders_ref.stream():
             data = doc.to_dict()
             purchases_count += 1
+            
+            # تحويل التاريخ
+            date_str = 'غير محدد'
+            timestamp_val = 0
+            if data.get('created_at'):
+                try:
+                    created = data['created_at']
+                    if hasattr(created, 'seconds'):
+                        timestamp_val = created.seconds
+                        from datetime import datetime, timedelta, timezone
+                        utc_time = datetime.fromtimestamp(created.seconds, tz=timezone.utc)
+                        saudi_time = utc_time + timedelta(hours=3)
+                        date_str = saudi_time.strftime('%Y-%m-%d %H:%M')
+                    elif isinstance(created, datetime):
+                        timestamp_val = created.timestamp()
+                        saudi_time = created + timedelta(hours=3)
+                        date_str = saudi_time.strftime('%Y-%m-%d %H:%M')
+                except:
+                    pass
+            
             # إضافة للسجل كخصم
             transactions.append({
                 'type': 'expense',
                 'title': f"شراء {data.get('item_name', 'منتج')}",
                 'amount': data.get('price', 0),
-                'date': data.get('created_at', 'غير محدد') if isinstance(data.get('created_at'), str) else 'غير محدد',
-                'timestamp': data.get('created_at_ts', 0)
+                'date': date_str,
+                'timestamp': timestamp_val
             })
         
         # ترتيب من الأحدث

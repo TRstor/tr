@@ -67,15 +67,24 @@ if TOKEN.startswith("default_token"):
     print("⚠️ BOT_TOKEN غير محدد - استخدم متغير البيئة BOT_TOKEN")
     bot = telebot.TeleBot("dummy_token")  # إنشاء بوت وهمي لتجنب الأخطاء
     BOT_ACTIVE = False
+    BOT_USERNAME = ""
 else:
     try:
         bot = telebot.TeleBot(TOKEN)
         # إعداد البوت لتجنب خطأ 429 (Too Many Requests)
         telebot.apihelper.RETRY_ON_ERROR = True
         BOT_ACTIVE = True
-        print(f"✅ البوت: متصل بنجاح")
+        # جلب اسم البوت
+        try:
+            bot_info = bot.get_me()
+            BOT_USERNAME = bot_info.username
+            print(f"✅ البوت: متصل بنجاح (@{BOT_USERNAME})")
+        except:
+            BOT_USERNAME = ""
+            print(f"✅ البوت: متصل بنجاح")
     except Exception as e:
         BOT_ACTIVE = False
+        BOT_USERNAME = ""
         bot = telebot.TeleBot("dummy_token")  # إنشاء بوت وهمي لتجنب الأخطاء
         print(f"⚠️ البوت غير متاح: {e}")
 
@@ -244,7 +253,7 @@ def get_user_profile_photo(user_id):
         if photos.total_count > 0:
             file_id = photos.photos[0][0].file_id
             file_info = bot.get_file(file_id)
-            photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+            photo_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
             return photo_url
         return None
     except Exception as e:
@@ -2900,6 +2909,7 @@ def send_welcome(message):
                         'name': user_name,
                         'username': username,
                         'balance': 0.0,
+                        'telegram_started': True,  # المستخدم بدأ محادثة مع البوت
                         'created_at': firestore.SERVER_TIMESTAMP,
                         'last_seen': firestore.SERVER_TIMESTAMP
                     }
@@ -2912,6 +2922,7 @@ def send_welcome(message):
                     update_data = {
                         'name': user_name,
                         'username': username,
+                        'telegram_started': True,  # تحديث: المستخدم بدأ محادثة مع البوت
                         'last_seen': firestore.SERVER_TIMESTAMP
                     }
                     if profile_photo:
@@ -5287,10 +5298,33 @@ def buy_item():
 
         price = float(item.get('price', 0))
 
-        # 3. التحقق من رصيد المشتري (من Firebase مباشرة)
+        # 3. التحقق الفعلي من إمكانية إرسال رسالة للمشتري (قبل إتمام الشراء)
+        try:
+            # إرسال رسالة اختبارية للتأكد من أن المشتري بدأ محادثة مع البوت
+            test_msg = bot.send_message(
+                int(buyer_id),
+                "⏳ جاري معالجة طلب الشراء...",
+                parse_mode="Markdown"
+            )
+            # حذف الرسالة الاختبارية فوراً
+            bot.delete_message(int(buyer_id), test_msg.message_id)
+            print(f"✅ تم التحقق من إمكانية إرسال الرسائل للمشتري {buyer_id}")
+        except Exception as e:
+            print(f"❌ فشل التحقق من المشتري {buyer_id}: {e}")
+            # إنشاء رسالة الخطأ مع رابط البوت
+            bot_link = f"@{BOT_USERNAME}" if BOT_USERNAME else "البوت"
+            error_msg = f'⚠️ يجب عليك بدء محادثة مع البوت أولاً!\n\n1. اذهب للبوت {bot_link}\n2. اضغط /start\n3. ثم عد وحاول الشراء مرة أخرى'
+            return {'status': 'error', 'message': error_msg}
+
+        # 4. التحقق من رصيد المشتري (من Firebase مباشرة)
         user_ref = db.collection('users').document(buyer_id)
         user_doc = user_ref.get()
-        current_balance = user_doc.to_dict().get('balance', 0.0) if user_doc.exists else 0.0
+        
+        if not user_doc.exists:
+            return {'status': 'error', 'message': 'حدث خطأ! حاول مرة أخرى.'}
+        
+        user_data = user_doc.to_dict()
+        current_balance = user_data.get('balance', 0.0)
 
         if current_balance < price:
             return {'status': 'error', 'message': 'رصيدك غير كافي للشراء!'}

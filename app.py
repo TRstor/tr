@@ -5300,20 +5300,14 @@ def buy_item():
 
         # 3. التحقق الفعلي من إمكانية إرسال رسالة للمشتري (قبل إتمام الشراء)
         try:
-            # إرسال رسالة اختبارية للتأكد من أن المشتري بدأ محادثة مع البوت
-            test_msg = bot.send_message(
-                int(buyer_id),
-                "⏳ جاري معالجة طلب الشراء...",
-                parse_mode="Markdown"
-            )
-            # حذف الرسالة الاختبارية فوراً
-            bot.delete_message(int(buyer_id), test_msg.message_id)
+            # إرسال حالة "يكتب..." للتحقق من إمكانية الإرسال (لا تظهر للمستخدم كرسالة)
+            bot.send_chat_action(int(buyer_id), 'typing')
             print(f"✅ تم التحقق من إمكانية إرسال الرسائل للمشتري {buyer_id}")
         except Exception as e:
             print(f"❌ فشل التحقق من المشتري {buyer_id}: {e}")
             # إنشاء رسالة الخطأ مع رابط البوت
             bot_link = f"@{BOT_USERNAME}" if BOT_USERNAME else "البوت"
-            error_msg = f'⚠️ يجب عليك بدء محادثة مع البوت أولاً!\n\n1. اذهب للبوت {bot_link}\n2. اضغط /start\n3. ثم عد وحاول الشراء مرة أخرى'
+            error_msg = f'⚠️ لا يمكن إرسال البيانات لك!\n\nتأكد أنك:\n1. لم تحظر البوت {bot_link}\n2. لم تحذف المحادثة معه\n\nأو اذهب للبوت واضغط /start ثم حاول مرة أخرى'
             return {'status': 'error', 'message': error_msg}
 
         # 4. التحقق من رصيد المشتري (من Firebase مباشرة)

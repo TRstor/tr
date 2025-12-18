@@ -415,7 +415,7 @@ HTML_PAGE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>سوق البوت</title>
+    <title>سوق التجار</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -3779,7 +3779,7 @@ CHARGE_PAGE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>💳 محفظتي - سوق البوت</title>
+    <title>💳 محفظتي - سوق التجار</title>
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -4144,34 +4144,34 @@ CHARGE_PAGE = """
             </div>
         </div>
         
-        <!-- سجل الشحنات -->
+        <!-- سجل المعاملات -->
         <div class="section-card">
             <div class="section-title">
-                <span>💳</span>
-                سجل الشحنات
+                <span>📜</span>
+                سجل المعاملات
             </div>
             
             {% if transactions %}
                 {% for t in transactions %}
                 <div class="transaction-item">
                     <div class="transaction-info">
-                        <div class="transaction-icon income">
-                            ⬆️
+                        <div class="transaction-icon {{ t.type }}">
+                            {% if t.type == 'income' %}⬆️{% else %}⬇️{% endif %}
                         </div>
                         <div class="transaction-details">
                             <h4>{{ t.title }}</h4>
                             <p>{{ t.date }}</p>
                         </div>
                     </div>
-                    <div class="transaction-amount income">
-                        +{{ t.amount }} ر.س
+                    <div class="transaction-amount {{ t.type }}">
+                        {% if t.type == 'income' %}+{% else %}-{% endif %}{{ t.amount }} ر.س
                     </div>
                 </div>
                 {% endfor %}
             {% else %}
                 <div class="empty-transactions">
-                    <div class="icon">💳</div>
-                    <p>لا توجد شحنات بعد</p>
+                    <div class="icon">📋</div>
+                    <p>لا توجد معاملات بعد</p>
                 </div>
             {% endif %}
         </div>
@@ -4277,14 +4277,23 @@ def wallet_page():
                 'timestamp': data.get('timestamp', 0)
             })
         
-        # جلب عدد المشتريات فقط (للإحصائيات)
+        # جلب المشتريات (للسجل والإحصائيات)
         orders_ref = query_where(db.collection('orders'), 'buyer_id', '==', str(user_id))
         for doc in orders_ref.stream():
+            data = doc.to_dict()
             purchases_count += 1
+            # إضافة للسجل كخصم
+            transactions.append({
+                'type': 'expense',
+                'title': f"شراء {data.get('item_name', 'منتج')}",
+                'amount': data.get('price', 0),
+                'date': data.get('created_at', 'غير محدد') if isinstance(data.get('created_at'), str) else 'غير محدد',
+                'timestamp': data.get('created_at_ts', 0)
+            })
         
         # ترتيب من الأحدث
         transactions.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
-        transactions = transactions[:10]  # آخر 10 شحنات
+        transactions = transactions[:15]  # آخر 15 معاملة
         
     except Exception as e:
         print(f"❌ خطأ في جلب المعاملات: {e}")
@@ -4304,7 +4313,7 @@ MY_PURCHASES_PAGE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>مشترياتي - سوق البوت</title>
+    <title>مشترياتي - سوق التجار</title>
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -4725,6 +4734,17 @@ def charge_balance_api():
                 'used': True,
                 'used_by': user_id,
                 'used_at': time.time()
+            })
+            
+            # حفظ سجل الشحنة
+            from datetime import datetime
+            db.collection('charge_history').add({
+                'user_id': user_id,
+                'amount': amount,
+                'key_code': key_code,
+                'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                'timestamp': time.time(),
+                'type': 'charge'
             })
         except Exception as e:
             print(f"خطأ في تحديث Firebase: {e}")

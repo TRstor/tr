@@ -1993,12 +1993,16 @@ HTML_PAGE = """
                 <div class="success-message" style="font-size: 18px; font-weight: bold; margin-bottom: 15px;">
                     تهانينا! تم شراء المنتج بنجاح
                 </div>
+                <div id="orderIdDisplay" style="background: rgba(108, 92, 231, 0.2); border: 1px solid #6c5ce7; border-radius: 10px; padding: 10px; margin: 10px 0; text-align: center;">
+                    <span style="color: #a29bfe; font-size: 13px;">رقم الطلب:</span>
+                    <span id="successOrderId" style="color: #fff; font-weight: bold; margin-right: 8px;">#---</span>
+                </div>
                 <div id="purchaseDataContainer" style="display: none; background: linear-gradient(135deg, #1a1a2e, #16213e); border: 2px solid #00b894; border-radius: 15px; padding: 20px; margin: 15px 0; text-align: right;">
                     <div style="color: #00b894; font-weight: bold; margin-bottom: 12px; font-size: 16px;">🔐 بيانات الاشتراك:</div>
                     <div id="purchaseHiddenData" style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 10px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-break: break-all; color: #55efc4; font-size: 14px; border: 1px dashed #00b894;"></div>
                     <button onclick="copyPurchaseData()" style="margin-top: 12px; padding: 10px 25px; background: linear-gradient(135deg, #00b894, #00cec9); color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.3s;">📋 نسخ البيانات</button>
                 </div>
-                <div id="botMessageNote" class="success-note" style="padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 13px;">
+                <div id="botMessageNote" class="success-note" style="padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 13px; background: rgba(0,184,148,0.1); border: 1px solid rgba(0,184,148,0.3);">
                     📱 تحقق أيضاً من رسائل البوت
                 </div>
                 <div style="background: rgba(108, 92, 231, 0.1); border-radius: 10px; padding: 12px; margin-top: 15px; border: 1px solid rgba(108, 92, 231, 0.3);">
@@ -2608,6 +2612,12 @@ HTML_PAGE = """
 
         function confirmPurchase() {
             if(!currentPurchaseData) return;
+            
+            // إظهار حالة التحميل
+            const confirmBtn = document.querySelector('#buyModal .modal-btn-confirm');
+            const originalText = confirmBtn.textContent;
+            confirmBtn.textContent = '⏳ جاري الشراء...';
+            confirmBtn.disabled = true;
 
             fetch('/buy', {
                 method: 'POST',
@@ -2617,30 +2627,49 @@ HTML_PAGE = """
                     buyer_name: currentPurchaseData.buyerName,
                     item_id: currentPurchaseData.itemId
                 })
-            }).then(r => r.json()).then(data => {
+            }).then(r => {
+                if(!r.ok) throw new Error('فشل الاتصال بالخادم');
+                return r.json();
+            }).then(data => {
+                confirmBtn.textContent = originalText;
+                confirmBtn.disabled = false;
+                
                 if(data.status == 'success') {
                     closeModal();
                     // تحديث الرصيد
                     if(data.new_balance !== undefined) {
                         userBalance = data.new_balance;
-                        document.getElementById('balance').textContent = userBalance;
-                        document.getElementById('sidebarBalance').textContent = userBalance;
+                        document.getElementById('balance').textContent = userBalance.toFixed(2);
+                        document.getElementById('sidebarBalance').textContent = userBalance.toFixed(2);
                         updateNavBalance(userBalance);
                     }
-                    showSuccessModal(data.hidden_data, data.message_sent);
+                    // إظهار نافذة النجاح
+                    showSuccessModal(data.hidden_data, data.message_sent, data.order_id);
                 } else {
                     closeModal();
-                    alert('❌ ' + data.message);
+                    alert('❌ ' + (data.message || 'حدث خطأ غير معروف'));
                 }
+            }).catch(err => {
+                confirmBtn.textContent = originalText;
+                confirmBtn.disabled = false;
+                closeModal();
+                alert('❌ حدث خطأ: ' + err.message);
+                console.error('Purchase error:', err);
             });
         }
 
         let lastPurchaseData = '';
         
-        function showSuccessModal(hiddenData, messageSent) {
+        function showSuccessModal(hiddenData, messageSent, orderId) {
             const container = document.getElementById('purchaseDataContainer');
             const dataDiv = document.getElementById('purchaseHiddenData');
             const botNote = document.getElementById('botMessageNote');
+            const orderIdSpan = document.getElementById('successOrderId');
+            
+            // عرض رقم الطلب
+            if(orderId) {
+                orderIdSpan.textContent = '#' + orderId;
+            }
             
             if(hiddenData && hiddenData !== 'لا توجد بيانات') {
                 container.style.display = 'block';
@@ -2650,15 +2679,19 @@ HTML_PAGE = """
                 if(messageSent) {
                     botNote.innerHTML = '✅ تم إرسال البيانات أيضاً للبوت';
                     botNote.style.color = '#00b894';
+                    botNote.style.background = 'rgba(0,184,148,0.15)';
                 } else {
                     botNote.innerHTML = '⚠️ لم يتم إرسال البيانات للبوت (ابدأ محادثة مع البوت أولاً)';
                     botNote.style.color = '#fdcb6e';
+                    botNote.style.background = 'rgba(253,203,110,0.15)';
                 }
             } else {
                 container.style.display = 'none';
             }
             
+            // إظهار النافذة
             document.getElementById('successModal').style.display = 'block';
+            console.log('✅ Success modal displayed');
         }
         
         function copyPurchaseData() {

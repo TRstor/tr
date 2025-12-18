@@ -4695,11 +4695,27 @@ def charge_balance_api():
     if not user_id or not key_code:
         return jsonify({'success': False, 'message': 'بيانات غير مكتملة'})
     
-    # التحقق من وجود الكود
-    if key_code not in charge_keys:
-        return jsonify({'success': False, 'message': 'كود الشحن غير صحيح أو غير موجود'})
+    # البحث عن الكود في Firebase مباشرة
+    key_data = None
     
-    key_data = charge_keys[key_code]
+    # أولاً: البحث في الذاكرة
+    if key_code in charge_keys:
+        key_data = charge_keys[key_code]
+    else:
+        # ثانياً: البحث في Firebase
+        try:
+            doc_ref = db.collection('charge_keys').document(key_code)
+            doc = doc_ref.get()
+            if doc.exists:
+                key_data = doc.to_dict()
+                # إضافته للذاكرة
+                charge_keys[key_code] = key_data
+        except Exception as e:
+            print(f"خطأ في البحث عن الكود في Firebase: {e}")
+    
+    # التحقق من وجود الكود
+    if not key_data:
+        return jsonify({'success': False, 'message': 'كود الشحن غير صحيح أو غير موجود'})
     
     # التحقق من أن الكود لم يستخدم
     if key_data.get('used', False):

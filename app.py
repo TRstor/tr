@@ -2636,15 +2636,18 @@ HTML_PAGE = """
                 
                 if(data.status == 'success') {
                     closeModal();
-                    // تحديث الرصيد
+                    // تحديث الرصيد بأمان
                     if(data.new_balance !== undefined) {
                         userBalance = data.new_balance;
-                        document.getElementById('balance').textContent = userBalance.toFixed(2);
-                        document.getElementById('sidebarBalance').textContent = userBalance.toFixed(2);
-                        updateNavBalance(userBalance);
+                        const balanceEl = document.getElementById('balance');
+                        const sidebarBalanceEl = document.getElementById('sidebarBalance');
+                        if(balanceEl) balanceEl.textContent = userBalance.toFixed(2);
+                        if(sidebarBalanceEl) sidebarBalanceEl.textContent = userBalance.toFixed(2);
+                        if(typeof updateNavBalance === 'function') updateNavBalance(userBalance);
                     }
-                    // إظهار نافذة النجاح
-                    showSuccessModal(data.hidden_data, data.message_sent, data.order_id);
+                    // إظهار رسالة نجاح ثم تحديث الصفحة
+                    alert('✅ تم الشراء بنجاح! 🎉\\n\\nرقم الطلب: ' + (data.order_id || '---') + '\\n\\nستجد البيانات في صفحة مشترياتي وأيضاً في رسائل البوت');
+                    location.reload();
                 } else {
                     closeModal();
                     alert('❌ ' + (data.message || 'حدث خطأ غير معروف'));

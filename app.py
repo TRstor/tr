@@ -209,6 +209,20 @@ def query_where(collection_ref, field, op, value):
     else:
         return collection_ref.where(field, op, value)
 
+def get_user_profile_photo(user_id):
+    """جلب صورة البروفايل من تيليجرام"""
+    try:
+        photos = bot.get_user_profile_photos(int(user_id), limit=1)
+        if photos.total_count > 0:
+            file_id = photos.photos[0][0].file_id
+            file_info = bot.get_file(file_id)
+            photo_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+            return photo_url
+        return None
+    except Exception as e:
+        print(f"⚠️ خطأ في جلب صورة البروفايل: {e}")
+        return None
+
 def get_balance(user_id):
     """جلب الرصيد من Firebase"""
     try:
@@ -1596,6 +1610,16 @@ HTML_PAGE = """
             font-size: 32px;
             box-shadow: 0 4px 15px rgba(0, 184, 148, 0.4);
         }
+        .sidebar-avatar-img {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin: 0 auto 12px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 4px 15px rgba(0, 184, 148, 0.4);
+            display: block;
+        }
         .sidebar-user-name {
             color: white;
             font-size: 18px;
@@ -1782,7 +1806,12 @@ HTML_PAGE = """
         <!-- رأس القائمة مع معلومات المستخدم -->
         <div class="sidebar-header">
             <button class="sidebar-close" onclick="closeSidebar()">✕</button>
+            {% if profile_photo %}
+            <img src="{{ profile_photo }}" class="sidebar-avatar-img" alt="صورة البروفايل" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+            <div class="sidebar-avatar" style="display: none;">👤</div>
+            {% else %}
             <div class="sidebar-avatar">👤</div>
+            {% endif %}
             <div class="sidebar-user-name" id="sidebarUserName">{{ user_name }}</div>
             <div class="sidebar-user-id">ID: <span id="sidebarUserId">{{ current_user_id }}</span></div>
             <div class="sidebar-balance">💰 <span id="sidebarBalance">{{ balance }}</span> ريال</div>
@@ -2759,6 +2788,9 @@ def send_welcome(message):
             user_name += ' ' + message.from_user.last_name
         username = message.from_user.username or ''
         
+        # جلب صورة البروفايل من تيليجرام
+        profile_photo = get_user_profile_photo(user_id)
+        
         # حفظ معلومات المستخدم في Firebase
         if db:
             try:
@@ -2766,22 +2798,28 @@ def send_welcome(message):
                 user_doc = user_ref.get()
                 
                 if not user_doc.exists:
-                    user_ref.set({
+                    user_data = {
                         'telegram_id': user_id,
                         'name': user_name,
                         'username': username,
                         'balance': 0.0,
                         'created_at': firestore.SERVER_TIMESTAMP,
                         'last_seen': firestore.SERVER_TIMESTAMP
-                    })
+                    }
+                    if profile_photo:
+                        user_data['profile_photo'] = profile_photo
+                    user_ref.set(user_data)
                     users_wallets[user_id] = 0.0
                     print(f"✅ مستخدم جديد تم إنشاؤه")
                 else:
-                    user_ref.update({
+                    update_data = {
                         'name': user_name,
                         'username': username,
                         'last_seen': firestore.SERVER_TIMESTAMP
-                    })
+                    }
+                    if profile_photo:
+                        update_data['profile_photo'] = profile_photo
+                    user_ref.update(update_data)
                     print(f"✅ مستخدم موجود تم تحديثه")
             except Exception as e:
                 print(f"⚠️ خطأ في Firebase: {e}")
@@ -3690,17 +3728,30 @@ def verify_login():
     # جلب الرصيد
     balance = get_balance(user_id)
 
-    # جلب صورة الحساب من تيليجرام
+    # جلب صورة الحساب من تيليجرام أو Firebase
     profile_photo_url = None
     try:
-        photos = bot.get_user_profile_photos(int(user_id), limit=1)
-        if photos.total_count > 0:
-            file_id = photos.photos[0][0].file_id
-            file_info = bot.get_file(file_id)
-            token = bot.token
-            profile_photo_url = f"https://api.telegram.org/file/bot{token}/{file_info.file_path}"
+        # أولاً: محاولة جلب من Firebase
+        user_doc = db.collection('users').document(str(user_id)).get()
+        if user_doc.exists:
+            profile_photo_url = user_doc.to_dict().get('profile_photo')
+        
+        # ثانياً: إذا لم توجد، جلب من تيليجرام مباشرة
+        if not profile_photo_url:
+            photos = bot.get_user_profile_photos(int(user_id), limit=1)
+            if photos.total_count > 0:
+                file_id = photos.photos[0][0].file_id
+                file_info = bot.get_file(file_id)
+                token = bot.token
+                profile_photo_url = f"https://api.telegram.org/file/bot{token}/{file_info.file_path}"
+                # حفظ في Firebase للاستخدام لاحقاً
+                db.collection('users').document(str(user_id)).update({'profile_photo': profile_photo_url})
     except Exception as e:
         print(f"⚠️ خطأ في جلب صورة الحساب: {e}")
+    
+    # حفظ في الجلسة
+    if profile_photo_url:
+        session['profile_photo'] = profile_photo_url
 
     return {
         'success': True,
@@ -3715,11 +3766,20 @@ def index():
     # التحقق من جلسة المستخدم
     user_id = session.get('user_id') or request.args.get('user_id')
     user_name = session.get('user_name', 'ضيف')
+    profile_photo = session.get('profile_photo', '')
     
-    # 1. جلب الرصيد (محدث من Firebase)
+    # 1. جلب الرصيد وصورة البروفايل (محدث من Firebase)
     balance = 0.0
     if user_id:
-        balance = get_balance(user_id)
+        try:
+            user_doc = db.collection('users').document(str(user_id)).get()
+            if user_doc.exists:
+                user_data = user_doc.to_dict()
+                balance = user_data.get('balance', 0.0)
+                if not profile_photo:
+                    profile_photo = user_data.get('profile_photo', '')
+        except:
+            balance = get_balance(user_id)
     
     # 2. جلب المنتجات (مباشرة من Firebase لضمان ظهورها)
     items = []
@@ -3773,7 +3833,8 @@ def index():
                                   balance=balance, 
                                   current_user_id=user_id or 0, 
                                   current_user=user_id,
-                                  user_name=user_name)
+                                  user_name=user_name,
+                                  profile_photo=profile_photo)
 
 # صفحة الشحن المنفصلة
 CHARGE_PAGE = """

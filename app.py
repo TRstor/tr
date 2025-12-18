@@ -4575,6 +4575,12 @@ MY_PURCHASES_PAGE = """
                         <span class="info-label">💰 السعر:</span>
                         <span class="info-value price">{{ purchase.get('price', 0) }} ريال</span>
                     </div>
+                    {% if purchase.get('details') %}
+                    <div class="purchase-info-row">
+                        <span class="info-label">📝 الوصف:</span>
+                        <span class="info-value">{{ purchase.get('details') }}</span>
+                    </div>
+                    {% endif %}
                     <div class="purchase-info-row">
                         <span class="info-label">📅 تاريخ الشراء:</span>
                         <span class="info-value">{{ purchase.get('sold_at', 'غير محدد') }}</span>
@@ -4865,6 +4871,9 @@ def buy_item():
             'item_name': item.get('item_name'),
             'price': price,
             'hidden_data': item.get('hidden_data'),
+            'details': item.get('details', ''),
+            'category': item.get('category', ''),
+            'image_url': item.get('image_url', ''),
             'seller_id': item.get('seller_id'),
             'status': 'completed',
             'created_at': firestore.SERVER_TIMESTAMP

@@ -4318,10 +4318,11 @@ MY_PURCHASES_PAGE = """
     <style>
         :root {
             --primary: #6c5ce7;
-            --bg-color: #1a1a1a;
+            --bg-color: #0f0f0f;
             --text-color: #ffffff;
-            --card-bg: #2d2d2d;
+            --card-bg: #1a1a2e;
             --green: #00b894;
+            --accent: #a29bfe;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -4333,49 +4334,48 @@ MY_PURCHASES_PAGE = """
         
         /* الهيدر */
         .page-header {
-            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
-            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 25px 20px;
             position: sticky;
             top: 0;
             z-index: 100;
-            box-shadow: 0 4px 15px rgba(0, 184, 148, 0.3);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
         }
         .header-content {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            max-width: 1200px;
+            max-width: 800px;
             margin: 0 auto;
         }
         .back-btn {
             background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
             border: none;
             color: white;
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            font-size: 20px;
+            width: 45px;
+            height: 45px;
+            border-radius: 12px;
+            font-size: 22px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.3s;
+            text-decoration: none;
         }
         .back-btn:hover {
             background: rgba(255, 255, 255, 0.3);
             transform: scale(1.1);
         }
         .page-title {
-            font-size: 22px;
+            font-size: 24px;
             font-weight: bold;
-            display: flex;
-            align-items: center;
-            gap: 10px;
         }
         .purchases-count {
-            background: white;
-            color: #00b894;
-            padding: 5px 15px;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
             border-radius: 20px;
             font-size: 14px;
             font-weight: bold;
@@ -4384,146 +4384,293 @@ MY_PURCHASES_PAGE = """
         /* المحتوى */
         .page-content {
             padding: 20px;
-            max-width: 1200px;
+            max-width: 800px;
             margin: 0 auto;
+            padding-bottom: 40px;
         }
         
-        /* بطاقة المشتريات */
+        /* بطاقة المشتريات الجديدة */
         .purchase-card {
-            background: var(--card-bg);
-            border-radius: 16px;
+            background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 20px;
             overflow: hidden;
-            margin-bottom: 20px;
-            border: 2px solid #00b894;
-            box-shadow: 0 4px 15px rgba(0, 184, 148, 0.2);
+            margin-bottom: 16px;
+            border: 1px solid rgba(162, 155, 254, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
         }
-        .purchase-header {
-            background: linear-gradient(135deg, rgba(0, 184, 148, 0.2), rgba(85, 239, 196, 0.1));
-            padding: 15px 20px;
+        .purchase-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.2);
+        }
+        .card-main {
+            padding: 20px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid rgba(0, 184, 148, 0.3);
+            gap: 15px;
         }
-        .purchase-title {
+        .card-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            flex-shrink: 0;
+        }
+        .card-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .card-title {
+            font-size: 17px;
+            font-weight: bold;
+            margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .card-meta {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .meta-item {
+            font-size: 13px;
+            color: #888;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .meta-item.price {
+            color: #00b894;
+            font-weight: bold;
+            font-size: 15px;
+        }
+        .card-badge {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        
+        /* زر بيانات الطلب */
+        .view-details-btn {
+            width: 100%;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
+            border: none;
+            border-top: 1px solid rgba(162, 155, 254, 0.1);
+            color: #a29bfe;
+            padding: 14px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: 'Tajawal', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.3s;
+        }
+        .view-details-btn:hover {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
+            color: white;
+        }
+        
+        /* النافذة المنبثقة (Modal) */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .modal-overlay.active {
+            display: flex;
+            opacity: 1;
+        }
+        .modal-content {
+            background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 24px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 85vh;
+            overflow-y: auto;
+            border: 1px solid rgba(162, 155, 254, 0.3);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            transform: scale(0.9);
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.active .modal-content {
+            transform: scale(1);
+        }
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .modal-title {
             font-size: 18px;
             font-weight: bold;
-            color: #00b894;
             display: flex;
             align-items: center;
             gap: 10px;
         }
-        .purchase-badge {
-            background: linear-gradient(135deg, #00b894, #00cec9);
+        .close-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
             color: white;
-            padding: 5px 12px;
-            border-radius: 15px;
-            font-size: 12px;
-            font-weight: bold;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
         }
-        .purchase-body {
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+        .modal-body {
             padding: 20px;
         }
-        .purchase-info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 12px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .purchase-info-row:last-child {
-            border-bottom: none;
-        }
-        .info-label {
-            color: #888;
-            font-size: 14px;
-        }
-        .info-value {
-            font-weight: bold;
-            font-size: 15px;
-        }
-        .info-value.price {
-            color: #00b894;
-            font-size: 18px;
-        }
         
-        /* بيانات الاشتراك */
-        .subscription-data {
-            background: linear-gradient(135deg, rgba(108, 92, 231, 0.2), rgba(162, 155, 254, 0.1));
-            border: 2px dashed #6c5ce7;
-            border-radius: 12px;
-            padding: 15px;
-            margin-top: 15px;
+        /* أقسام النافذة */
+        .modal-section {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
-        .subscription-title {
-            color: #a29bfe;
+        .modal-section:last-child {
+            margin-bottom: 0;
+        }
+        .section-title {
             font-size: 14px;
+            color: #888;
             margin-bottom: 10px;
             display: flex;
             align-items: center;
             gap: 8px;
         }
-        .subscription-content {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 12px;
-            padding-left: 80px;
-            border-radius: 8px;
-            font-family: monospace;
-            font-size: 14px;
-            color: #55efc4;
-            word-break: break-all;
+        .section-content {
+            font-size: 15px;
+            line-height: 1.6;
+        }
+        
+        /* بيانات الاشتراك في النافذة */
+        .hidden-data-box {
+            background: linear-gradient(135deg, rgba(0, 184, 148, 0.1), rgba(85, 239, 196, 0.05));
+            border: 2px dashed #00b894;
+            border-radius: 12px;
+            padding: 16px;
             position: relative;
-            min-height: 50px;
         }
-        .subscription-content .data-text {
-            margin: 0;
-            white-space: pre-wrap;
-            word-break: break-all;
-            font-family: monospace;
+        .hidden-data-content {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
             font-size: 14px;
             color: #55efc4;
-            background: none;
-            border: none;
-            padding: 0;
+            word-break: break-all;
+            white-space: pre-wrap;
+            margin-bottom: 12px;
+            min-height: 60px;
         }
-        .copy-btn {
-            position: absolute;
-            top: 8px;
-            left: 8px;
-            background: #6c5ce7;
+        .copy-data-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #00b894, #00cec9);
             border: none;
             color: white;
-            padding: 8px 15px;
-            border-radius: 6px;
-            font-size: 12px;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: bold;
             cursor: pointer;
             font-family: 'Tajawal', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
             transition: all 0.3s;
-            z-index: 5;
         }
-        .copy-btn:hover {
-            background: #5b4cdb;
-            transform: scale(1.05);
+        .copy-data-btn:hover {
+            transform: scale(1.02);
+            box-shadow: 0 5px 20px rgba(0, 184, 148, 0.4);
+        }
+        
+        /* معلومات الطلب */
+        .order-info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .order-info-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 12px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .order-info-label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 5px;
+        }
+        .order-info-value {
+            font-size: 15px;
+            font-weight: bold;
+        }
+        .order-info-value.price {
+            color: #00b894;
+        }
+        .order-info-value.category {
+            color: #a29bfe;
         }
         
         /* رسالة فارغة */
         .empty-state {
             text-align: center;
-            padding: 60px 20px;
+            padding: 80px 20px;
         }
         .empty-icon {
             font-size: 80px;
             margin-bottom: 20px;
-            opacity: 0.5;
+            opacity: 0.3;
         }
         .empty-text {
-            color: #888;
+            color: #666;
             font-size: 18px;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
         }
         .shop-btn {
-            background: linear-gradient(135deg, #00b894, #00cec9);
+            background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
-            padding: 12px 30px;
+            padding: 14px 35px;
             border-radius: 25px;
             text-decoration: none;
             font-weight: bold;
@@ -4532,16 +4679,28 @@ MY_PURCHASES_PAGE = """
         }
         .shop-btn:hover {
             transform: translateY(-3px);
-            box-shadow: 0 5px 20px rgba(0, 184, 148, 0.4);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
         }
         
-        /* الفئة */
-        .category-badge {
-            background: rgba(162, 155, 254, 0.2);
-            color: #a29bfe;
-            padding: 4px 10px;
-            border-radius: 8px;
-            font-size: 12px;
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-weight: bold;
+            z-index: 9999;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
         }
     </style>
 </head>
@@ -4549,10 +4708,8 @@ MY_PURCHASES_PAGE = """
     <div class="page-header">
         <div class="header-content">
             <a href="/" class="back-btn">→</a>
-            <h1 class="page-title">
-                🛍️ مشترياتي
-            </h1>
-            <span class="purchases-count">{{ purchases|length }} منتج</span>
+            <h1 class="page-title">🛍️ طلباتي</h1>
+            <span class="purchases-count">{{ purchases|length }}</span>
         </div>
     </div>
     
@@ -4560,43 +4717,74 @@ MY_PURCHASES_PAGE = """
         {% if purchases %}
             {% for purchase in purchases %}
             <div class="purchase-card">
-                <div class="purchase-header">
-                    <div class="purchase-title">
-                        📦 {{ purchase.get('item_name', 'منتج') }}
+                <div class="card-main">
+                    <div class="card-icon">📦</div>
+                    <div class="card-info">
+                        <div class="card-title">{{ purchase.get('item_name', 'منتج') }}</div>
+                        <div class="card-meta">
+                            <span class="meta-item price">{{ purchase.get('price', 0) }} ر.س</span>
+                            <span class="meta-item">📅 {{ purchase.get('sold_at', 'غير محدد') }}</span>
+                        </div>
                     </div>
-                    <span class="purchase-badge">تم الشراء ✓</span>
+                    <div class="card-badge">✓ مكتمل</div>
                 </div>
-                <div class="purchase-body">
-                    <div class="purchase-info-row">
-                        <span class="info-label">🏷️ الفئة:</span>
-                        <span class="category-badge">{{ purchase.get('category', 'غير محدد') }}</span>
+                <button class="view-details-btn" onclick="openModal({{ loop.index }})">
+                    📋 بيانات الطلب
+                </button>
+            </div>
+            
+            <!-- Modal للطلب -->
+            <div class="modal-overlay" id="modal-{{ loop.index }}" onclick="closeModalOnOverlay(event, {{ loop.index }})">
+                <div class="modal-content" onclick="event.stopPropagation()">
+                    <div class="modal-header">
+                        <div class="modal-title">📦 {{ purchase.get('item_name', 'منتج') }}</div>
+                        <button class="close-btn" onclick="closeModal({{ loop.index }})">✕</button>
                     </div>
-                    <div class="purchase-info-row">
-                        <span class="info-label">💰 السعر:</span>
-                        <span class="info-value price">{{ purchase.get('price', 0) }} ريال</span>
-                    </div>
-                    {% if purchase.get('details') %}
-                    <div class="purchase-info-row">
-                        <span class="info-label">📝 الوصف:</span>
-                        <span class="info-value">{{ purchase.get('details') }}</span>
-                    </div>
-                    {% endif %}
-                    <div class="purchase-info-row">
-                        <span class="info-label">📅 تاريخ الشراء:</span>
-                        <span class="info-value">{{ purchase.get('sold_at', 'غير محدد') }}</span>
-                    </div>
-                    
-                    {% if purchase.get('hidden_data') %}
-                    <div class="subscription-data">
-                        <div class="subscription-title">
-                            🔐 بيانات الاشتراك
+                    <div class="modal-body">
+                        <!-- معلومات الطلب -->
+                        <div class="modal-section">
+                            <div class="section-title">📊 معلومات الطلب</div>
+                            <div class="order-info-grid">
+                                <div class="order-info-item">
+                                    <div class="order-info-label">السعر</div>
+                                    <div class="order-info-value price">{{ purchase.get('price', 0) }} ر.س</div>
+                                </div>
+                                <div class="order-info-item">
+                                    <div class="order-info-label">الفئة</div>
+                                    <div class="order-info-value category">{{ purchase.get('category', 'غير محدد') }}</div>
+                                </div>
+                                <div class="order-info-item">
+                                    <div class="order-info-label">التاريخ</div>
+                                    <div class="order-info-value">{{ purchase.get('sold_at', 'غير محدد') }}</div>
+                                </div>
+                                <div class="order-info-item">
+                                    <div class="order-info-label">الحالة</div>
+                                    <div class="order-info-value" style="color: #00b894;">✓ مكتمل</div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="subscription-content">
-                            <pre class="data-text" id="data-text-{{ loop.index }}">{{ purchase.get('hidden_data') }}</pre>
-                            <button class="copy-btn" onclick="copyData({{ loop.index }})">📋 نسخ</button>
+                        
+                        {% if purchase.get('details') %}
+                        <!-- الوصف -->
+                        <div class="modal-section">
+                            <div class="section-title">📝 وصف المنتج</div>
+                            <div class="section-content">{{ purchase.get('details') }}</div>
                         </div>
+                        {% endif %}
+                        
+                        {% if purchase.get('hidden_data') %}
+                        <!-- بيانات الاشتراك -->
+                        <div class="modal-section">
+                            <div class="section-title">🔐 بيانات الاشتراك</div>
+                            <div class="hidden-data-box">
+                                <div class="hidden-data-content" id="data-{{ loop.index }}">{{ purchase.get('hidden_data') }}</div>
+                                <button class="copy-data-btn" onclick="copyData({{ loop.index }})">
+                                    📋 نسخ البيانات
+                                </button>
+                            </div>
+                        </div>
+                        {% endif %}
                     </div>
-                    {% endif %}
                 </div>
             </div>
             {% endfor %}
@@ -4609,15 +4797,50 @@ MY_PURCHASES_PAGE = """
         {% endif %}
     </div>
     
+    <!-- Toast -->
+    <div class="toast" id="toast">✅ تم نسخ البيانات!</div>
+    
     <script>
+        // فتح النافذة
+        function openModal(index) {
+            const modal = document.getElementById('modal-' + index);
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+        
+        // إغلاق النافذة
+        function closeModal(index) {
+            const modal = document.getElementById('modal-' + index);
+            modal.classList.remove('active');
+            document.body.style.overflow = 'auto';
+        }
+        
+        // إغلاق عند الضغط على الخلفية
+        function closeModalOnOverlay(event, index) {
+            if (event.target.classList.contains('modal-overlay')) {
+                closeModal(index);
+            }
+        }
+        
+        // إغلاق بزر Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.modal-overlay.active').forEach(modal => {
+                    modal.classList.remove('active');
+                });
+                document.body.style.overflow = 'auto';
+            }
+        });
+        
+        // نسخ البيانات
         function copyData(index) {
-            const textElement = document.getElementById('data-text-' + index);
+            const textElement = document.getElementById('data-' + index);
             const text = textElement.innerText || textElement.textContent;
             
             navigator.clipboard.writeText(text).then(() => {
-                showCopySuccess();
+                showToast();
             }).catch(() => {
-                // Fallback for older browsers
+                // Fallback
                 const textArea = document.createElement('textarea');
                 textArea.value = text;
                 textArea.style.position = 'fixed';
@@ -4626,28 +4849,26 @@ MY_PURCHASES_PAGE = """
                 textArea.select();
                 try {
                     document.execCommand('copy');
-                    showCopySuccess();
+                    showToast();
                 } catch(e) {
-                    alert('❌ فشل النسخ، حاول تحديد النص يدوياً');
+                    alert('❌ فشل النسخ');
                 }
                 document.body.removeChild(textArea);
             });
         }
         
-        function showCopySuccess() {
-            // إنشاء إشعار نجاح
-            const toast = document.createElement('div');
-            toast.innerHTML = '✅ تم نسخ البيانات!';
-            toast.style.cssText = 'position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #00b894, #00cec9); color: white; padding: 15px 30px; border-radius: 25px; font-weight: bold; z-index: 9999; box-shadow: 0 5px 20px rgba(0,0,0,0.3); animation: fadeInUp 0.3s;';
-            document.body.appendChild(toast);
+        // إظهار Toast
+        function showToast() {
+            const toast = document.getElementById('toast');
+            toast.classList.add('show');
             setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transition = 'opacity 0.3s';
-                setTimeout(() => toast.remove(), 300);
+                toast.classList.remove('show');
             }, 2000);
         }
     </script>
 </body>
+</html>
+"""
 </html>
 """
 

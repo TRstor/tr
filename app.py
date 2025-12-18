@@ -1821,12 +1821,14 @@ HTML_PAGE = """
             </div>
         </div>
         
-        <!-- زر تسجيل الخروج -->
+        <!-- زر تسجيل الخروج - يظهر فقط للمسجلين -->
+        {% if current_user %}
         <div class="sidebar-footer">
             <button class="sidebar-logout-btn" onclick="logout()">
                 🚪 تسجيل الخروج
             </button>
         </div>
+        {% endif %}
     </div>
     <!-- نافذة تسجيل الدخول المنبثقة -->
     <div class="login-modal" id="loginModal">
@@ -3770,6 +3772,7 @@ def index():
                                   my_purchases=my_purchases,
                                   balance=balance, 
                                   current_user_id=user_id or 0, 
+                                  current_user=user_id,
                                   user_name=user_name)
 
 # صفحة الشحن المنفصلة
@@ -4881,19 +4884,37 @@ def my_purchases_page():
     # جلب مشتريات المستخدم من Firebase
     purchases = []
     try:
+        from datetime import datetime, timedelta, timezone
         orders_ref = query_where(db.collection('orders'), 'buyer_id', '==', str(user_id))
         for doc in orders_ref.stream():
             data = doc.to_dict()
             data['id'] = doc.id
-            # تحويل الوقت إذا وجد
+            # تحويل الوقت إلى توقيت السعودية (UTC+3)
             if data.get('created_at'):
                 try:
-                    data['sold_at'] = data['created_at'].strftime('%Y-%m-%d %H:%M')
-                except:
+                    created = data['created_at']
+                    # إذا كان Firestore Timestamp
+                    if hasattr(created, 'seconds'):
+                        utc_time = datetime.fromtimestamp(created.seconds, tz=timezone.utc)
+                    elif isinstance(created, datetime):
+                        utc_time = created
+                    else:
+                        utc_time = datetime.now(tz=timezone.utc)
+                    
+                    # إضافة 3 ساعات لتوقيت السعودية
+                    saudi_time = utc_time + timedelta(hours=3)
+                    data['sold_at'] = saudi_time.strftime('%Y-%m-%d %H:%M')
+                    data['sort_time'] = saudi_time.timestamp()
+                except Exception as e:
+                    print(f"خطأ في تحويل الوقت: {e}")
                     data['sold_at'] = 'غير محدد'
+                    data['sort_time'] = 0
+            else:
+                data['sold_at'] = 'غير محدد'
+                data['sort_time'] = 0
             purchases.append(data)
         # ترتيب من الأحدث للأقدم
-        purchases.reverse()
+        purchases.sort(key=lambda x: x.get('sort_time', 0), reverse=True)
     except Exception as e:
         print(f"❌ خطأ في جلب المشتريات: {e}")
     

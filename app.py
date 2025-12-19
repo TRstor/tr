@@ -145,6 +145,14 @@ transactions = {}
 # الشكل: { user_id: {code, name, created_at} }
 verification_codes = {}
 
+# أكواد دخول لوحة التحكم المؤقتة
+# الشكل: { 'code': code, 'created_at': time, 'used': False, 'ip': ip }
+admin_login_codes = {}
+
+# محاولات الدخول الفاشلة (للحماية من brute force)
+# الشكل: { ip: {'count': n, 'blocked_until': time} }
+failed_login_attempts = {}
+
 # مفاتيح الشحن المولدة
 # الشكل: { key_code: {amount, used, used_by, created_at} }
 charge_keys = {}
@@ -5507,7 +5515,7 @@ def migrate_to_firebase_route():
     else:
         return {'status': 'error', 'message': 'فشل رفع البيانات'}, 500
 
-# صفحة تسجيل الدخول للوحة التحكم (HTML منفصل)
+# صفحة تسجيل الدخول للوحة التحكم (HTML منفصل) - نظام الكود المؤقت
 LOGIN_HTML = """
 <!DOCTYPE html>
 <html dir="rtl">
@@ -5533,14 +5541,15 @@ LOGIN_HTML = """
             max-width: 400px;
             width: 90%;
         }
-        h1 { color: #667eea; margin-bottom: 30px; text-align: center; }
+        h1 { color: #667eea; margin-bottom: 10px; text-align: center; }
+        .subtitle { color: #888; text-align: center; margin-bottom: 25px; font-size: 14px; }
         input {
             width: 100%;
             padding: 15px;
             border: 2px solid #ddd;
             border-radius: 10px;
             font-size: 16px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             text-align: center;
         }
         input:focus { outline: none; border-color: #667eea; }
@@ -5557,44 +5566,197 @@ LOGIN_HTML = """
             transition: transform 0.3s;
         }
         button:hover { transform: scale(1.05); }
-        .error { color: red; text-align: center; margin-top: 15px; font-size: 14px; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .error { color: #e74c3c; background: #ffe5e5; padding: 12px; border-radius: 8px; text-align: center; margin-top: 15px; font-size: 14px; }
+        .success { color: #27ae60; background: #e5ffe5; padding: 12px; border-radius: 8px; text-align: center; margin-top: 15px; font-size: 14px; }
+        .step { display: none; }
+        .step.active { display: block; }
+        .code-input {
+            letter-spacing: 10px;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .timer { color: #e74c3c; font-weight: bold; text-align: center; margin: 10px 0; }
+        .security-note {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-top: 15px;
+            text-align: center;
+        }
+        .back-btn {
+            background: #95a5a6;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
     <div class="login-box">
-        <h1>🔐 دخول الآدمن</h1>
-        <form method="POST">
-            <input type="password" name="pass" placeholder="كلمة المرور" required autofocus>
-            <button type="submit">دخول</button>
-        </form>
-        {% if error %}
-        <div class="error">{{ error }}</div>
-        {% endif %}
+        <!-- الخطوة 1: إدخال كلمة المرور -->
+        <div id="step1" class="step active">
+            <h1>🔐 دخول الآدمن</h1>
+            <p class="subtitle">أدخل كلمة المرور لإرسال كود التحقق</p>
+            <form id="passwordForm">
+                <input type="password" id="password" placeholder="كلمة المرور" required autofocus>
+                <button type="submit" id="sendCodeBtn">📱 إرسال كود التحقق</button>
+            </form>
+            <div id="error1" class="error" style="display:none;"></div>
+            <div class="security-note">
+                🛡️ سيتم إرسال كود مؤقت للبوت للتأكد من هويتك
+            </div>
+        </div>
+        
+        <!-- الخطوة 2: إدخال الكود -->
+        <div id="step2" class="step">
+            <h1>📱 كود التحقق</h1>
+            <p class="subtitle">أدخل الكود المرسل لك على البوت</p>
+            <div class="timer">⏰ صالح لمدة: <span id="countdown">180</span> ثانية</div>
+            <form id="codeForm">
+                <input type="text" id="verifyCode" class="code-input" placeholder="000000" maxlength="6" required pattern="[0-9]{6}">
+                <button type="submit" id="verifyBtn">✅ تأكيد الدخول</button>
+            </form>
+            <button class="back-btn" onclick="goBack()">↩️ رجوع</button>
+            <div id="error2" class="error" style="display:none;"></div>
+            <div id="success2" class="success" style="display:none;"></div>
+        </div>
     </div>
+    
+    <script>
+        let countdownInterval;
+        let secondsLeft = 180;
+        
+        // الخطوة 1: إرسال كلمة المرور
+        document.getElementById('passwordForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('sendCodeBtn');
+            const errorDiv = document.getElementById('error1');
+            
+            btn.disabled = true;
+            btn.textContent = '⏳ جاري الإرسال...';
+            errorDiv.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/admin/send_code', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ password: password })
+                });
+                
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    // الانتقال للخطوة 2
+                    document.getElementById('step1').classList.remove('active');
+                    document.getElementById('step2').classList.add('active');
+                    startCountdown();
+                } else {
+                    errorDiv.textContent = data.message;
+                    errorDiv.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = '📱 إرسال كود التحقق';
+                }
+            } catch(error) {
+                errorDiv.textContent = '❌ خطأ في الاتصال';
+                errorDiv.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = '📱 إرسال كود التحقق';
+            }
+        });
+        
+        // الخطوة 2: التحقق من الكود
+        document.getElementById('codeForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const code = document.getElementById('verifyCode').value;
+            const btn = document.getElementById('verifyBtn');
+            const errorDiv = document.getElementById('error2');
+            const successDiv = document.getElementById('success2');
+            
+            btn.disabled = true;
+            btn.textContent = '⏳ جاري التحقق...';
+            errorDiv.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/admin/verify_code', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ code: code })
+                });
+                
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    successDiv.textContent = '✅ تم التحقق! جاري الدخول...';
+                    successDiv.style.display = 'block';
+                    clearInterval(countdownInterval);
+                    setTimeout(() => {
+                        window.location.href = '/dashboard';
+                    }, 1000);
+                } else {
+                    errorDiv.textContent = data.message;
+                    errorDiv.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = '✅ تأكيد الدخول';
+                }
+            } catch(error) {
+                errorDiv.textContent = '❌ خطأ في الاتصال';
+                errorDiv.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = '✅ تأكيد الدخول';
+            }
+        });
+        
+        // العد التنازلي
+        function startCountdown() {
+            secondsLeft = 180;
+            document.getElementById('countdown').textContent = secondsLeft;
+            
+            countdownInterval = setInterval(() => {
+                secondsLeft--;
+                document.getElementById('countdown').textContent = secondsLeft;
+                
+                if(secondsLeft <= 0) {
+                    clearInterval(countdownInterval);
+                    document.getElementById('error2').textContent = '⏰ انتهت صلاحية الكود! أعد المحاولة';
+                    document.getElementById('error2').style.display = 'block';
+                    document.getElementById('verifyBtn').disabled = true;
+                }
+            }, 1000);
+        }
+        
+        // الرجوع للخطوة 1
+        function goBack() {
+            clearInterval(countdownInterval);
+            document.getElementById('step2').classList.remove('active');
+            document.getElementById('step1').classList.add('active');
+            document.getElementById('password').value = '';
+            document.getElementById('verifyCode').value = '';
+            document.getElementById('error1').style.display = 'none';
+            document.getElementById('error2').style.display = 'none';
+            document.getElementById('sendCodeBtn').disabled = false;
+            document.getElementById('sendCodeBtn').textContent = '📱 إرسال كود التحقق';
+        }
+        
+        // السماح بأرقام فقط في حقل الكود
+        document.getElementById('verifyCode').addEventListener('input', function(e) {
+            this.value = this.value.replace(/[^0-9]/g, '');
+        });
+    </script>
 </body>
 </html>
 """
 
-# لوحة التحكم للمالك (محدثة بنظام Session آمن)
-@app.route('/dashboard', methods=['GET', 'POST'])
+# لوحة التحكم للمالك (محدثة بنظام الكود المؤقت)
+@app.route('/dashboard', methods=['GET'])
 def dashboard():
-    # 1. إذا أرسل المستخدم الباسورد (ضغط زر دخول)
-    if request.method == 'POST':
-        password = request.form.get('pass', '')
-        admin_password = os.environ.get('ADMIN_PASS', 'admin123')
-        
-        if password == admin_password:
-            session['is_admin'] = True  # حفظ حالة الدخول في الجلسة
-            return redirect('/dashboard')  # إعادة توجيه لرابط نظيف
-        else:
-            return render_template_string(LOGIN_HTML, error="❌ كلمة مرور خاطئة!")
-    
-    # 2. إذا كان المستخدم مسجل دخول مسبقاً (في الجلسة)
+    # إذا لم يكن مسجل دخول -> عرض صفحة الدخول بنظام الكود
     if not session.get('is_admin'):
-        # إذا لم يكن مسجل دخول -> عرض صفحة الدخول
-        return render_template_string(LOGIN_HTML, error="")
+        return render_template_string(LOGIN_HTML)
     
-    # 3. المستخدم مسجل دخول -> عرض لوحة التحكم
+    # المستخدم مسجل دخول -> عرض لوحة التحكم
     
     # --- جلب الإحصائيات الحقيقية من Firebase ---
     try:
@@ -5834,7 +5996,8 @@ def dashboard():
         <div class="container">
             <div class="header">
                 <h1>🎛️ لوحة التحكم - المالك</h1>
-                <div style="display: flex; gap: 10px;">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="logout-btn" onclick="window.location.href='/admin/products'" style="background: linear-gradient(135deg, #00b894, #55efc4);">🏪 إدارة المنتجات</button>
                     <button class="logout-btn" onclick="window.location.href='/logout_admin'" style="background: #e74c3c;">🚪 تسجيل خروج</button>
                     <button class="logout-btn" onclick="window.location.href='/'" style="background: #3498db;">⬅️ الموقع</button>
                 </div>
@@ -6096,11 +6259,973 @@ def api_generate_keys():
         print(f"Error generating keys: {e}")
         return {'status': 'error', 'message': f'فشل التوليد: {str(e)}'}
 
+# ==================== نظام الكود المؤقت للدخول ====================
+
+# API لإرسال كود التحقق
+@app.route('/api/admin/send_code', methods=['POST'])
+def api_send_admin_code():
+    global admin_login_codes, failed_login_attempts
+    
+    try:
+        data = request.json
+        password = data.get('password', '')
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        
+        # التحقق من الحظر بسبب محاولات فاشلة
+        if client_ip in failed_login_attempts:
+            attempt_data = failed_login_attempts[client_ip]
+            if attempt_data.get('blocked_until', 0) > time.time():
+                remaining = int(attempt_data['blocked_until'] - time.time())
+                return jsonify({
+                    'status': 'error',
+                    'message': f'⛔ تم حظرك مؤقتاً. حاول بعد {remaining} ثانية'
+                })
+        
+        # التحقق من كلمة المرور
+        admin_password = os.environ.get('ADMIN_PASS', 'admin123')
+        
+        if password != admin_password:
+            # تسجيل المحاولة الفاشلة
+            if client_ip not in failed_login_attempts:
+                failed_login_attempts[client_ip] = {'count': 0, 'blocked_until': 0}
+            
+            failed_login_attempts[client_ip]['count'] += 1
+            attempts_left = 5 - failed_login_attempts[client_ip]['count']
+            
+            # حظر بعد 5 محاولات
+            if failed_login_attempts[client_ip]['count'] >= 5:
+                failed_login_attempts[client_ip]['blocked_until'] = time.time() + 900  # 15 دقيقة
+                
+                # إرسال تنبيه أمني للمالك
+                try:
+                    alert_msg = f"""
+⚠️ *تنبيه أمني!*
+
+محاولات دخول فاشلة متعددة للوحة التحكم!
+
+🌐 *IP:* `{client_ip}`
+⏰ *الوقت:* {time.strftime('%Y-%m-%d %H:%M:%S')}
+🔒 *الحالة:* تم الحظر لمدة 15 دقيقة
+                    """
+                    if BOT_ACTIVE:
+                        bot.send_message(ADMIN_ID, alert_msg, parse_mode='Markdown')
+                except Exception as e:
+                    print(f"Failed to send security alert: {e}")
+                
+                return jsonify({
+                    'status': 'error',
+                    'message': '⛔ تم حظرك لمدة 15 دقيقة بسبب محاولات فاشلة متكررة'
+                })
+            
+            return jsonify({
+                'status': 'error',
+                'message': f'❌ كلمة مرور خاطئة! المحاولات المتبقية: {attempts_left}'
+            })
+        
+        # كلمة المرور صحيحة - توليد كود عشوائي
+        code = str(random.randint(100000, 999999))
+        
+        # حفظ الكود مع وقت الانتهاء (3 دقائق)
+        admin_login_codes = {
+            'code': code,
+            'created_at': time.time(),
+            'expires_at': time.time() + 180,  # 3 دقائق
+            'used': False,
+            'ip': client_ip
+        }
+        
+        # إرسال الكود للمالك عبر البوت
+        try:
+            if BOT_ACTIVE:
+                code_msg = f"""
+🔐 *طلب دخول للوحة التحكم*
+
+📍 *الكود:* `{code}`
+⏰ *صالح لمدة:* 3 دقائق
+🌐 *IP:* `{client_ip}`
+⏱️ *الوقت:* {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+⚠️ *إذا لم تكن أنت، تجاهل هذا الكود!*
+                """
+                bot.send_message(ADMIN_ID, code_msg, parse_mode='Markdown')
+                
+                # مسح المحاولات الفاشلة عند النجاح
+                if client_ip in failed_login_attempts:
+                    del failed_login_attempts[client_ip]
+                
+                return jsonify({'status': 'success', 'message': 'تم إرسال الكود'})
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': '❌ البوت غير متصل! لا يمكن إرسال الكود'
+                })
+        except Exception as e:
+            print(f"Error sending code: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': '❌ فشل إرسال الكود للبوت'
+            })
+            
+    except Exception as e:
+        print(f"Error in send_code: {e}")
+        return jsonify({'status': 'error', 'message': 'خطأ في السيرفر'})
+
+# API للتحقق من الكود
+@app.route('/api/admin/verify_code', methods=['POST'])
+def api_verify_admin_code():
+    global admin_login_codes
+    
+    try:
+        data = request.json
+        code = data.get('code', '').strip()
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        
+        # التحقق من وجود كود نشط
+        if not admin_login_codes or not admin_login_codes.get('code'):
+            return jsonify({
+                'status': 'error',
+                'message': '❌ لا يوجد كود نشط. اطلب كود جديد'
+            })
+        
+        # التحقق من انتهاء الصلاحية
+        if time.time() > admin_login_codes.get('expires_at', 0):
+            admin_login_codes = {}  # مسح الكود المنتهي
+            return jsonify({
+                'status': 'error',
+                'message': '⏰ انتهت صلاحية الكود! اطلب كود جديد'
+            })
+        
+        # التحقق من استخدام الكود مسبقاً
+        if admin_login_codes.get('used'):
+            return jsonify({
+                'status': 'error',
+                'message': '❌ تم استخدام هذا الكود مسبقاً'
+            })
+        
+        # التحقق من صحة الكود
+        if code != admin_login_codes.get('code'):
+            return jsonify({
+                'status': 'error',
+                'message': '❌ كود خاطئ!'
+            })
+        
+        # الكود صحيح - تسجيل الدخول
+        admin_login_codes['used'] = True
+        session['is_admin'] = True
+        
+        # إرسال إشعار بنجاح الدخول
+        try:
+            if BOT_ACTIVE:
+                success_msg = f"""
+✅ *تم تسجيل الدخول بنجاح!*
+
+🌐 *IP:* `{client_ip}`
+⏰ *الوقت:* {time.strftime('%Y-%m-%d %H:%M:%S')}
+                """
+                bot.send_message(ADMIN_ID, success_msg, parse_mode='Markdown')
+        except:
+            pass
+        
+        # مسح الكود
+        admin_login_codes = {}
+        
+        return jsonify({'status': 'success', 'message': 'تم التحقق بنجاح'})
+        
+    except Exception as e:
+        print(f"Error in verify_code: {e}")
+        return jsonify({'status': 'error', 'message': 'خطأ في السيرفر'})
+
 # مسار لتسجيل خروج الآدمن
 @app.route('/logout_admin')
 def logout_admin():
     session.pop('is_admin', None)
     return redirect('/dashboard')
+
+# ==================== صفحة إدارة المنتجات للمالك ====================
+
+ADMIN_PRODUCTS_HTML = """
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إدارة المنتجات - المالك</title>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6c5ce7;
+            --success: #00b894;
+            --danger: #e74c3c;
+            --warning: #fdcb6e;
+            --bg: #1a1a2e;
+            --card: #16213e;
+            --text: #ffffff;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Tajawal', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        
+        /* الهيدر */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .header h1 {
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: 'Tajawal', sans-serif;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), #a29bfe);
+            color: white;
+        }
+        .btn-success {
+            background: linear-gradient(135deg, var(--success), #55efc4);
+            color: white;
+        }
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger), #ff7675);
+            color: white;
+        }
+        .btn-secondary {
+            background: #636e72;
+            color: white;
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        
+        /* البطاقات */
+        .section-title {
+            font-size: 18px;
+            margin: 25px 0 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+        .product-card {
+            background: var(--card);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: transform 0.3s;
+        }
+        .product-card:hover { transform: translateY(-5px); }
+        .product-image {
+            height: 120px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 50px;
+            position: relative;
+        }
+        .product-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .product-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--warning);
+            color: #2d3436;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .product-info { padding: 15px; }
+        .product-name {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        .product-details {
+            color: #888;
+            font-size: 13px;
+            margin-bottom: 10px;
+            line-height: 1.5;
+        }
+        .product-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 10px;
+            border-top: 1px solid #333;
+        }
+        .product-price {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--success);
+        }
+        .delete-btn {
+            background: var(--danger);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: 'Tajawal', sans-serif;
+            font-size: 13px;
+            transition: all 0.3s;
+        }
+        .delete-btn:hover {
+            background: #c0392b;
+            transform: scale(1.05);
+        }
+        
+        /* المنتجات المباعة */
+        .sold-card {
+            opacity: 0.6;
+            position: relative;
+        }
+        .sold-card::after {
+            content: 'مباع ✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-15deg);
+            background: var(--danger);
+            color: white;
+            padding: 10px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 5px;
+            z-index: 10;
+        }
+        
+        /* النافذة المنبثقة */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: var(--card);
+            border-radius: 20px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .modal-header {
+            background: linear-gradient(135deg, var(--success), #55efc4);
+            padding: 20px;
+            text-align: center;
+            border-radius: 20px 20px 0 0;
+        }
+        .modal-header h2 {
+            font-size: 20px;
+            margin: 0;
+        }
+        .modal-body { padding: 25px; }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #a29bfe;
+        }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #333;
+            border-radius: 12px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 15px;
+            font-family: 'Tajawal', sans-serif;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .form-group textarea { resize: vertical; min-height: 80px; }
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            padding: 0 25px 25px;
+        }
+        .modal-footer .btn { flex: 1; justify-content: center; }
+        
+        /* حالة فارغة */
+        .empty-state {
+            text-align: center;
+            padding: 50px 20px;
+            color: #888;
+        }
+        .empty-state .icon { font-size: 60px; margin-bottom: 15px; }
+        
+        /* الإحصائيات */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .stat-card {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 16px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            color: var(--primary);
+        }
+        .stat-label {
+            color: #888;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        
+        /* التحميل */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+        .spinner {
+            border: 4px solid #333;
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* رسائل التنبيه */
+        .alert {
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .alert.show { display: block; animation: fadeIn 0.3s; }
+        .alert-success { background: rgba(0, 184, 148, 0.2); border: 1px solid var(--success); color: var(--success); }
+        .alert-error { background: rgba(231, 76, 60, 0.2); border: 1px solid var(--danger); color: var(--danger); }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- الهيدر -->
+        <div class="header">
+            <h1>🏪 إدارة المنتجات</h1>
+            <div class="header-actions">
+                <button class="btn btn-success" onclick="openAddModal()">➕ إضافة منتج</button>
+                <a href="/dashboard" class="btn btn-secondary">🔙 لوحة التحكم</a>
+            </div>
+        </div>
+        
+        <!-- رسائل التنبيه -->
+        <div id="alertSuccess" class="alert alert-success"></div>
+        <div id="alertError" class="alert alert-error"></div>
+        
+        <!-- الإحصائيات -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="totalProducts">0</div>
+                <div class="stat-label">إجمالي المنتجات</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="availableProducts">0</div>
+                <div class="stat-label">متاح للبيع</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="soldProducts">0</div>
+                <div class="stat-label">تم بيعها</div>
+            </div>
+        </div>
+        
+        <!-- المنتجات المتاحة -->
+        <h2 class="section-title">📦 المنتجات المتاحة</h2>
+        <div id="availableGrid" class="products-grid">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>جاري التحميل...</p>
+            </div>
+        </div>
+        
+        <!-- المنتجات المباعة -->
+        <h2 class="section-title">✅ المنتجات المباعة</h2>
+        <div id="soldGrid" class="products-grid">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>جاري التحميل...</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- نافذة إضافة منتج -->
+    <div id="addModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>➕ إضافة منتج جديد</h2>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>📦 اسم المنتج *</label>
+                    <input type="text" id="productName" placeholder="مثال: نتفلكس شهر كامل" required>
+                </div>
+                <div class="form-group">
+                    <label>💰 السعر (ريال) *</label>
+                    <input type="number" id="productPrice" placeholder="25" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label>🏷️ الفئة *</label>
+                    <select id="productCategory" required>
+                        <option value="">-- اختر الفئة --</option>
+                        <option value="نتفلكس">نتفلكس</option>
+                        <option value="شاهد">شاهد</option>
+                        <option value="ديزني بلس">ديزني بلس</option>
+                        <option value="اوسن بلس">اوسن بلس</option>
+                        <option value="فديو بريميم">فديو بريميم</option>
+                        <option value="اشتراكات أخرى">اشتراكات أخرى</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>📝 التفاصيل (اختياري)</label>
+                    <textarea id="productDetails" placeholder="وصف مختصر للمنتج..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>🔐 البيانات السرية (إيميل/باسورد) *</label>
+                    <textarea id="productHiddenData" placeholder="email@example.com&#10;password123" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label>🖼️ رابط الصورة (اختياري)</label>
+                    <input type="url" id="productImage" placeholder="https://example.com/image.jpg">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeAddModal()">إلغاء</button>
+                <button class="btn btn-success" onclick="submitProduct()">✅ نشر المنتج</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- نافذة تأكيد الحذف -->
+    <div id="deleteModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #e74c3c, #c0392b);">
+                <h2>🗑️ تأكيد الحذف</h2>
+            </div>
+            <div class="modal-body" style="text-align: center;">
+                <div style="font-size: 50px; margin-bottom: 15px;">⚠️</div>
+                <p style="font-size: 16px; margin-bottom: 10px;">هل أنت متأكد من حذف هذا المنتج؟</p>
+                <p id="deleteProductName" style="color: var(--danger); font-weight: bold;"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeDeleteModal()">إلغاء</button>
+                <button class="btn btn-danger" onclick="confirmDelete()">🗑️ حذف</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const ADMIN_ID = {{ admin_id }};
+        let productToDelete = null;
+        
+        // تحميل المنتجات عند فتح الصفحة
+        document.addEventListener('DOMContentLoaded', loadProducts);
+        
+        async function loadProducts() {
+            try {
+                const response = await fetch('/api/admin/get_products');
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    renderProducts(data.available, data.sold);
+                    updateStats(data.available.length, data.sold.length);
+                } else {
+                    showAlert('error', 'فشل تحميل المنتجات');
+                }
+            } catch(error) {
+                showAlert('error', 'خطأ في الاتصال بالسيرفر');
+            }
+        }
+        
+        function renderProducts(available, sold) {
+            const availableGrid = document.getElementById('availableGrid');
+            const soldGrid = document.getElementById('soldGrid');
+            
+            // المنتجات المتاحة
+            if(available.length === 0) {
+                availableGrid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <div class="icon">📦</div>
+                        <p>لا توجد منتجات متاحة حالياً</p>
+                    </div>
+                `;
+            } else {
+                availableGrid.innerHTML = available.map(product => `
+                    <div class="product-card">
+                        <div class="product-image">
+                            ${product.image_url ? `<img src="${product.image_url}" alt="${product.item_name}">` : '🎁'}
+                            ${product.category ? `<span class="product-badge">${product.category}</span>` : ''}
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">${product.item_name}</div>
+                            <div class="product-details">${product.details || 'بدون تفاصيل'}</div>
+                            <div class="product-footer">
+                                <span class="product-price">${product.price} ريال</span>
+                                <button class="delete-btn" onclick="openDeleteModal('${product.id}', '${product.item_name.replace(/'/g, "\\'")}')">🗑️ حذف</button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            // المنتجات المباعة
+            if(sold.length === 0) {
+                soldGrid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <div class="icon">🛒</div>
+                        <p>لم يتم بيع أي منتج بعد</p>
+                    </div>
+                `;
+            } else {
+                soldGrid.innerHTML = sold.map(product => `
+                    <div class="product-card sold-card">
+                        <div class="product-image">
+                            ${product.image_url ? `<img src="${product.image_url}" alt="${product.item_name}" style="filter: grayscale(50%);">` : '🎁'}
+                            ${product.category ? `<span class="product-badge" style="background: #e74c3c; color: white;">${product.category}</span>` : ''}
+                        </div>
+                        <div class="product-info">
+                            <div class="product-name">${product.item_name}</div>
+                            <div class="product-details">
+                                ${product.buyer_name ? `🎉 المشتري: ${product.buyer_name}` : ''}
+                            </div>
+                            <div class="product-footer">
+                                <span class="product-price" style="text-decoration: line-through; color: #888;">${product.price} ريال</span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+        
+        function updateStats(available, sold) {
+            document.getElementById('totalProducts').textContent = available + sold;
+            document.getElementById('availableProducts').textContent = available;
+            document.getElementById('soldProducts').textContent = sold;
+        }
+        
+        // نافذة إضافة منتج
+        function openAddModal() {
+            document.getElementById('addModal').classList.add('active');
+        }
+        
+        function closeAddModal() {
+            document.getElementById('addModal').classList.remove('active');
+            // مسح الحقول
+            document.getElementById('productName').value = '';
+            document.getElementById('productPrice').value = '';
+            document.getElementById('productCategory').value = '';
+            document.getElementById('productDetails').value = '';
+            document.getElementById('productHiddenData').value = '';
+            document.getElementById('productImage').value = '';
+        }
+        
+        async function submitProduct() {
+            const name = document.getElementById('productName').value.trim();
+            const price = document.getElementById('productPrice').value;
+            const category = document.getElementById('productCategory').value;
+            const details = document.getElementById('productDetails').value.trim();
+            const hiddenData = document.getElementById('productHiddenData').value.trim();
+            const image = document.getElementById('productImage').value.trim();
+            
+            // التحقق
+            if(!name || !price || !category || !hiddenData) {
+                showAlert('error', 'الرجاء ملء جميع الحقول المطلوبة');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/admin/add_product_new', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: name,
+                        price: parseFloat(price),
+                        category: category,
+                        details: details,
+                        hidden_data: hiddenData,
+                        image: image
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    showAlert('success', '✅ تم إضافة المنتج بنجاح!');
+                    closeAddModal();
+                    loadProducts(); // إعادة تحميل المنتجات
+                } else {
+                    showAlert('error', data.message || 'فشل إضافة المنتج');
+                }
+            } catch(error) {
+                showAlert('error', 'خطأ في الاتصال بالسيرفر');
+            }
+        }
+        
+        // نافذة الحذف
+        function openDeleteModal(productId, productName) {
+            productToDelete = productId;
+            document.getElementById('deleteProductName').textContent = productName;
+            document.getElementById('deleteModal').classList.add('active');
+        }
+        
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').classList.remove('active');
+            productToDelete = null;
+        }
+        
+        async function confirmDelete() {
+            if(!productToDelete) return;
+            
+            try {
+                const response = await fetch('/api/admin/delete_product', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ product_id: productToDelete })
+                });
+                
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    showAlert('success', '✅ تم حذف المنتج بنجاح!');
+                    closeDeleteModal();
+                    loadProducts(); // إعادة تحميل المنتجات
+                } else {
+                    showAlert('error', data.message || 'فشل حذف المنتج');
+                }
+            } catch(error) {
+                showAlert('error', 'خطأ في الاتصال بالسيرفر');
+            }
+        }
+        
+        // رسائل التنبيه
+        function showAlert(type, message) {
+            const alertEl = document.getElementById(type === 'success' ? 'alertSuccess' : 'alertError');
+            alertEl.textContent = message;
+            alertEl.classList.add('show');
+            
+            setTimeout(() => {
+                alertEl.classList.remove('show');
+            }, 4000);
+        }
+        
+        // إغلاق النوافذ بالضغط خارجها
+        window.onclick = function(event) {
+            if(event.target.classList.contains('modal')) {
+                event.target.classList.remove('active');
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+# صفحة إدارة المنتجات (للمالك فقط)
+@app.route('/admin/products')
+def admin_products():
+    # التحقق من تسجيل الدخول كمالك
+    if not session.get('is_admin'):
+        return redirect('/dashboard')
+    
+    return render_template_string(ADMIN_PRODUCTS_HTML, admin_id=ADMIN_ID)
+
+# API لجلب جميع المنتجات (للمالك)
+@app.route('/api/admin/get_products')
+def api_get_products():
+    # التحقق من الصلاحية
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
+    try:
+        available = []
+        sold = []
+        
+        if db:
+            # جلب جميع المنتجات من Firebase
+            products_ref = db.collection('products')
+            
+            # المنتجات المتاحة
+            available_query = query_where(products_ref, 'sold', '==', False)
+            for doc in available_query.stream():
+                data = doc.to_dict()
+                data['id'] = doc.id
+                available.append(data)
+            
+            # المنتجات المباعة
+            sold_query = query_where(products_ref, 'sold', '==', True)
+            for doc in sold_query.stream():
+                data = doc.to_dict()
+                data['id'] = doc.id
+                sold.append(data)
+        else:
+            # من الذاكرة
+            for item in marketplace_items:
+                if item.get('sold'):
+                    sold.append(item)
+                else:
+                    available.append(item)
+        
+        return jsonify({
+            'status': 'success',
+            'available': available,
+            'sold': sold
+        })
+        
+    except Exception as e:
+        print(f"Error getting products: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# API لإضافة منتج جديد (للمالك)
+@app.route('/api/admin/add_product_new', methods=['POST'])
+def api_add_product_new():
+    # التحقق من الصلاحية
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        price = float(data.get('price', 0))
+        category = data.get('category', '').strip()
+        details = data.get('details', '').strip()
+        hidden_data = data.get('hidden_data', '').strip()
+        image = data.get('image', '').strip()
+        
+        # التحقق من البيانات
+        if not name or price <= 0 or not category or not hidden_data:
+            return jsonify({'status': 'error', 'message': 'بيانات ناقصة'})
+        
+        # إنشاء المنتج
+        product_id = str(uuid.uuid4())
+        product_data = {
+            'id': product_id,
+            'item_name': name,
+            'price': price,
+            'category': category,
+            'details': details,
+            'hidden_data': hidden_data,
+            'image_url': image,
+            'seller_id': ADMIN_ID,
+            'seller_name': 'المتجر الرسمي',
+            'sold': False,
+            'created_at': time.time()
+        }
+        
+        # حفظ في Firebase
+        if db:
+            db.collection('products').document(product_id).set(product_data)
+            print(f"✅ تم حفظ المنتج في Firebase: {name}")
+        
+        # إضافة للذاكرة
+        marketplace_items.append(product_data)
+        
+        return jsonify({'status': 'success', 'product_id': product_id})
+        
+    except Exception as e:
+        print(f"Error adding product: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# API لحذف منتج (للمالك)
+@app.route('/api/admin/delete_product', methods=['POST'])
+def api_delete_product():
+    # التحقق من الصلاحية
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
+    try:
+        data = request.json
+        product_id = data.get('product_id')
+        
+        if not product_id:
+            return jsonify({'status': 'error', 'message': 'معرف المنتج مطلوب'})
+        
+        # حذف من Firebase
+        if db:
+            db.collection('products').document(product_id).delete()
+            print(f"✅ تم حذف المنتج من Firebase: {product_id}")
+        
+        # حذف من الذاكرة
+        global marketplace_items
+        marketplace_items = [item for item in marketplace_items if item.get('id') != product_id]
+        
+        return jsonify({'status': 'success'})
+        
+    except Exception as e:
+        print(f"Error deleting product: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
 
 if __name__ == "__main__":
     # تحميل البيانات من Firebase عند بدء التشغيل

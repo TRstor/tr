@@ -5803,118 +5803,34 @@ def dashboard():
                 font-weight: bold;
                 cursor: pointer;
             }}
-            .tool-box button:hover {{ opacity: 0.9; }}
-            
-            /* نافذة عرض المفاتيح */
-            .keys-modal {{
-                display: none;
-                position: fixed;
-                z-index: 9999;
-                left: 0;
-                top: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.8);
-                animation: fadeIn 0.3s;
+            .bot-commands {{
+                background: linear-gradient(135deg, #667eea20, #764ba220);
+                border: 2px solid #667eea;
+                border-radius: 12px;
+                padding: 20px;
             }}
-            .keys-modal-content {{
+            .bot-commands h3 {{ color: #667eea; margin-bottom: 15px; }}
+            .command-item {{
                 background: white;
-                margin: 5% auto;
-                padding: 0;
-                border-radius: 15px;
-                max-width: 500px;
-                width: 90%;
-                max-height: 80vh;
-                overflow-y: auto;
-                animation: slideDown 0.3s;
-            }}
-            .keys-modal-header {{
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                padding: 20px;
-                border-radius: 15px 15px 0 0;
-                color: white;
-                text-align: center;
-            }}
-            .keys-modal-body {{
-                padding: 20px;
-            }}
-            .key-item {{
-                background: #f8f9fa;
-                padding: 12px;
+                padding: 12px 15px;
                 border-radius: 8px;
                 margin-bottom: 10px;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                border-left: 4px solid #667eea;
+                border-right: 4px solid #667eea;
             }}
-            .key-code {{
+            .command-item code {{
+                background: #f0f0f0;
+                padding: 5px 10px;
+                border-radius: 5px;
                 font-family: monospace;
-                font-size: 14px;
-                color: #333;
-                font-weight: bold;
-                flex: 1;
-                word-break: break-all;
+                color: #667eea;
             }}
-            .copy-btn {{
-                background: #00b894;
-                color: white;
-                border: none;
-                padding: 8px 15px;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 12px;
-                font-weight: bold;
-                margin-left: 10px;
-                transition: all 0.3s;
-            }}
-            .copy-btn:hover {{ background: #00a383; }}
-            .copy-btn.copied {{
-                background: #fdcb6e;
-                color: #333;
-            }}
-            .keys-modal-footer {{
-                padding: 15px 20px;
-                text-align: center;
-                border-top: 1px solid #ddd;
-            }}
-            .close-modal-btn {{
-                background: #e74c3c;
-                color: white;
-                border: none;
-                padding: 12px 30px;
-                border-radius: 8px;
-                cursor: pointer;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            @keyframes fadeIn {{
-                from {{ opacity: 0; }}
-                to {{ opacity: 1; }}
-            }}
-            @keyframes slideDown {{
-                from {{ transform: translateY(-50px); opacity: 0; }}
-                to {{ transform: translateY(0); opacity: 1; }}
-            }}
+            .command-item span {{ color: #666; font-size: 14px; }}
         </style>
     </head>
     <body>
-        <!-- نافذة عرض المفاتيح -->
-        <div id="keysModal" class="keys-modal">
-            <div class="keys-modal-content">
-                <div class="keys-modal-header">
-                    <h2 style="margin: 0; font-size: 20px;">🔑 المفاتيح المولدة</h2>
-                    <p style="margin: 10px 0 0 0; font-size: 14px; opacity: 0.9;" id="keysCount"></p>
-                </div>
-                <div class="keys-modal-body" id="keysContainer">
-                    <!-- سيتم إضافة المفاتيح هنا -->
-                </div>
-                <div class="keys-modal-footer">
-                    <button class="close-modal-btn" onclick="closeKeysModal()">إغلاق</button>
-                </div>
-            </div>
-        </div>
-        
         <div class="container">
             <div class="header">
                 <h1>🎛️ لوحة التحكم - المالك</h1>
@@ -5958,19 +5874,28 @@ def dashboard():
             </div>
             
             <div class="section">
-                <h2>️ أدوات سريعة</h2>
-                <div class="tools">
-                    <div class="tool-box">
-                        <h3>💳 شحن رصيد مستخدم</h3>
-                        <input type="number" id="userId" placeholder="آيدي المستخدم">
-                        <input type="number" id="amount" placeholder="المبلغ">
-                        <button onclick="addBalance()">شحن</button>
+                <h2>🤖 أوامر البوت</h2>
+                <div class="bot-commands">
+                    <h3>💡 استخدم البوت لإدارة المتجر:</h3>
+                    <div class="command-item">
+                        <code>/add ID AMOUNT</code>
+                        <span>شحن رصيد مستخدم</span>
                     </div>
-                    <div class="tool-box">
-                        <h3>🔑 توليد مفاتيح شحن</h3>
-                        <input type="number" id="keyAmount" placeholder="قيمة المفتاح">
-                        <input type="number" id="keyCount" placeholder="عدد المفاتيح" value="1">
-                        <button onclick="generateKeys()">توليد</button>
+                    <div class="command-item">
+                        <code>/توليد 50 10</code>
+                        <span>توليد 10 مفاتيح بقيمة 50 ريال</span>
+                    </div>
+                    <div class="command-item">
+                        <code>/المفاتيح</code>
+                        <span>عرض إحصائيات المفاتيح</span>
+                    </div>
+                    <div class="command-item">
+                        <code>/add_product</code>
+                        <span>إضافة منتج جديد</span>
+                    </div>
+                    <div class="command-item">
+                        <code>/list_admins</code>
+                        <span>عرض قائمة المشرفين</span>
                     </div>
                 </div>
             </div>
@@ -6047,98 +5972,7 @@ def dashboard():
         </div>
         
         <script>
-            function addBalance() {{
-                const userId = document.getElementById('userId').value;
-                const amount = document.getElementById('amount').value;
-                
-                if(!userId || !amount) {{
-                    alert('الرجاء ملء جميع الحقول!');
-                    return;
-                }}
-                
-                fetch('/api/add_balance', {{
-                    method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{user_id: userId, amount: parseFloat(amount)}})
-                }})
-                .then(r => r.json())
-                .then(data => {{
-                    if(data.status === 'success') {{
-                        alert('✅ تم شحن الرصيد بنجاح!');
-                        location.reload();
-                    }} else {{
-                        alert('❌ ' + data.message);
-                    }}
-                }});
-            }}
-            
-            function generateKeys() {{
-                const amount = document.getElementById('keyAmount').value;
-                const count = document.getElementById('keyCount').value;
-                
-                if(!amount || !count) {{
-                    alert('الرجاء ملء جميع الحقول!');
-                    return;
-                }}
-                
-                fetch('/api/generate_keys', {{
-                    method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{amount: parseFloat(amount), count: parseInt(count)}})
-                }})
-                .then(r => r.json())
-                .then(data => {{
-                    if(data.status === 'success') {{
-                        showKeysModal(data.keys, amount);
-                    }} else {{
-                        alert('❌ ' + data.message);
-                    }}
-                }});
-            }}
-            
-            function showKeysModal(keys, amount) {{
-                const modal = document.getElementById('keysModal');
-                const container = document.getElementById('keysContainer');
-                const countText = document.getElementById('keysCount');
-                
-                countText.textContent = 'تم توليد ' + keys.length + ' مفتاح بقيمة ' + amount + ' ريال لكل منها';
-                
-                container.innerHTML = '';
-                keys.forEach((key, index) => {{
-                    const keyItem = document.createElement('div');
-                    keyItem.className = 'key-item';
-                    keyItem.innerHTML = '<div class="key-code">' + key + '</div>' +
-                        '<button class="copy-btn" onclick="copyKey(\'' + key + '\', this)">📋 نسخ</button>';
-                    container.appendChild(keyItem);
-                }});
-                
-                modal.style.display = 'block';
-            }}
-            
-            function copyKey(key, btn) {{
-                navigator.clipboard.writeText(key).then(() => {{
-                    btn.textContent = '✅ تم النسخ';
-                    btn.classList.add('copied');
-                    setTimeout(() => {{
-                        btn.textContent = '📋 نسخ';
-                        btn.classList.remove('copied');
-                    }}, 2000);
-                }}).catch(err => {{
-                    alert('فشل النسخ: ' + err);
-                }});
-            }}
-            
-            function closeKeysModal() {{
-                document.getElementById('keysModal').style.display = 'none';
-                location.reload();
-            }}
-            
-            window.onclick = function(event) {{
-                const modal = document.getElementById('keysModal');
-                if(event.target == modal) {{
-                    closeKeysModal();
-                }}
-            }}
+            // لوحة التحكم للعرض فقط - الأدوات متوفرة عبر البوت
         </script>
     </body>
     </html>

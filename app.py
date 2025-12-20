@@ -2061,7 +2061,18 @@ HTML_PAGE = """
                     </div>
                 </div>
                 <div class="modal-details" id="modalProductDetails"></div>
-                <div style="text-align: center; color: #00b894; font-size: 14px; margin-top: 15px;">
+                
+                <!-- حقل إدخال المشتري للتسليم اليدوي -->
+                <div id="buyerInputSection" style="display: none; margin-top: 15px;">
+                    <div style="background: rgba(243, 156, 18, 0.1); border: 1px solid rgba(243, 156, 18, 0.3); border-radius: 10px; padding: 15px;">
+                        <label style="color: #f39c12; font-weight: bold; display: block; margin-bottom: 10px;">
+                            📝 <span id="buyerInstructionsLabel">أدخل المعلومات المطلوبة:</span>
+                        </label>
+                        <textarea id="buyerInputDetails" placeholder="اكتب هنا..." style="width: 100%; min-height: 80px; padding: 12px; border: 1px solid rgba(243, 156, 18, 0.5); border-radius: 8px; background: rgba(0,0,0,0.2); color: #fff; font-size: 14px; resize: vertical;"></textarea>
+                    </div>
+                </div>
+                
+                <div id="deliveryTypeNote" style="text-align: center; color: #00b894; font-size: 14px; margin-top: 15px;">
                     ⚡ سيتم تسليم الحساب فوراً بعد الشراء
                 </div>
             </div>
@@ -2692,7 +2703,7 @@ HTML_PAGE = """
                                     ${isSold ? 
                                         `<button class="product-buy-btn" disabled style="opacity: 0.5; cursor: not-allowed;">مباع 🚫</button>` :
                                         (!isMyProduct ? 
-                                            `<button class="product-buy-btn" onclick='buyItem("${item.id}", ${item.price}, "${(item.item_name || '').replace(/"/g, '\\"')}", "${(item.category || '').replace(/"/g, '\\"')}", ${JSON.stringify(item.details || '')}, "${deliveryType}")'>شراء 🛒</button>` : 
+                                            `<button class="product-buy-btn" onclick='buyItem("${item.id}", ${item.price}, "${(item.item_name || '').replace(/"/g, '\\"')}", "${(item.category || '').replace(/"/g, '\\"')}", ${JSON.stringify(item.details || '')}, "${deliveryType}", ${JSON.stringify(item.buyer_instructions || '')})'>شراء 🛒</button>` : 
                                             `<div class="my-product-badge">منتجك ⭐</div>`)
                                     }
                                 </div>
@@ -2731,6 +2742,7 @@ HTML_PAGE = """
         let currentPurchaseData = null;
         
         function buyItem(itemId, price, itemName, category, details, deliveryType) {
+        function buyItem(itemId, price, itemName, category, details, deliveryType, buyerInstructions) {
             // التحقق من الرصيد أولاً
             if(userBalance < price) {
                 showWarningModal(price);
@@ -2756,32 +2768,37 @@ HTML_PAGE = """
                 itemId: itemId,
                 buyerId: buyerId,
                 buyerName: buyerName,
-                deliveryType: deliveryType || 'instant'
+                deliveryType: deliveryType || 'instant',
+                buyerInstructions: buyerInstructions || ''
             };
 
             // عرض نافذة التأكيد مع نوع التسليم
-            const deliveryText = (deliveryType === 'manual') ? '👨‍💼 تسليم يدوي (سيتم التنفيذ بواسطة المشرف)' : '⚡ تسليم فوري';
             document.getElementById('modalProductName').textContent = itemName;
             document.getElementById('modalProductCategory').textContent = category || 'غير محدد';
             document.getElementById('modalProductPrice').textContent = price + ' ريال';
             document.getElementById('modalProductDetails').textContent = details || 'لا توجد تفاصيل إضافية';
             
-            // إضافة أو تحديث نص نوع التسليم
-            let deliveryInfoEl = document.getElementById('modalDeliveryType');
-            if(!deliveryInfoEl) {
-                deliveryInfoEl = document.createElement('div');
-                deliveryInfoEl.id = 'modalDeliveryType';
-                deliveryInfoEl.style.cssText = 'text-align: center; padding: 10px; margin: 10px 0; border-radius: 10px; font-weight: bold;';
-                document.getElementById('modalProductDetails').after(deliveryInfoEl);
-            }
+            // إظهار/إخفاء حقل إدخال المشتري حسب نوع التسليم
+            const buyerInputSection = document.getElementById('buyerInputSection');
+            const deliveryTypeNote = document.getElementById('deliveryTypeNote');
+            const buyerInputDetails = document.getElementById('buyerInputDetails');
+            
             if(deliveryType === 'manual') {
-                deliveryInfoEl.style.background = 'rgba(243, 156, 18, 0.2)';
-                deliveryInfoEl.style.color = '#f39c12';
-                deliveryInfoEl.innerHTML = '👨‍💼 تسليم يدوي - سيتم تنفيذ طلبك بواسطة المشرف';
+                // تسليم يدوي - إظهار حقل الإدخال
+                buyerInputSection.style.display = 'block';
+                document.getElementById('buyerInstructionsLabel').textContent = buyerInstructions || 'أدخل المعلومات المطلوبة:';
+                buyerInputDetails.value = '';
+                buyerInputDetails.placeholder = 'مثال: آيدي اللعبة، اسم الحساب...';
+                
+                deliveryTypeNote.style.color = '#f39c12';
+                deliveryTypeNote.innerHTML = '👨‍💼 تسليم يدوي - سيتم تنفيذ طلبك بواسطة المشرف';
             } else {
-                deliveryInfoEl.style.background = 'rgba(0, 184, 148, 0.2)';
-                deliveryInfoEl.style.color = '#00b894';
-                deliveryInfoEl.innerHTML = '⚡ تسليم فوري - ستحصل على البيانات مباشرة';
+                // تسليم فوري - إخفاء حقل الإدخال
+                buyerInputSection.style.display = 'none';
+                buyerInputDetails.value = '';
+                
+                deliveryTypeNote.style.color = '#00b894';
+                deliveryTypeNote.innerHTML = '⚡ تسليم فوري - ستحصل على البيانات مباشرة';
             }
             
             document.getElementById('buyModal').style.display = 'block';
@@ -2789,11 +2806,22 @@ HTML_PAGE = """
 
         function closeModal() {
             document.getElementById('buyModal').style.display = 'none';
+            document.getElementById('buyerInputDetails').value = '';
             currentPurchaseData = null;
         }
 
         function confirmPurchase() {
             if(!currentPurchaseData) return;
+            
+            // للتسليم اليدوي: التحقق من إدخال البيانات
+            if(currentPurchaseData.deliveryType === 'manual') {
+                const buyerDetails = document.getElementById('buyerInputDetails').value.trim();
+                if(!buyerDetails) {
+                    alert('❌ الرجاء إدخال المعلومات المطلوبة');
+                    return;
+                }
+                currentPurchaseData.buyerDetails = buyerDetails;
+            }
             
             // إظهار حالة التحميل
             const confirmBtn = document.querySelector('#buyModal .modal-btn-confirm');
@@ -2807,6 +2835,10 @@ HTML_PAGE = """
                 body: JSON.stringify({
                     buyer_id: currentPurchaseData.buyerId,
                     buyer_name: currentPurchaseData.buyerName,
+                    item_id: currentPurchaseData.itemId,
+                    delivery_type: currentPurchaseData.deliveryType,
+                    buyer_details: currentPurchaseData.buyerDetails || ''
+                })
                     item_id: currentPurchaseData.itemId,
                     delivery_type: currentPurchaseData.deliveryType
                 })
@@ -4060,7 +4092,12 @@ def claim_manual_order(call):
         
         # تحديث رسالة الأدمن
         try:
-            hidden_data = order.get('hidden_data', 'لا توجد بيانات')
+            buyer_details = order.get('buyer_details', '')
+            
+            # بناء نص تفاصيل المشتري
+            buyer_details_text = ""
+            if buyer_details:
+                buyer_details_text = f"\n\n📝 تفاصيل الطلب من المشتري:\n━━━━━━━━━━━━━━━━━━━━━━━━\n{buyer_details}\n━━━━━━━━━━━━━━━━━━━━━━━━"
             
             # إنشاء زر إكمال الطلب
             complete_markup = telebot.types.InlineKeyboardMarkup()
@@ -4075,8 +4112,8 @@ def claim_manual_order(call):
                 f"📦 المنتج: {order.get('item_name')}\n"
                 f"👤 المشتري: {order.get('buyer_name')}\n"
                 f"🔢 معرف المشتري: {order.get('buyer_id')}\n"
-                f"💰 السعر: {order.get('price')} ريال\n\n"
-                f"🔐 بيانات المنتج:\n{hidden_data}\n\n"
+                f"💰 السعر: {order.get('price')} ريال"
+                f"{buyer_details_text}\n\n"
                 f"👇 بعد تنفيذ الطلب اضغط الزر أدناه",
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -5707,6 +5744,7 @@ def buy_item():
         buyer_id = str(data.get('buyer_id'))
         buyer_name = data.get('buyer_name')
         item_id = str(data.get('item_id'))  # تأكد أنه نص
+        buyer_details = data.get('buyer_details', '')  # تفاصيل المشتري للتسليم اليدوي
 
         print(f"🛒 محاولة شراء - item_id: {item_id}, buyer_id: {buyer_id}")
 
@@ -5798,6 +5836,8 @@ def buy_item():
             'item_name': item.get('item_name'),
             'price': price,
             'hidden_data': item.get('hidden_data'),
+            'buyer_details': buyer_details,  # تفاصيل المشتري للتسليم اليدوي
+            'buyer_instructions': item.get('buyer_instructions', ''),  # ما كان مطلوب من المشتري
             'details': item.get('details', ''),
             'category': item.get('category', ''),
             'image_url': item.get('image_url', ''),
@@ -5884,13 +5924,19 @@ def buy_item():
                 callback_data=f"claim_order_{order_id}"
             ))
             
+            # بناء رسالة الأدمن مع تفاصيل المشتري
+            buyer_details_text = ""
+            if buyer_details:
+                buyer_details_text = f"\n\n📝 تفاصيل الطلب من المشتري:\n━━━━━━━━━━━━━━━━━━━━━━━━\n{buyer_details}\n━━━━━━━━━━━━━━━━━━━━━━━━"
+            
             admin_message = (
                 f"🆕 طلب جديد بانتظار التنفيذ!\n\n"
                 f"🆔 رقم الطلب: #{order_id}\n"
                 f"📦 المنتج: {item.get('item_name')}\n"
                 f"👤 المشتري: {buyer_name}\n"
                 f"🔢 معرف المشتري: {buyer_id}\n"
-                f"💰 السعر: {price} ريال\n\n"
+                f"💰 السعر: {price} ريال"
+                f"{buyer_details_text}\n\n"
                 f"👇 اضغط لتنفيذ الطلب"
             )
             
@@ -7318,39 +7364,58 @@ ADMIN_PRODUCTS_HTML = """
                 <h2>➕ إضافة منتج جديد</h2>
             </div>
             <div class="modal-body">
-                <div class="form-group">
-                    <label>📦 اسم المنتج *</label>
-                    <input type="text" id="productName" placeholder="مثال: نتفلكس شهر كامل" required>
-                </div>
-                <div class="form-group">
-                    <label>💰 السعر (ريال) *</label>
-                    <input type="number" id="productPrice" placeholder="25" min="1" required>
-                </div>
-                <div class="form-group">
-                    <label>🏷️ الفئة *</label>
-                    <select id="productCategory" required>
-                        <option value="">-- اختر الفئة --</option>
-                        <!-- سيتم تحميل الأقسام ديناميكياً -->
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>📝 التفاصيل (اختياري)</label>
-                    <textarea id="productDetails" placeholder="وصف مختصر للمنتج..."></textarea>
-                </div>
-                <div class="form-group">
-                    <label>🔐 البيانات السرية (إيميل/باسورد) *</label>
-                    <textarea id="productHiddenData" placeholder="email@example.com&#10;password123" required></textarea>
-                </div>
-                <div class="form-group">
-                    <label>🖼️ رابط الصورة (اختياري)</label>
-                    <input type="url" id="productImage" placeholder="https://example.com/image.jpg">
-                </div>
+                <!-- اختيار نوع التسليم أولاً -->
                 <div class="form-group">
                     <label>📦 نوع التسليم *</label>
-                    <select id="productDeliveryType" required>
+                    <select id="productDeliveryType" required onchange="toggleDeliveryFields()">
+                        <option value="">-- اختر نوع التسليم --</option>
                         <option value="instant">⚡ تسليم فوري (إرسال تلقائي للبيانات)</option>
-                        <option value="manual">👨‍💼 تسليم يدوي (تنفيذ من الأدمن)</option>
+                        <option value="manual">👨‍💼 تسليم يدوي (المشتري يكتب طلبه)</option>
                     </select>
+                </div>
+                
+                <!-- حقول مشتركة -->
+                <div id="commonFields" style="display: none;">
+                    <div class="form-group">
+                        <label>📦 اسم المنتج *</label>
+                        <input type="text" id="productName" placeholder="مثال: نتفلكس شهر كامل" required>
+                    </div>
+                    <div class="form-group">
+                        <label>💰 السعر (ريال) *</label>
+                        <input type="number" id="productPrice" placeholder="25" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>🏷️ الفئة *</label>
+                        <select id="productCategory" required>
+                            <option value="">-- اختر الفئة --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>📝 وصف المنتج (اختياري)</label>
+                        <textarea id="productDetails" placeholder="وصف مختصر للمنتج..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>🖼️ رابط الصورة (اختياري)</label>
+                        <input type="url" id="productImage" placeholder="https://example.com/image.jpg">
+                    </div>
+                </div>
+                
+                <!-- حقول التسليم الفوري فقط -->
+                <div id="instantFields" style="display: none;">
+                    <div class="form-group" style="background: rgba(46, 204, 113, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(46, 204, 113, 0.3);">
+                        <label>🔐 البيانات السرية (إيميل/باسورد) *</label>
+                        <textarea id="productHiddenData" placeholder="email@example.com&#10;password123" style="min-height: 80px;"></textarea>
+                        <small style="color: #888;">⚡ هذه البيانات ستُرسل تلقائياً للمشتري فور الشراء</small>
+                    </div>
+                </div>
+                
+                <!-- حقول التسليم اليدوي فقط -->
+                <div id="manualFields" style="display: none;">
+                    <div class="form-group" style="background: rgba(241, 196, 15, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(241, 196, 15, 0.3);">
+                        <label>📝 ماذا تحتاج من المشتري؟ *</label>
+                        <textarea id="productBuyerInstructions" placeholder="مثال: آيدي اللعبة، اسم الحساب، الكمية المطلوبة..." style="min-height: 80px;"></textarea>
+                        <small style="color: #888;">👨‍💼 سيظهر هذا للمشتري وسيُطلب منه كتابة هذه المعلومات</small>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -7488,6 +7553,28 @@ ADMIN_PRODUCTS_HTML = """
             document.getElementById('soldProducts').textContent = sold;
         }
         
+        // دالة إظهار/إخفاء الحقول حسب نوع التسليم
+        function toggleDeliveryFields() {
+            const deliveryType = document.getElementById('productDeliveryType').value;
+            const commonFields = document.getElementById('commonFields');
+            const instantFields = document.getElementById('instantFields');
+            const manualFields = document.getElementById('manualFields');
+            
+            if(deliveryType === '') {
+                commonFields.style.display = 'none';
+                instantFields.style.display = 'none';
+                manualFields.style.display = 'none';
+            } else if(deliveryType === 'instant') {
+                commonFields.style.display = 'block';
+                instantFields.style.display = 'block';
+                manualFields.style.display = 'none';
+            } else if(deliveryType === 'manual') {
+                commonFields.style.display = 'block';
+                instantFields.style.display = 'none';
+                manualFields.style.display = 'block';
+            }
+        }
+        
         // نافذة إضافة منتج
         function openAddModal() {
             document.getElementById('addModal').classList.add('active');
@@ -7496,27 +7583,55 @@ ADMIN_PRODUCTS_HTML = """
         function closeAddModal() {
             document.getElementById('addModal').classList.remove('active');
             // مسح الحقول
+            document.getElementById('productDeliveryType').value = '';
             document.getElementById('productName').value = '';
             document.getElementById('productPrice').value = '';
             document.getElementById('productCategory').value = '';
             document.getElementById('productDetails').value = '';
             document.getElementById('productHiddenData').value = '';
+            document.getElementById('productBuyerInstructions').value = '';
             document.getElementById('productImage').value = '';
+            // إخفاء جميع الحقول
+            document.getElementById('commonFields').style.display = 'none';
+            document.getElementById('instantFields').style.display = 'none';
+            document.getElementById('manualFields').style.display = 'none';
         }
         
         async function submitProduct() {
+            const deliveryType = document.getElementById('productDeliveryType').value;
             const name = document.getElementById('productName').value.trim();
             const price = document.getElementById('productPrice').value;
             const category = document.getElementById('productCategory').value;
             const details = document.getElementById('productDetails').value.trim();
-            const hiddenData = document.getElementById('productHiddenData').value.trim();
             const image = document.getElementById('productImage').value.trim();
-            const deliveryType = document.getElementById('productDeliveryType').value;
             
-            // التحقق
-            if(!name || !price || !category || !hiddenData) {
-                showAlert('error', 'الرجاء ملء جميع الحقول المطلوبة');
+            // التحقق من نوع التسليم أولاً
+            if(!deliveryType) {
+                showAlert('error', 'الرجاء اختيار نوع التسليم');
                 return;
+            }
+            
+            // التحقق من الحقول المشتركة
+            if(!name || !price || !category) {
+                showAlert('error', 'الرجاء ملء جميع الحقول المطلوبة (الاسم، السعر، الفئة)');
+                return;
+            }
+            
+            let hiddenData = '';
+            let buyerInstructions = '';
+            
+            if(deliveryType === 'instant') {
+                hiddenData = document.getElementById('productHiddenData').value.trim();
+                if(!hiddenData) {
+                    showAlert('error', 'الرجاء إدخال البيانات السرية للتسليم الفوري');
+                    return;
+                }
+            } else if(deliveryType === 'manual') {
+                buyerInstructions = document.getElementById('productBuyerInstructions').value.trim();
+                if(!buyerInstructions) {
+                    showAlert('error', 'الرجاء كتابة ما تحتاجه من المشتري');
+                    return;
+                }
             }
             
             try {
@@ -7529,6 +7644,7 @@ ADMIN_PRODUCTS_HTML = """
                         category: category,
                         details: details,
                         hidden_data: hiddenData,
+                        buyer_instructions: buyerInstructions,
                         image: image,
                         delivery_type: deliveryType
                     })
@@ -8346,6 +8462,7 @@ def api_add_product_new():
         category = data.get('category', '').strip()
         details = data.get('details', '').strip()
         hidden_data = data.get('hidden_data', '').strip()
+        buyer_instructions = data.get('buyer_instructions', '').strip()
         image = data.get('image', '').strip()
         delivery_type = data.get('delivery_type', 'instant').strip()
         
@@ -8353,9 +8470,16 @@ def api_add_product_new():
         if delivery_type not in ['instant', 'manual']:
             delivery_type = 'instant'
         
-        # التحقق من البيانات
-        if not name or price <= 0 or not category or not hidden_data:
-            return jsonify({'status': 'error', 'message': 'بيانات ناقصة'})
+        # التحقق من البيانات الأساسية
+        if not name or price <= 0 or not category:
+            return jsonify({'status': 'error', 'message': 'بيانات ناقصة (الاسم، السعر، الفئة)'})
+        
+        # التحقق حسب نوع التسليم
+        if delivery_type == 'instant' and not hidden_data:
+            return jsonify({'status': 'error', 'message': 'البيانات السرية مطلوبة للتسليم الفوري'})
+        
+        if delivery_type == 'manual' and not buyer_instructions:
+            return jsonify({'status': 'error', 'message': 'يجب تحديد ما تحتاجه من المشتري'})
         
         # إنشاء المنتج
         product_id = str(uuid.uuid4())
@@ -8366,6 +8490,7 @@ def api_add_product_new():
             'category': category,
             'details': details,
             'hidden_data': hidden_data,
+            'buyer_instructions': buyer_instructions,
             'image_url': image,
             'seller_id': ADMIN_ID,
             'seller_name': 'المتجر الرسمي',

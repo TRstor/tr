@@ -2558,18 +2558,14 @@ HTML_PAGE = """
         // دالة التبديل بين تبويبات التسليم
         function switchDeliveryTab(type) {
             currentDeliveryType = type;
-            currentCategory = 'all'; // إعادة تعيين الفئة عند التبديل
             
             // تحديث مظهر التبويبات
             document.getElementById('tabInstant').classList.remove('active');
             document.getElementById('tabManual').classList.remove('active');
             document.getElementById('tab' + (type === 'instant' ? 'Instant' : 'Manual')).classList.add('active');
             
-            // إعادة عرض الأقسام حسب نوع التسليم
+            // إعادة عرض الأقسام حسب نوع التسليم (تختار أول قسم تلقائياً)
             renderCategoriesByType(type);
-            
-            // إعادة تصفية المنتجات
-            filterCategory('all');
         }
         
         // دالة عرض الأقسام حسب نوع التسليم

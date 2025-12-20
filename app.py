@@ -6711,9 +6711,13 @@ def dashboard():
     </html>
     """
 
-# API لشحن رصيد من لوحة التحكم
+# API لشحن رصيد من لوحة التحكم (للأدمن فقط)
 @app.route('/api/add_balance', methods=['POST'])
 def api_add_balance():
+    # ===== التحقق من صلاحية الأدمن =====
+    if not session.get('is_admin'):
+        return {'status': 'error', 'message': 'غير مصرح!'}
+    
     data = request.json
     user_id = str(data.get('user_id'))
     amount = float(data.get('amount'))
@@ -6734,6 +6738,10 @@ def api_add_balance():
 # --- API لإضافة منتج (مصحح للحفظ في Firebase) ---
 @app.route('/api/add_product', methods=['POST'])
 def api_add_product():
+    # ===== التحقق من صلاحية الأدمن =====
+    if not session.get('is_admin'):
+        return {'status': 'error', 'message': 'غير مصرح!'}
+    
     try:
         data = request.json
         name = data.get('name')
@@ -6790,6 +6798,10 @@ def api_add_product():
 # --- API لتوليد المفاتيح (مصحح للحفظ في Firebase) ---
 @app.route('/api/generate_keys', methods=['POST'])
 def api_generate_keys():
+    # ===== التحقق من صلاحية الأدمن =====
+    if not session.get('is_admin'):
+        return {'status': 'error', 'message': 'غير مصرح!'}
+    
     try:
         data = request.json
         amount = float(data.get('amount'))

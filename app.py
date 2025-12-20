@@ -160,10 +160,21 @@ failed_login_attempts = {}
 # الشكل: { key_code: {amount, used, used_by, created_at} }
 charge_keys = {}
 
+# قائمة الأقسام الديناميكية
+# الشكل: { id: {name, image_url, order, created_at} }
+categories_list = [
+    {'id': '1', 'name': 'نتفلكس', 'image_url': 'https://i.imgur.com/netflix.png', 'order': 1},
+    {'id': '2', 'name': 'شاهد', 'image_url': 'https://i.imgur.com/shahid.png', 'order': 2},
+    {'id': '3', 'name': 'ديزني بلس', 'image_url': 'https://i.imgur.com/disney.png', 'order': 3},
+    {'id': '4', 'name': 'اوسن بلس', 'image_url': 'https://i.imgur.com/osn.png', 'order': 4},
+    {'id': '5', 'name': 'فديو بريميم', 'image_url': 'https://i.imgur.com/vedio.png', 'order': 5},
+    {'id': '6', 'name': 'اشتراكات أخرى', 'image_url': 'https://i.imgur.com/other.png', 'order': 6}
+]
+
 # دالة تحميل جميع البيانات من Firebase عند بدء التطبيق
 def load_all_data_from_firebase():
     """تحميل جميع البيانات من Firebase عند بدء التطبيق"""
-    global marketplace_items, users_wallets, charge_keys, active_orders
+    global marketplace_items, users_wallets, charge_keys, active_orders, categories_list
     
     if not db:
         print("⚠️ Firebase غير متاح - سيتم استخدام البيانات الفارغة")
@@ -229,6 +240,22 @@ def load_all_data_from_firebase():
             print(f"✅ تم تحميل {len(active_orders)} طلب نشط")
         except Exception as e:
             print(f"⚠️ خطأ في تحميل الطلبات: {e}")
+        
+        # 5️⃣ تحميل الأقسام
+        try:
+            cats_ref = db.collection('categories').order_by('order')
+            loaded_cats = []
+            for doc in cats_ref.stream():
+                data = doc.to_dict()
+                data['id'] = doc.id
+                loaded_cats.append(data)
+            if loaded_cats:
+                categories_list = loaded_cats
+                print(f"✅ تم تحميل {len(categories_list)} قسم")
+            else:
+                print(f"ℹ️ لا توجد أقسام في Firebase - استخدام الأقسام الافتراضية ({len(categories_list)})")
+        except Exception as e:
+            print(f"⚠️ خطأ في تحميل الأقسام: {e}")
         
         print("🎉 اكتمل تحميل البيانات من Firebase!")
         
@@ -1985,36 +2012,8 @@ HTML_PAGE = """
         <small onclick="filterCategory('all')">عرض الكل</small>
     </div>
 
-    <div class="categories-grid">
-        <div class="cat-card bg-netflix" onclick="filterCategory('نتفلكس')">
-            <img class="cat-icon" src="https://cdn-icons-png.flaticon.com/512/732/732228.png" alt="نتفلكس">
-            <div class="cat-title">نتفلكس</div>
-        </div>
-        
-        <div class="cat-card bg-shahid" onclick="filterCategory('شاهد')">
-            <img class="cat-icon" src="https://cdn-icons-png.flaticon.com/512/3845/3845874.png" alt="شاهد">
-            <div class="cat-title">شاهد</div>
-        </div>
-
-        <div class="cat-card bg-disney" onclick="filterCategory('ديزني بلس')">
-            <img class="cat-icon" src="https://cdn-icons-png.flaticon.com/512/5977/5977590.png" alt="ديزني بلس">
-            <div class="cat-title">ديزني بلس</div>
-        </div>
-        
-        <div class="cat-card bg-osn" onclick="filterCategory('اوسن بلس')">
-            <img class="cat-icon" src="https://cdn-icons-png.flaticon.com/512/1946/1946488.png" alt="اوسن بلس">
-            <div class="cat-title">اوسن بلس</div>
-        </div>
-        
-        <div class="cat-card bg-video" onclick="filterCategory('فديو بريميم')">
-            <img class="cat-icon" src="https://cdn-icons-png.flaticon.com/512/3074/3074767.png" alt="فديو بريميم">
-            <div class="cat-title">فديو بريميم</div>
-        </div>
-        
-        <div class="cat-card bg-other" onclick="filterCategory('اشتراكات أخرى')">
-            <img class="cat-icon" src="https://cdn-icons-png.flaticon.com/512/2087/2087815.png" alt="اشتراكات أخرى">
-            <div class="cat-title">اشتراكات أخرى</div>
-        </div>
+    <div class="categories-grid" id="categoriesContainer">
+        <!-- سيتم تحميل الأقسام ديناميكياً -->
     </div>
 
     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
@@ -2874,9 +2873,51 @@ HTML_PAGE = """
         
         // تحميل أول قسم (نتفلكس) عند فتح الصفحة
         window.addEventListener('DOMContentLoaded', function() {
-            filterCategory('نتفلكس');
+            loadCategoriesUI();  // تحميل الأقسام ديناميكياً
             initFloatingNav();
         });
+        
+        // دالة تحميل الأقسام للواجهة
+        async function loadCategoriesUI() {
+            try {
+                const response = await fetch('/api/categories');
+                const data = await response.json();
+                
+                if(data.status === 'success' && data.categories.length > 0) {
+                    const container = document.getElementById('categoriesContainer');
+                    const colors = ['bg-netflix', 'bg-shahid', 'bg-disney', 'bg-osn', 'bg-video', 'bg-other'];
+                    const defaultIcons = [
+                        'https://cdn-icons-png.flaticon.com/512/732/732228.png',
+                        'https://cdn-icons-png.flaticon.com/512/3845/3845874.png',
+                        'https://cdn-icons-png.flaticon.com/512/5977/5977590.png',
+                        'https://cdn-icons-png.flaticon.com/512/1946/1946488.png',
+                        'https://cdn-icons-png.flaticon.com/512/3074/3074767.png',
+                        'https://cdn-icons-png.flaticon.com/512/2087/2087815.png'
+                    ];
+                    
+                    container.innerHTML = data.categories.map((cat, index) => {
+                        const colorClass = colors[index % colors.length];
+                        const icon = cat.image_url || defaultIcons[index % defaultIcons.length];
+                        return `
+                            <div class="cat-card ${colorClass}" onclick="filterCategory('${cat.name}')">
+                                <img class="cat-icon" src="${icon}" alt="${cat.name}" 
+                                     onerror="this.src='https://cdn-icons-png.flaticon.com/512/2087/2087815.png'">
+                                <div class="cat-title">${cat.name}</div>
+                            </div>
+                        `;
+                    }).join('');
+                    
+                    // تصفية أول قسم
+                    filterCategory(data.categories[0].name);
+                } else {
+                    // استخدام الأقسام الافتراضية إذا فشل التحميل
+                    filterCategory('نتفلكس');
+                }
+            } catch(error) {
+                console.error('خطأ في تحميل الأقسام:', error);
+                filterCategory('نتفلكس');
+            }
+        }
 
         // --- Floating Navigation Bar ---
         function initFloatingNav() {
@@ -7178,6 +7219,7 @@ ADMIN_PRODUCTS_HTML = """
         <div class="header">
             <h1>🏪 إدارة المنتجات</h1>
             <div class="header-actions">
+                <a href="/admin/categories" class="btn btn-primary">🏷️ إدارة الأقسام</a>
                 <button class="btn btn-success" onclick="openAddModal()">➕ إضافة منتج</button>
                 <a href="/dashboard" class="btn btn-secondary">🔙 لوحة التحكم</a>
             </div>
@@ -7241,12 +7283,7 @@ ADMIN_PRODUCTS_HTML = """
                     <label>🏷️ الفئة *</label>
                     <select id="productCategory" required>
                         <option value="">-- اختر الفئة --</option>
-                        <option value="نتفلكس">نتفلكس</option>
-                        <option value="شاهد">شاهد</option>
-                        <option value="ديزني بلس">ديزني بلس</option>
-                        <option value="اوسن بلس">اوسن بلس</option>
-                        <option value="فديو بريميم">فديو بريميم</option>
-                        <option value="اشتراكات أخرى">اشتراكات أخرى</option>
+                        <!-- سيتم تحميل الأقسام ديناميكياً -->
                     </select>
                 </div>
                 <div class="form-group">
@@ -7298,8 +7335,29 @@ ADMIN_PRODUCTS_HTML = """
         const ADMIN_ID = {{ admin_id }};
         let productToDelete = null;
         
-        // تحميل المنتجات عند فتح الصفحة
-        document.addEventListener('DOMContentLoaded', loadProducts);
+        // تحميل المنتجات والأقسام عند فتح الصفحة
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProducts();
+            loadCategoriesForSelect();
+        });
+        
+        // تحميل الأقسام للقائمة المنسدلة
+        async function loadCategoriesForSelect() {
+            try {
+                const response = await fetch('/api/admin/get_categories');
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    const select = document.getElementById('productCategory');
+                    select.innerHTML = '<option value="">-- اختر الفئة --</option>';
+                    data.categories.forEach(cat => {
+                        select.innerHTML += `<option value="${cat.name}">${cat.name}</option>`;
+                    });
+                }
+            } catch(error) {
+                console.error('خطأ في تحميل الأقسام:', error);
+            }
+        }
         
         async function loadProducts() {
             try {
@@ -7501,6 +7559,555 @@ ADMIN_PRODUCTS_HTML = """
 </html>
 """
 
+# صفحة إدارة الأقسام (للمالك فقط)
+ADMIN_CATEGORIES_HTML = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏷️ إدارة الأقسام</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        :root {
+            --primary: #667eea;
+            --success: #27ae60;
+            --warning: #f39c12;
+            --danger: #e74c3c;
+            --dark: #1a1a2e;
+            --darker: #16213e;
+            --card: #0f3460;
+            --text: #ffffff;
+            --text-secondary: #a0a0a0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: linear-gradient(135deg, var(--dark), var(--darker));
+            min-height: 100vh;
+            color: var(--text);
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .header h1 {
+            font-size: 24px;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), #764ba2);
+            color: white;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, var(--success), #2ecc71);
+            color: white;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger), #c0392b);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #444;
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        }
+        
+        .categories-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+        
+        .category-card {
+            background: var(--card);
+            border-radius: 15px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            transition: all 0.3s;
+        }
+        
+        .category-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        .category-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .category-image {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            object-fit: cover;
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .category-info {
+            flex: 1;
+        }
+        
+        .category-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .category-count {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        
+        .category-order {
+            background: var(--primary);
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        .category-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .category-actions .btn {
+            flex: 1;
+            justify-content: center;
+            padding: 10px;
+            font-size: 13px;
+        }
+        
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: var(--card);
+            border-radius: 20px;
+            width: 90%;
+            max-width: 450px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            padding: 20px;
+            background: linear-gradient(135deg, var(--primary), #764ba2);
+            border-radius: 20px 20px 0 0;
+        }
+        
+        .modal-header h2 {
+            font-size: 20px;
+        }
+        
+        .modal-body {
+            padding: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            background: rgba(0,0,0,0.3);
+            color: white;
+            font-size: 14px;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .image-preview {
+            margin-top: 10px;
+            text-align: center;
+        }
+        
+        .image-preview img {
+            max-width: 100px;
+            max-height: 100px;
+            border-radius: 10px;
+            border: 2px solid var(--primary);
+        }
+        
+        .modal-footer {
+            padding: 15px 20px;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: var(--card);
+            border-radius: 15px;
+        }
+        
+        .empty-state .icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+        
+        /* Alert */
+        .alert {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-weight: bold;
+            z-index: 2000;
+            transition: transform 0.3s;
+        }
+        
+        .alert.show {
+            transform: translateX(-50%) translateY(0);
+        }
+        
+        .alert.success {
+            background: var(--success);
+            color: white;
+        }
+        
+        .alert.error {
+            background: var(--danger);
+            color: white;
+        }
+        
+        .back-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .back-link:hover {
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <a href="/admin/products" class="back-link">→ العودة لإدارة المنتجات</a>
+                <h1>🏷️ إدارة الأقسام</h1>
+            </div>
+            <button class="btn btn-success" onclick="openAddModal()">
+                ➕ إضافة قسم جديد
+            </button>
+        </div>
+        
+        <div id="categoriesGrid" class="categories-grid">
+            <!-- سيتم تحميل الأقسام هنا -->
+        </div>
+    </div>
+    
+    <!-- نافذة إضافة/تعديل قسم -->
+    <div id="categoryModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">➕ إضافة قسم جديد</h2>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editCategoryId">
+                <div class="form-group">
+                    <label>🏷️ اسم القسم *</label>
+                    <input type="text" id="categoryName" placeholder="مثال: نتفلكس">
+                </div>
+                <div class="form-group">
+                    <label>🖼️ رابط صورة القسم</label>
+                    <input type="url" id="categoryImage" placeholder="https://example.com/image.png" oninput="previewImage()">
+                    <div class="image-preview" id="imagePreview"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">إلغاء</button>
+                <button class="btn btn-success" onclick="saveCategory()">💾 حفظ</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- نافذة تأكيد الحذف -->
+    <div id="deleteModal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header" style="background: linear-gradient(135deg, var(--danger), #c0392b);">
+                <h2>🗑️ تأكيد الحذف</h2>
+            </div>
+            <div class="modal-body" style="text-align: center;">
+                <div style="font-size: 50px; margin-bottom: 15px;">⚠️</div>
+                <p style="margin-bottom: 10px;">هل أنت متأكد من حذف هذا القسم؟</p>
+                <p id="deleteCategoryName" style="color: var(--danger); font-weight: bold;"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeDeleteModal()">إلغاء</button>
+                <button class="btn btn-danger" onclick="confirmDelete()">🗑️ حذف</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="alertBox" class="alert"></div>
+    
+    <script>
+        let categoryToDelete = null;
+        let isEditMode = false;
+        
+        // تحميل الأقسام عند فتح الصفحة
+        document.addEventListener('DOMContentLoaded', loadCategories);
+        
+        async function loadCategories() {
+            try {
+                const response = await fetch('/api/admin/get_categories');
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    renderCategories(data.categories);
+                } else {
+                    showAlert('error', 'فشل تحميل الأقسام');
+                }
+            } catch(error) {
+                showAlert('error', 'خطأ في الاتصال بالسيرفر');
+            }
+        }
+        
+        function renderCategories(categories) {
+            const grid = document.getElementById('categoriesGrid');
+            
+            if(categories.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <div class="icon">📂</div>
+                        <h3>لا توجد أقسام</h3>
+                        <p>اضغط على زر "إضافة قسم جديد" للبدء</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            grid.innerHTML = categories.map(cat => `
+                <div class="category-card" data-id="${cat.id}">
+                    <div class="category-header">
+                        <img src="${cat.image_url || 'https://via.placeholder.com/60?text=' + encodeURIComponent(cat.name)}" 
+                             class="category-image" 
+                             onerror="this.src='https://via.placeholder.com/60?text=📁'">
+                        <div class="category-info">
+                            <div class="category-name">${cat.name}</div>
+                            <div class="category-count">📦 ${cat.product_count || 0} منتج</div>
+                        </div>
+                        <div class="category-order">${cat.order || '?'}</div>
+                    </div>
+                    <div class="category-actions">
+                        <button class="btn btn-primary" onclick="openEditModal('${cat.id}', '${cat.name}', '${cat.image_url || ''}')">
+                            ✏️ تعديل
+                        </button>
+                        <button class="btn btn-danger" onclick="openDeleteModal('${cat.id}', '${cat.name}', ${cat.product_count || 0})">
+                            🗑️ حذف
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function openAddModal() {
+            isEditMode = false;
+            document.getElementById('modalTitle').textContent = '➕ إضافة قسم جديد';
+            document.getElementById('editCategoryId').value = '';
+            document.getElementById('categoryName').value = '';
+            document.getElementById('categoryImage').value = '';
+            document.getElementById('imagePreview').innerHTML = '';
+            document.getElementById('categoryModal').classList.add('active');
+        }
+        
+        function openEditModal(id, name, imageUrl) {
+            isEditMode = true;
+            document.getElementById('modalTitle').textContent = '✏️ تعديل القسم';
+            document.getElementById('editCategoryId').value = id;
+            document.getElementById('categoryName').value = name;
+            document.getElementById('categoryImage').value = imageUrl;
+            previewImage();
+            document.getElementById('categoryModal').classList.add('active');
+        }
+        
+        function closeModal() {
+            document.getElementById('categoryModal').classList.remove('active');
+        }
+        
+        function previewImage() {
+            const url = document.getElementById('categoryImage').value;
+            const preview = document.getElementById('imagePreview');
+            if(url) {
+                preview.innerHTML = `<img src="${url}" onerror="this.src='https://via.placeholder.com/100?text=❌'">`;
+            } else {
+                preview.innerHTML = '';
+            }
+        }
+        
+        async function saveCategory() {
+            const name = document.getElementById('categoryName').value.trim();
+            const imageUrl = document.getElementById('categoryImage').value.trim();
+            const editId = document.getElementById('editCategoryId').value;
+            
+            if(!name) {
+                showAlert('error', 'اسم القسم مطلوب');
+                return;
+            }
+            
+            try {
+                let endpoint = isEditMode ? '/api/admin/update_category' : '/api/admin/add_category';
+                let body = isEditMode 
+                    ? { id: editId, name: name, image_url: imageUrl }
+                    : { name: name, image_url: imageUrl };
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+                
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    showAlert('success', isEditMode ? '✅ تم تعديل القسم!' : '✅ تم إضافة القسم!');
+                    closeModal();
+                    loadCategories();
+                } else {
+                    showAlert('error', data.message || 'حدث خطأ');
+                }
+            } catch(error) {
+                showAlert('error', 'خطأ في الاتصال');
+            }
+        }
+        
+        function openDeleteModal(id, name, productCount) {
+            if(productCount > 0) {
+                showAlert('error', `لا يمكن حذف القسم - يوجد ${productCount} منتج فيه`);
+                return;
+            }
+            categoryToDelete = id;
+            document.getElementById('deleteCategoryName').textContent = name;
+            document.getElementById('deleteModal').classList.add('active');
+        }
+        
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').classList.remove('active');
+            categoryToDelete = null;
+        }
+        
+        async function confirmDelete() {
+            if(!categoryToDelete) return;
+            
+            try {
+                const response = await fetch('/api/admin/delete_category', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ id: categoryToDelete })
+                });
+                
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    showAlert('success', '✅ تم حذف القسم!');
+                    closeDeleteModal();
+                    loadCategories();
+                } else {
+                    showAlert('error', data.message || 'فشل الحذف');
+                }
+            } catch(error) {
+                showAlert('error', 'خطأ في الاتصال');
+            }
+        }
+        
+        function showAlert(type, message) {
+            const alertEl = document.getElementById('alertBox');
+            alertEl.textContent = message;
+            alertEl.className = 'alert ' + type + ' show';
+            setTimeout(() => alertEl.classList.remove('show'), 4000);
+        }
+        
+        // إغلاق النوافذ بالضغط خارجها
+        window.onclick = function(event) {
+            if(event.target.classList.contains('modal')) {
+                event.target.classList.remove('active');
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
 # صفحة إدارة المنتجات (للمالك فقط)
 @app.route('/admin/products')
 def admin_products():
@@ -7509,6 +8116,15 @@ def admin_products():
         return redirect('/dashboard')
     
     return render_template_string(ADMIN_PRODUCTS_HTML, admin_id=ADMIN_ID)
+
+# صفحة إدارة الأقسام (للمالك فقط)
+@app.route('/admin/categories')
+def admin_categories():
+    # التحقق من تسجيل الدخول كمالك
+    if not session.get('is_admin'):
+        return redirect('/dashboard')
+    
+    return render_template_string(ADMIN_CATEGORIES_HTML)
 
 # API لجلب جميع المنتجات (للمالك)
 @app.route('/api/admin/get_products')
@@ -7639,6 +8255,240 @@ def api_delete_product():
         
     except Exception as e:
         print(f"Error deleting product: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# ============ إدارة الأقسام ============
+
+# API لجلب الأقسام
+@app.route('/api/admin/get_categories', methods=['GET'])
+def api_get_categories():
+    """جلب قائمة الأقسام"""
+    try:
+        # حساب عدد المنتجات لكل قسم
+        category_counts = {}
+        for item in marketplace_items:
+            cat = item.get('category', '')
+            if cat:
+                category_counts[cat] = category_counts.get(cat, 0) + 1
+        
+        # إضافة عدد المنتجات لكل قسم
+        result = []
+        for cat in categories_list:
+            cat_data = cat.copy()
+            cat_data['product_count'] = category_counts.get(cat['name'], 0)
+            result.append(cat_data)
+        
+        return jsonify({'status': 'success', 'categories': result})
+    except Exception as e:
+        print(f"Error getting categories: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# API لإضافة قسم جديد
+@app.route('/api/admin/add_category', methods=['POST'])
+def api_add_category():
+    """إضافة قسم جديد"""
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        image_url = data.get('image_url', '').strip()
+        
+        if not name:
+            return jsonify({'status': 'error', 'message': 'اسم القسم مطلوب'})
+        
+        # التحقق من عدم تكرار الاسم
+        for cat in categories_list:
+            if cat['name'] == name:
+                return jsonify({'status': 'error', 'message': 'هذا القسم موجود مسبقاً'})
+        
+        # إنشاء القسم الجديد
+        import uuid
+        cat_id = str(uuid.uuid4())[:8]
+        new_order = len(categories_list) + 1
+        
+        new_category = {
+            'id': cat_id,
+            'name': name,
+            'image_url': image_url or 'https://via.placeholder.com/100?text=' + name,
+            'order': new_order,
+            'created_at': time.time()
+        }
+        
+        # حفظ في Firebase
+        if db:
+            db.collection('categories').document(cat_id).set(new_category)
+            print(f"✅ تم حفظ القسم في Firebase: {name}")
+        
+        # إضافة للذاكرة
+        categories_list.append(new_category)
+        
+        return jsonify({'status': 'success', 'category': new_category})
+        
+    except Exception as e:
+        print(f"Error adding category: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# API لتعديل قسم
+@app.route('/api/admin/update_category', methods=['POST'])
+def api_update_category():
+    """تعديل قسم موجود"""
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
+    try:
+        data = request.json
+        cat_id = data.get('id')
+        new_name = data.get('name', '').strip()
+        new_image = data.get('image_url', '').strip()
+        
+        if not cat_id:
+            return jsonify({'status': 'error', 'message': 'معرف القسم مطلوب'})
+        
+        # البحث عن القسم
+        cat_found = None
+        old_name = None
+        for cat in categories_list:
+            if cat['id'] == cat_id:
+                cat_found = cat
+                old_name = cat['name']
+                break
+        
+        if not cat_found:
+            return jsonify({'status': 'error', 'message': 'القسم غير موجود'})
+        
+        # تحديث القسم
+        if new_name:
+            cat_found['name'] = new_name
+        if new_image:
+            cat_found['image_url'] = new_image
+        
+        # تحديث في Firebase
+        if db:
+            db.collection('categories').document(cat_id).update({
+                'name': cat_found['name'],
+                'image_url': cat_found['image_url']
+            })
+        
+        # تحديث اسم القسم في المنتجات إذا تغير
+        if old_name and new_name and old_name != new_name:
+            for item in marketplace_items:
+                if item.get('category') == old_name:
+                    item['category'] = new_name
+                    # تحديث في Firebase أيضاً
+                    if db and item.get('id'):
+                        try:
+                            db.collection('products').document(item['id']).update({'category': new_name})
+                        except:
+                            pass
+        
+        return jsonify({'status': 'success', 'category': cat_found})
+        
+    except Exception as e:
+        print(f"Error updating category: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# API لحذف قسم
+@app.route('/api/admin/delete_category', methods=['POST'])
+def api_delete_category():
+    """حذف قسم"""
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
+    try:
+        global categories_list
+        data = request.json
+        cat_id = data.get('id')
+        
+        if not cat_id:
+            return jsonify({'status': 'error', 'message': 'معرف القسم مطلوب'})
+        
+        # البحث عن القسم
+        cat_found = None
+        for cat in categories_list:
+            if cat['id'] == cat_id:
+                cat_found = cat
+                break
+        
+        if not cat_found:
+            return jsonify({'status': 'error', 'message': 'القسم غير موجود'})
+        
+        # التحقق من عدم وجود منتجات في القسم
+        product_count = 0
+        for item in marketplace_items:
+            if item.get('category') == cat_found['name']:
+                product_count += 1
+        
+        if product_count > 0:
+            return jsonify({
+                'status': 'error', 
+                'message': f'لا يمكن حذف القسم - يوجد {product_count} منتج فيه'
+            })
+        
+        # حذف من Firebase
+        if db:
+            db.collection('categories').document(cat_id).delete()
+            print(f"✅ تم حذف القسم من Firebase: {cat_found['name']}")
+        
+        # حذف من الذاكرة
+        categories_list = [c for c in categories_list if c['id'] != cat_id]
+        
+        return jsonify({'status': 'success'})
+        
+    except Exception as e:
+        print(f"Error deleting category: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# API لإعادة ترتيب الأقسام
+@app.route('/api/admin/reorder_categories', methods=['POST'])
+def api_reorder_categories():
+    """إعادة ترتيب الأقسام"""
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
+    try:
+        data = request.json
+        new_order = data.get('order', [])  # قائمة بمعرفات الأقسام بالترتيب الجديد
+        
+        if not new_order:
+            return jsonify({'status': 'error', 'message': 'الترتيب مطلوب'})
+        
+        # تحديث الترتيب
+        for idx, cat_id in enumerate(new_order):
+            for cat in categories_list:
+                if cat['id'] == cat_id:
+                    cat['order'] = idx + 1
+                    # تحديث في Firebase
+                    if db:
+                        try:
+                            db.collection('categories').document(cat_id).update({'order': idx + 1})
+                        except:
+                            pass
+                    break
+        
+        # إعادة ترتيب القائمة
+        categories_list.sort(key=lambda x: x.get('order', 999))
+        
+        return jsonify({'status': 'success'})
+        
+    except Exception as e:
+        print(f"Error reordering categories: {e}")
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# API لجلب الأقسام للعرض العام (بدون تسجيل دخول)
+@app.route('/api/categories', methods=['GET'])
+def api_public_categories():
+    """جلب الأقسام للعرض في الموقع"""
+    try:
+        result = []
+        for cat in categories_list:
+            result.append({
+                'name': cat['name'],
+                'image_url': cat.get('image_url', '')
+            })
+        return jsonify({'status': 'success', 'categories': result})
+    except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
 if __name__ == "__main__":

@@ -161,15 +161,20 @@ failed_login_attempts = {}
 charge_keys = {}
 
 # قائمة الأقسام الديناميكية
-# الشكل: { id: {name, image_url, order, created_at} }
+# الشكل: { id: {name, image_url, order, delivery_type, created_at} }
 categories_list = [
-    {'id': '1', 'name': 'نتفلكس', 'image_url': 'https://i.imgur.com/netflix.png', 'order': 1},
-    {'id': '2', 'name': 'شاهد', 'image_url': 'https://i.imgur.com/shahid.png', 'order': 2},
-    {'id': '3', 'name': 'ديزني بلس', 'image_url': 'https://i.imgur.com/disney.png', 'order': 3},
-    {'id': '4', 'name': 'اوسن بلس', 'image_url': 'https://i.imgur.com/osn.png', 'order': 4},
-    {'id': '5', 'name': 'فديو بريميم', 'image_url': 'https://i.imgur.com/vedio.png', 'order': 5},
-    {'id': '6', 'name': 'اشتراكات أخرى', 'image_url': 'https://i.imgur.com/other.png', 'order': 6}
+    {'id': '1', 'name': 'نتفلكس', 'image_url': 'https://i.imgur.com/netflix.png', 'order': 1, 'delivery_type': 'instant'},
+    {'id': '2', 'name': 'شاهد', 'image_url': 'https://i.imgur.com/shahid.png', 'order': 2, 'delivery_type': 'instant'},
+    {'id': '3', 'name': 'ديزني بلس', 'image_url': 'https://i.imgur.com/disney.png', 'order': 3, 'delivery_type': 'instant'},
+    {'id': '4', 'name': 'اوسن بلس', 'image_url': 'https://i.imgur.com/osn.png', 'order': 4, 'delivery_type': 'instant'},
+    {'id': '5', 'name': 'فديو بريميم', 'image_url': 'https://i.imgur.com/vedio.png', 'order': 5, 'delivery_type': 'instant'},
+    {'id': '6', 'name': 'اشتراكات أخرى', 'image_url': 'https://i.imgur.com/other.png', 'order': 6, 'delivery_type': 'manual'}
 ]
+
+# إعدادات العرض (ترتيب الأقسام)
+display_settings = {
+    'categories_columns': 3  # عدد الأعمدة: 2 أو 3 أو 4
+}
 
 # دالة تحميل جميع البيانات من Firebase عند بدء التطبيق
 def load_all_data_from_firebase():
@@ -256,6 +261,16 @@ def load_all_data_from_firebase():
                 print(f"ℹ️ لا توجد أقسام في Firebase - استخدام الأقسام الافتراضية ({len(categories_list)})")
         except Exception as e:
             print(f"⚠️ خطأ في تحميل الأقسام: {e}")
+        
+        # 6️⃣ تحميل إعدادات العرض
+        try:
+            settings_doc = db.collection('settings').document('display').get()
+            if settings_doc.exists:
+                settings_data = settings_doc.to_dict()
+                display_settings['categories_columns'] = settings_data.get('categories_columns', 3)
+                print(f"✅ تم تحميل إعدادات العرض (أعمدة: {display_settings['categories_columns']})")
+        except Exception as e:
+            print(f"⚠️ خطأ في تحميل إعدادات العرض: {e}")
         
         print("🎉 اكتمل تحميل البيانات من Firebase!")
         
@@ -1146,11 +1161,15 @@ HTML_PAGE = """
         /* حاوية الفئات - الشبكة */
         .categories-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(var(--cat-cols, 3), 1fr);
             gap: 8px;
             padding: 5px;
             margin-bottom: 20px;
         }
+        
+        .categories-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+        .categories-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+        .categories-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
 
         /* كرت الفئة */
         .cat-card {
@@ -2895,11 +2914,15 @@ HTML_PAGE = """
                         'https://cdn-icons-png.flaticon.com/512/2087/2087815.png'
                     ];
                     
+                    // تطبيق عدد الأعمدة
+                    const cols = data.columns || 3;
+                    container.className = 'categories-grid cols-' + cols;
+                    
                     container.innerHTML = data.categories.map((cat, index) => {
                         const colorClass = colors[index % colors.length];
                         const icon = cat.image_url || defaultIcons[index % defaultIcons.length];
                         return `
-                            <div class="cat-card ${colorClass}" onclick="filterCategory('${cat.name}')">
+                            <div class="cat-card ${colorClass}" onclick="filterCategory('${cat.name}')" data-delivery="${cat.delivery_type || 'instant'}">
                                 <img class="cat-icon" src="${icon}" alt="${cat.name}" 
                                      onerror="this.src='https://cdn-icons-png.flaticon.com/512/2087/2087815.png'">
                                 <div class="cat-title">${cat.name}</div>
@@ -7857,6 +7880,44 @@ ADMIN_CATEGORIES_HTML = """
         .back-link:hover {
             color: white;
         }
+        
+        .settings-card {
+            background: var(--card);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .settings-card h3 {
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .columns-selector {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .column-btn {
+            padding: 12px 24px;
+            border: 2px solid var(--primary);
+            background: transparent;
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .column-btn:hover {
+            background: rgba(102, 126, 234, 0.2);
+        }
+        
+        .column-btn.active {
+            background: var(--primary);
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -7869,6 +7930,22 @@ ADMIN_CATEGORIES_HTML = """
             <button class="btn btn-success" onclick="openAddModal()">
                 ➕ إضافة قسم جديد
             </button>
+        </div>
+        
+        <!-- إعدادات العرض -->
+        <div class="settings-card">
+            <h3>⚙️ ترتيب عرض الأقسام في الموقع</h3>
+            <div class="columns-selector">
+                <button class="column-btn" data-cols="2" onclick="setColumns(2)">
+                    2×2 (عمودين)
+                </button>
+                <button class="column-btn" data-cols="3" onclick="setColumns(3)">
+                    3×3 (ثلاثة أعمدة)
+                </button>
+                <button class="column-btn" data-cols="4" onclick="setColumns(4)">
+                    4×4 (أربعة أعمدة)
+                </button>
+            </div>
         </div>
         
         <div id="categoriesGrid" class="categories-grid">
@@ -7892,6 +7969,13 @@ ADMIN_CATEGORIES_HTML = """
                     <label>🖼️ رابط صورة القسم</label>
                     <input type="url" id="categoryImage" placeholder="https://example.com/image.png" oninput="previewImage()">
                     <div class="image-preview" id="imagePreview"></div>
+                </div>
+                <div class="form-group">
+                    <label>📦 نوع التسليم الافتراضي *</label>
+                    <select id="categoryDeliveryType">
+                        <option value="instant">⚡ تسليم فوري</option>
+                        <option value="manual">👨‍💼 تسليم يدوي</option>
+                    </select>
                 </div>
             </div>
             <div class="modal-footer">
@@ -7924,9 +8008,55 @@ ADMIN_CATEGORIES_HTML = """
     <script>
         let categoryToDelete = null;
         let isEditMode = false;
+        let currentColumns = 3;
         
-        // تحميل الأقسام عند فتح الصفحة
-        document.addEventListener('DOMContentLoaded', loadCategories);
+        // تحميل الأقسام والإعدادات عند فتح الصفحة
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCategories();
+            loadDisplaySettings();
+        });
+        
+        async function loadDisplaySettings() {
+            try {
+                const response = await fetch('/api/admin/get_display_settings');
+                const data = await response.json();
+                if(data.status === 'success') {
+                    currentColumns = data.categories_columns || 3;
+                    updateColumnsUI();
+                }
+            } catch(error) {
+                console.log('استخدام الإعدادات الافتراضية');
+            }
+        }
+        
+        function updateColumnsUI() {
+            document.querySelectorAll('.column-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if(parseInt(btn.dataset.cols) === currentColumns) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+        
+        async function setColumns(cols) {
+            try {
+                const response = await fetch('/api/admin/set_display_settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ categories_columns: cols })
+                });
+                const data = await response.json();
+                if(data.status === 'success') {
+                    currentColumns = cols;
+                    updateColumnsUI();
+                    showAlert('success', '✅ تم حفظ الإعداد!');
+                } else {
+                    showAlert('error', data.message || 'فشل الحفظ');
+                }
+            } catch(error) {
+                showAlert('error', 'خطأ في الاتصال');
+            }
+        }
         
         async function loadCategories() {
             try {
@@ -7966,11 +8096,14 @@ ADMIN_CATEGORIES_HTML = """
                         <div class="category-info">
                             <div class="category-name">${cat.name}</div>
                             <div class="category-count">📦 ${cat.product_count || 0} منتج</div>
+                            <div class="category-delivery" style="font-size: 12px; margin-top: 3px;">
+                                ${cat.delivery_type === 'manual' ? '👨‍💼 يدوي' : '⚡ فوري'}
+                            </div>
                         </div>
                         <div class="category-order">${cat.order || '?'}</div>
                     </div>
                     <div class="category-actions">
-                        <button class="btn btn-primary" onclick="openEditModal('${cat.id}', '${cat.name}', '${cat.image_url || ''}')">
+                        <button class="btn btn-primary" onclick="openEditModal('${cat.id}', '${cat.name}', '${cat.image_url || ''}', '${cat.delivery_type || 'instant'}')">
                             ✏️ تعديل
                         </button>
                         <button class="btn btn-danger" onclick="openDeleteModal('${cat.id}', '${cat.name}', ${cat.product_count || 0})">
@@ -7987,16 +8120,18 @@ ADMIN_CATEGORIES_HTML = """
             document.getElementById('editCategoryId').value = '';
             document.getElementById('categoryName').value = '';
             document.getElementById('categoryImage').value = '';
+            document.getElementById('categoryDeliveryType').value = 'instant';
             document.getElementById('imagePreview').innerHTML = '';
             document.getElementById('categoryModal').classList.add('active');
         }
         
-        function openEditModal(id, name, imageUrl) {
+        function openEditModal(id, name, imageUrl, deliveryType) {
             isEditMode = true;
             document.getElementById('modalTitle').textContent = '✏️ تعديل القسم';
             document.getElementById('editCategoryId').value = id;
             document.getElementById('categoryName').value = name;
             document.getElementById('categoryImage').value = imageUrl;
+            document.getElementById('categoryDeliveryType').value = deliveryType || 'instant';
             previewImage();
             document.getElementById('categoryModal').classList.add('active');
         }
@@ -8018,6 +8153,7 @@ ADMIN_CATEGORIES_HTML = """
         async function saveCategory() {
             const name = document.getElementById('categoryName').value.trim();
             const imageUrl = document.getElementById('categoryImage').value.trim();
+            const deliveryType = document.getElementById('categoryDeliveryType').value;
             const editId = document.getElementById('editCategoryId').value;
             
             if(!name) {
@@ -8028,8 +8164,8 @@ ADMIN_CATEGORIES_HTML = """
             try {
                 let endpoint = isEditMode ? '/api/admin/update_category' : '/api/admin/add_category';
                 let body = isEditMode 
-                    ? { id: editId, name: name, image_url: imageUrl }
-                    : { name: name, image_url: imageUrl };
+                    ? { id: editId, name: name, image_url: imageUrl, delivery_type: deliveryType }
+                    : { name: name, image_url: imageUrl, delivery_type: deliveryType };
                 
                 const response = await fetch(endpoint, {
                     method: 'POST',
@@ -8294,6 +8430,10 @@ def api_add_category():
         data = request.json
         name = data.get('name', '').strip()
         image_url = data.get('image_url', '').strip()
+        delivery_type = data.get('delivery_type', 'instant').strip()
+        
+        if delivery_type not in ['instant', 'manual']:
+            delivery_type = 'instant'
         
         if not name:
             return jsonify({'status': 'error', 'message': 'اسم القسم مطلوب'})
@@ -8313,13 +8453,14 @@ def api_add_category():
             'name': name,
             'image_url': image_url or 'https://via.placeholder.com/100?text=' + name,
             'order': new_order,
+            'delivery_type': delivery_type,
             'created_at': time.time()
         }
         
         # حفظ في Firebase
         if db:
             db.collection('categories').document(cat_id).set(new_category)
-            print(f"✅ تم حفظ القسم في Firebase: {name}")
+            print(f"✅ تم حفظ القسم في Firebase: {name} ({delivery_type})")
         
         # إضافة للذاكرة
         categories_list.append(new_category)
@@ -8342,6 +8483,7 @@ def api_update_category():
         cat_id = data.get('id')
         new_name = data.get('name', '').strip()
         new_image = data.get('image_url', '').strip()
+        new_delivery_type = data.get('delivery_type', '').strip()
         
         if not cat_id:
             return jsonify({'status': 'error', 'message': 'معرف القسم مطلوب'})
@@ -8363,12 +8505,15 @@ def api_update_category():
             cat_found['name'] = new_name
         if new_image:
             cat_found['image_url'] = new_image
+        if new_delivery_type in ['instant', 'manual']:
+            cat_found['delivery_type'] = new_delivery_type
         
         # تحديث في Firebase
         if db:
             db.collection('categories').document(cat_id).update({
                 'name': cat_found['name'],
-                'image_url': cat_found['image_url']
+                'image_url': cat_found['image_url'],
+                'delivery_type': cat_found.get('delivery_type', 'instant')
             })
         
         # تحديث اسم القسم في المنتجات إذا تغير
@@ -8485,10 +8630,52 @@ def api_public_categories():
         for cat in categories_list:
             result.append({
                 'name': cat['name'],
-                'image_url': cat.get('image_url', '')
+                'image_url': cat.get('image_url', ''),
+                'delivery_type': cat.get('delivery_type', 'instant')
             })
-        return jsonify({'status': 'success', 'categories': result})
+        return jsonify({
+            'status': 'success', 
+            'categories': result,
+            'columns': display_settings.get('categories_columns', 3)
+        })
     except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)})
+
+# API لجلب إعدادات العرض
+@app.route('/api/admin/get_display_settings', methods=['GET'])
+def api_get_display_settings():
+    """جلب إعدادات العرض"""
+    return jsonify({
+        'status': 'success',
+        'categories_columns': display_settings.get('categories_columns', 3)
+    })
+
+# API لتعديل إعدادات العرض
+@app.route('/api/admin/set_display_settings', methods=['POST'])
+def api_set_display_settings():
+    """تعديل إعدادات العرض"""
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
+    try:
+        data = request.json
+        cols = data.get('categories_columns')
+        
+        if cols and cols in [2, 3, 4]:
+            display_settings['categories_columns'] = cols
+            
+            # حفظ في Firebase
+            if db:
+                db.collection('settings').document('display').set({
+                    'categories_columns': cols
+                }, merge=True)
+            
+            return jsonify({'status': 'success'})
+        else:
+            return jsonify({'status': 'error', 'message': 'قيمة غير صالحة'})
+            
+    except Exception as e:
+        print(f"Error setting display settings: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
 if __name__ == "__main__":

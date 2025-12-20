@@ -47,8 +47,9 @@ except Exception as e:
     db = None
 
 # --- إعدادات البوت ---
-# غير هذا الرقم إلى الآيدي الخاص بك في تيليجرام لتتمكن من شحن الأرصدة
-ADMIN_ID = int(os.environ.get("ADMIN_ID", 5665438577))
+# آيدي المالك - يجب تعيينه في متغيرات البيئة (ADMIN_ID) في Render
+# القيمة الافتراضية وهمية للأمان - لن تعمل بدون تعيين الآيدي الحقيقي
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 123456789))
 TOKEN = os.environ.get("BOT_TOKEN", "default_token_123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:5000")
 
@@ -3775,10 +3776,13 @@ def logout():
 # مسار جلب طلبات المستخدم
 @app.route('/get_orders')
 def get_user_orders():
-    user_id = str(request.args.get('user_id', '0'))
+    # استخدام الجلسة فقط للأمان - لا نقبل user_id من الرابط
+    user_id = session.get('user_id')
     
-    if not user_id or user_id == '0':
+    if not user_id:
         return {'orders': []}
+    
+    user_id = str(user_id)
     
     # جلب جميع الطلبات الخاصة بالمستخدم
     user_orders = []
@@ -3901,8 +3905,8 @@ def check_session_validity():
 
 @app.route('/')
 def index():
-    # التحقق من جلسة المستخدم
-    user_id = session.get('user_id') or request.args.get('user_id')
+    # التحقق من جلسة المستخدم - استخدام الجلسة فقط للأمان
+    user_id = session.get('user_id')
     user_name = session.get('user_name', 'ضيف')
     profile_photo = session.get('profile_photo', '')
     

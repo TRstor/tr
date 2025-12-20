@@ -5,3 +5,4 @@ pyTelegramBotAPI
 Flask
 firebase-admin
 gunicorn
+flask-limiter

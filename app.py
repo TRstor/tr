@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import os
+import html
+import logging
 import telebot
 from telebot import types
 from flask import Flask, request, render_template_string, redirect, session, jsonify
@@ -12,6 +14,10 @@ import time
 import uuid
 import firebase_admin
 from firebase_admin import credentials, firestore
+
+# إعداد التسجيل للأخطاء (السيرفر فقط)
+logging.basicConfig(level=logging.ERROR)
+logger = logging.getLogger(__name__)
 
 # محاولة استيراد FieldFilter للنسخ الجديدة
 try:
@@ -109,10 +115,40 @@ IS_PRODUCTION = os.environ.get("RENDER", False) or os.environ.get("PRODUCTION", 
 app.config.update(
     SESSION_COOKIE_SECURE=IS_PRODUCTION,        
     SESSION_COOKIE_HTTPONLY=True,     
-    SESSION_COOKIE_SAMESITE='Lax',    
+    SESSION_COOKIE_SAMESITE='Strict',  # ✅ تقوية من Lax إلى Strict
     PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),  
     SESSION_COOKIE_NAME='tr_session',  
 )
+
+# --- Rate Limiting (تحديد المحاولات) ---
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+)
+
+# --- دالة تنظيف XSS ---
+def sanitize(text):
+    """تنظيف النص من أكواد HTML/JS الخبيثة"""
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        return text
+    return html.escape(str(text))
+
+# --- Security Headers ---
+@app.after_request
+def add_security_headers(response):
+    """إضافة رؤوس أمان للحماية من الهجمات"""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
 
 # دالة لتجديد الجلسة بعد تسجيل الدخول
 def regenerate_session():
@@ -4287,6 +4323,7 @@ def get_user_orders():
 
 # مسار التحقق من الكود وتسجيل الدخول
 @app.route('/verify', methods=['POST'])
+@limiter.limit("5 per minute")  # 🔒 Rate Limiting: 5 محاولات/دقيقة
 def verify_login():
     data = request.get_json()
     user_id = data.get('user_id')
@@ -5630,6 +5667,7 @@ def get_balance_api():
     return {'balance': balance}
 
 @app.route('/charge_balance', methods=['POST'])
+@limiter.limit("5 per minute")  # 🔒 Rate Limiting: منع تخمين مفاتيح الشحن
 def charge_balance_api():
     """شحن الرصيد باستخدام كود الشحن"""
     data = request.json
@@ -5744,11 +5782,12 @@ def sell_item():
     return {'status': 'success'}
 
 @app.route('/buy', methods=['POST'])
+@limiter.limit("10 per minute")  # 🔒 Rate Limiting: منع الشراء الآلي
 def buy_item():
     try:
         data = request.json
         item_id = str(data.get('item_id'))  # تأكد أنه نص
-        buyer_details = data.get('buyer_details', '')  # تفاصيل المشتري للتسليم اليدوي
+        buyer_details = sanitize(data.get('buyer_details', ''))  # ✅ تنظيف XSS
 
         # ===== التحقق الآمن من هوية المشتري =====
         # لا نثق بـ buyer_id القادم من الطلب!
@@ -6845,6 +6884,7 @@ def api_generate_keys():
 
 # API لإرسال كود التحقق
 @app.route('/api/admin/send_code', methods=['POST'])
+@limiter.limit("3 per minute")  # 🔒 Rate Limiting: منع تخمين كلمة مرور الأدمن
 def api_send_admin_code():
     global admin_login_codes, failed_login_attempts
     
@@ -8494,8 +8534,8 @@ def api_get_products():
         })
         
     except Exception as e:
-        print(f"Error getting products: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error getting products: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # API لإضافة منتج جديد (للمالك)
 @app.route('/api/admin/add_product_new', methods=['POST'])
@@ -8559,8 +8599,8 @@ def api_add_product_new():
         return jsonify({'status': 'success', 'product_id': product_id})
         
     except Exception as e:
-        print(f"Error adding product: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error adding product: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # API لحذف منتج (للمالك)
 @app.route('/api/admin/delete_product', methods=['POST'])
@@ -8588,8 +8628,8 @@ def api_delete_product():
         return jsonify({'status': 'success'})
         
     except Exception as e:
-        print(f"Error deleting product: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error deleting product: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # ============ إدارة الأقسام ============
 
@@ -8597,6 +8637,10 @@ def api_delete_product():
 @app.route('/api/admin/get_categories', methods=['GET'])
 def api_get_categories():
     """جلب قائمة الأقسام"""
+    # ✅ التحقق من صلاحية الأدمن
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
     try:
         # حساب عدد المنتجات لكل قسم
         category_counts = {}
@@ -8614,8 +8658,8 @@ def api_get_categories():
         
         return jsonify({'status': 'success', 'categories': result})
     except Exception as e:
-        print(f"Error getting categories: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error getting categories: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # API لإضافة قسم جديد
 @app.route('/api/admin/add_category', methods=['POST'])
@@ -8666,8 +8710,8 @@ def api_add_category():
         return jsonify({'status': 'success', 'category': new_category})
         
     except Exception as e:
-        print(f"Error adding category: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error adding category: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # API لتعديل قسم
 @app.route('/api/admin/update_category', methods=['POST'])
@@ -8729,8 +8773,8 @@ def api_update_category():
         return jsonify({'status': 'success', 'category': cat_found})
         
     except Exception as e:
-        print(f"Error updating category: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error updating category: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # API لحذف قسم
 @app.route('/api/admin/delete_category', methods=['POST'])
@@ -8780,8 +8824,8 @@ def api_delete_category():
         return jsonify({'status': 'success'})
         
     except Exception as e:
-        print(f"Error deleting category: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error deleting category: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # API لإعادة ترتيب الأقسام
 @app.route('/api/admin/reorder_categories', methods=['POST'])
@@ -8816,8 +8860,8 @@ def api_reorder_categories():
         return jsonify({'status': 'success'})
         
     except Exception as e:
-        print(f"Error reordering categories: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error reordering categories: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # API لجلب الأقسام للعرض العام (بدون تسجيل دخول)
 @app.route('/api/categories', methods=['GET'])
@@ -8837,12 +8881,17 @@ def api_public_categories():
             'columns': display_settings.get('categories_columns', 3)
         })
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error in public categories: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # API لجلب إعدادات العرض
 @app.route('/api/admin/get_display_settings', methods=['GET'])
 def api_get_display_settings():
     """جلب إعدادات العرض"""
+    # ✅ التحقق من صلاحية الأدمن
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
     return jsonify({
         'status': 'success',
         'categories_columns': display_settings.get('categories_columns', 3)
@@ -8873,8 +8922,8 @@ def api_set_display_settings():
             return jsonify({'status': 'error', 'message': 'قيمة غير صالحة'})
             
     except Exception as e:
-        print(f"Error setting display settings: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+        logger.error(f"Error setting display settings: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ، حاول لاحقاً'})
 
 # تحميل البيانات من Firebase عند بدء التشغيل (يعمل مع Gunicorn وlocal)
 print("🚀 بدء تشغيل التطبيق...")

@@ -1,0 +1,32 @@
+# ملفات Firebase السرية
+serviceAccountKey.json
+
+# متغيرات البيئة
+.env
+.env.local
+.env.production
+
+# ملفات Python المؤقتة
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# البيئة الافتراضية
+.venv/
+venv/
+ENV/
+
+# ملفات السجلات
+*.log
+app.log
+
+# ملفات IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ملفات النظام
+.DS_Store
+Thumbs.db

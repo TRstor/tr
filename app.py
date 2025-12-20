@@ -103,12 +103,14 @@ if not SECRET_KEY or SECRET_KEY == "your-secret-key-here-change-it":
 app.secret_key = SECRET_KEY
 
 # إعدادات الكوكيز الآمنة
+# SESSION_COOKIE_SECURE=False للتطوير المحلي، True للإنتاج
+IS_PRODUCTION = os.environ.get("RENDER", False) or os.environ.get("PRODUCTION", False)
 app.config.update(
-    SESSION_COOKIE_SECURE=True,        # إرسال عبر HTTPS فقط
-    SESSION_COOKIE_HTTPONLY=True,      # منع JavaScript من قراءة الكوكيز
-    SESSION_COOKIE_SAMESITE='Lax',     # حماية من CSRF
-    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),  # انتهاء الجلسة بعد 30 دقيقة
-    SESSION_COOKIE_NAME='tr_session',  # اسم مخصص للكوكيز
+    SESSION_COOKIE_SECURE=IS_PRODUCTION,        
+    SESSION_COOKIE_HTTPONLY=True,     
+    SESSION_COOKIE_SAMESITE='Lax',    
+    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),  
+    SESSION_COOKIE_NAME='tr_session',  
 )
 
 # دالة لتجديد الجلسة بعد تسجيل الدخول
@@ -240,19 +242,7 @@ def query_where(collection_ref, field, op, value):
     else:
         return collection_ref.where(field, op, value)
 
-# مفاتيح الشحن المولدة
-# الشكل: { key_code: {amount, used, used_by, created_at} }
-charge_keys = {}
-
 # --- دوال مساعدة ---
-
-# دالة للتعامل مع where بالطريقة المتوافقة
-def query_where(collection_ref, field, op, value):
-    """استخدام where بطريقة متوافقة مع جميع النسخ"""
-    if USE_FIELD_FILTER:
-        return collection_ref.where(filter=FieldFilter(field, op, value))
-    else:
-        return collection_ref.where(field, op, value)
 
 def get_user_profile_photo(user_id):
     """جلب صورة البروفايل من تيليجرام"""
@@ -4459,7 +4449,8 @@ CHARGE_PAGE = """
 @app.route('/wallet')
 def wallet_page():
     """صفحة المحفظة والشحن"""
-    user_id = session.get('user_id') or request.args.get('user_id')
+    # استخدام الجلسة فقط لمنع تسريب بيانات المستخدمين
+    user_id = session.get('user_id')
     
     if not user_id:
         return redirect('/')
@@ -5105,7 +5096,8 @@ MY_PURCHASES_PAGE = """
 @app.route('/my_purchases')
 def my_purchases_page():
     """صفحة مشترياتي المنفصلة"""
-    user_id = session.get('user_id') or request.args.get('user_id')
+    # استخدام الجلسة فقط لمنع تسريب بيانات المستخدمين
+    user_id = session.get('user_id')
     
     if not user_id:
         return redirect('/')
@@ -5151,8 +5143,8 @@ def my_purchases_page():
 
 @app.route('/get_balance')
 def get_balance_api():
-    # محاولة الحصول على user_id من الطلب أو من الجلسة
-    user_id = request.args.get('user_id') or session.get('user_id')
+    # استخدام الجلسة فقط لمنع كشف أرصدة المستخدمين
+    user_id = session.get('user_id')
     
     if not user_id:
         return {'balance': 0}

@@ -2551,20 +2551,67 @@ HTML_PAGE = """
         
         // تصفية المنتجات حسب الفئة
         let allItems = {{ items|tojson }};
+        let allCategories = []; // قائمة الأقسام المحملة
         let currentCategory = 'all'; // متغير لتتبع الفئة الحالية
         let currentDeliveryType = 'instant'; // متغير لتتبع نوع التسليم الحالي
         
         // دالة التبديل بين تبويبات التسليم
         function switchDeliveryTab(type) {
             currentDeliveryType = type;
+            currentCategory = 'all'; // إعادة تعيين الفئة عند التبديل
             
             // تحديث مظهر التبويبات
             document.getElementById('tabInstant').classList.remove('active');
             document.getElementById('tabManual').classList.remove('active');
             document.getElementById('tab' + (type === 'instant' ? 'Instant' : 'Manual')).classList.add('active');
             
+            // إعادة عرض الأقسام حسب نوع التسليم
+            renderCategoriesByType(type);
+            
             // إعادة تصفية المنتجات
-            filterCategory(currentCategory);
+            filterCategory('all');
+        }
+        
+        // دالة عرض الأقسام حسب نوع التسليم
+        function renderCategoriesByType(deliveryType) {
+            const container = document.getElementById('categoriesContainer');
+            const colors = ['bg-netflix', 'bg-shahid', 'bg-disney', 'bg-osn', 'bg-video', 'bg-other'];
+            const defaultIcons = [
+                'https://cdn-icons-png.flaticon.com/512/732/732228.png',
+                'https://cdn-icons-png.flaticon.com/512/3845/3845874.png',
+                'https://cdn-icons-png.flaticon.com/512/5977/5977590.png',
+                'https://cdn-icons-png.flaticon.com/512/1946/1946488.png',
+                'https://cdn-icons-png.flaticon.com/512/3074/3074767.png',
+                'https://cdn-icons-png.flaticon.com/512/2087/2087815.png'
+            ];
+            
+            // تصفية الأقسام حسب نوع التسليم
+            const filteredCats = allCategories.filter(cat => {
+                const catDelivery = cat.delivery_type || 'instant';
+                return catDelivery === deliveryType;
+            });
+            
+            if(filteredCats.length === 0) {
+                container.innerHTML = '<p style="text-align:center; color:#888; padding: 20px;">لا توجد أقسام</p>';
+                return;
+            }
+            
+            container.innerHTML = filteredCats.map((cat, index) => {
+                const colorClass = colors[index % colors.length];
+                const icon = cat.image_url || defaultIcons[index % defaultIcons.length];
+                return `
+                    <div class="cat-card ${colorClass}" onclick="filterCategory('${cat.name}')" data-delivery="${cat.delivery_type || 'instant'}">
+                        <img class="cat-icon" src="${icon}" alt="${cat.name}" 
+                             onerror="this.src='https://cdn-icons-png.flaticon.com/512/2087/2087815.png'">
+                        <div class="cat-title">${cat.name}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            // تصفية أول قسم تلقائياً
+            if(filteredCats.length > 0) {
+                filterCategory(filteredCats[0].name);
+            }
         }
         
         function filterCategory(category) {
@@ -2903,35 +2950,16 @@ HTML_PAGE = """
                 const data = await response.json();
                 
                 if(data.status === 'success' && data.categories.length > 0) {
-                    const container = document.getElementById('categoriesContainer');
-                    const colors = ['bg-netflix', 'bg-shahid', 'bg-disney', 'bg-osn', 'bg-video', 'bg-other'];
-                    const defaultIcons = [
-                        'https://cdn-icons-png.flaticon.com/512/732/732228.png',
-                        'https://cdn-icons-png.flaticon.com/512/3845/3845874.png',
-                        'https://cdn-icons-png.flaticon.com/512/5977/5977590.png',
-                        'https://cdn-icons-png.flaticon.com/512/1946/1946488.png',
-                        'https://cdn-icons-png.flaticon.com/512/3074/3074767.png',
-                        'https://cdn-icons-png.flaticon.com/512/2087/2087815.png'
-                    ];
+                    // حفظ الأقسام في المتغير العام
+                    allCategories = data.categories;
                     
                     // تطبيق عدد الأعمدة
+                    const container = document.getElementById('categoriesContainer');
                     const cols = data.columns || 3;
                     container.className = 'categories-grid cols-' + cols;
                     
-                    container.innerHTML = data.categories.map((cat, index) => {
-                        const colorClass = colors[index % colors.length];
-                        const icon = cat.image_url || defaultIcons[index % defaultIcons.length];
-                        return `
-                            <div class="cat-card ${colorClass}" onclick="filterCategory('${cat.name}')" data-delivery="${cat.delivery_type || 'instant'}">
-                                <img class="cat-icon" src="${icon}" alt="${cat.name}" 
-                                     onerror="this.src='https://cdn-icons-png.flaticon.com/512/2087/2087815.png'">
-                                <div class="cat-title">${cat.name}</div>
-                            </div>
-                        `;
-                    }).join('');
-                    
-                    // تصفية أول قسم
-                    filterCategory(data.categories[0].name);
+                    // عرض الأقسام حسب نوع التسليم الحالي (فوري افتراضياً)
+                    renderCategoriesByType(currentDeliveryType);
                 } else {
                     // استخدام الأقسام الافتراضية إذا فشل التحميل
                     filterCategory('نتفلكس');

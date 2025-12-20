@@ -2839,9 +2839,6 @@ HTML_PAGE = """
                     delivery_type: currentPurchaseData.deliveryType,
                     buyer_details: currentPurchaseData.buyerDetails || ''
                 })
-                    item_id: currentPurchaseData.itemId,
-                    delivery_type: currentPurchaseData.deliveryType
-                })
             }).then(r => {
                 if(!r.ok) throw new Error('فشل الاتصال بالخادم');
                 return r.json();

@@ -179,7 +179,7 @@ display_settings = {
 # دالة تحميل جميع البيانات من Firebase عند بدء التطبيق
 def load_all_data_from_firebase():
     """تحميل جميع البيانات من Firebase عند بدء التطبيق"""
-    global marketplace_items, users_wallets, charge_keys, active_orders, categories_list
+    global marketplace_items, users_wallets, charge_keys, active_orders, categories_list, display_settings
     
     if not db:
         print("⚠️ Firebase غير متاح - سيتم استخدام البيانات الفارغة")
@@ -8702,14 +8702,14 @@ def api_set_display_settings():
         print(f"Error setting display settings: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+# تحميل البيانات من Firebase عند بدء التشغيل (يعمل مع Gunicorn وlocal)
+print("🚀 بدء تشغيل التطبيق...")
+load_all_data_from_firebase()
+
+# التأكد من أن جميع المنتجات لديها UUID
+ensure_product_ids()
+
 if __name__ == "__main__":
-    # تحميل البيانات من Firebase عند بدء التشغيل
-    print("🚀 بدء تشغيل التطبيق...")
-    load_all_data_from_firebase()
-    
-    # التأكد من أن جميع المنتجات لديها UUID
-    ensure_product_ids()
-    
     # هذا السطر يجعل البوت يعمل على المنفذ الصحيح في ريندر أو 10000 في جهازك
     port = int(os.environ.get("PORT", 10000))
     print(f"✅ التطبيق يعمل على المنفذ {port}")

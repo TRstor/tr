@@ -639,6 +639,41 @@ HTML_PAGE = """
             to { opacity: 1; transform: translateY(0); }
         }
 
+        /* --- تبويبات نوع التسليم --- */
+        .delivery-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 5px;
+            background: rgba(108, 92, 231, 0.1);
+            border-radius: 16px;
+        }
+        .delivery-tab {
+            flex: 1;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: 'Tajawal', sans-serif;
+            transition: all 0.3s ease;
+            background: transparent;
+            color: #888;
+        }
+        .delivery-tab.active {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            color: white;
+            box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4);
+        }
+        .delivery-tab:not(.active):hover {
+            background: rgba(108, 92, 231, 0.2);
+            color: #a29bfe;
+        }
+        .delivery-tab-icon {
+            margin-left: 8px;
+        }
+
         /* --- باقي التصاميم السابقة --- */
         .card { background: var(--card-bg); border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         body { font-family: 'Tajawal', sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; padding: 16px; }
@@ -717,6 +752,25 @@ HTML_PAGE = """
             padding: 3px 8px;
             border-radius: 10px;
             align-self: flex-start;
+        }
+        /* شارة نوع التسليم */
+        .delivery-badge {
+            font-size: 10px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 10px;
+            display: inline-block;
+            margin-bottom: 6px;
+        }
+        .delivery-badge.instant {
+            background: linear-gradient(135deg, rgba(0, 184, 148, 0.2), rgba(85, 239, 196, 0.1));
+            color: #00b894;
+            border: 1px solid rgba(0, 184, 148, 0.3);
+        }
+        .delivery-badge.manual {
+            background: linear-gradient(135deg, rgba(253, 203, 110, 0.2), rgba(243, 156, 18, 0.1));
+            color: #f39c12;
+            border: 1px solid rgba(243, 156, 18, 0.3);
         }
         .product-name {
             font-size: 15px;
@@ -1916,6 +1970,16 @@ HTML_PAGE = """
         </div>
     </div>
 
+    <!-- تبويبات نوع التسليم -->
+    <div class="delivery-tabs">
+        <button class="delivery-tab active" id="tabInstant" onclick="switchDeliveryTab('instant')">
+            ⚡ تسليم فوري
+        </button>
+        <button class="delivery-tab" id="tabManual" onclick="switchDeliveryTab('manual')">
+            👨‍💼 تسليم يدوي
+        </button>
+    </div>
+
     <div class="categories-header">
         <h3>💎 الأقسام</h3>
         <small onclick="filterCategory('all')">عرض الكل</small>
@@ -2470,6 +2534,20 @@ HTML_PAGE = """
         // تصفية المنتجات حسب الفئة
         let allItems = {{ items|tojson }};
         let currentCategory = 'all'; // متغير لتتبع الفئة الحالية
+        let currentDeliveryType = 'instant'; // متغير لتتبع نوع التسليم الحالي
+        
+        // دالة التبديل بين تبويبات التسليم
+        function switchDeliveryTab(type) {
+            currentDeliveryType = type;
+            
+            // تحديث مظهر التبويبات
+            document.getElementById('tabInstant').classList.remove('active');
+            document.getElementById('tabManual').classList.remove('active');
+            document.getElementById('tab' + (type === 'instant' ? 'Instant' : 'Manual')).classList.add('active');
+            
+            // إعادة تصفية المنتجات
+            filterCategory(currentCategory);
+        }
         
         function filterCategory(category) {
             currentCategory = category; // حفظ الفئة الحالية
@@ -2507,7 +2585,15 @@ HTML_PAGE = """
             const market = document.getElementById('market');
             market.innerHTML = '';
             
-            let filteredItems = category === 'all' ? allItems : allItems.filter(item => item.category === category);
+            // تصفية حسب الفئة ونوع التسليم
+            let filteredItems = allItems.filter(item => {
+                // فلتر الفئة
+                const categoryMatch = category === 'all' || item.category === category;
+                // فلتر نوع التسليم (إذا لم يكن محدد، يعتبر فوري)
+                const deliveryType = item.delivery_type || 'instant';
+                const deliveryMatch = deliveryType === currentDeliveryType;
+                return categoryMatch && deliveryMatch;
+            });
             
             // ترتيب المنتجات: المتاحة أولاً، ثم المباعة
             filteredItems.sort((a, b) => {
@@ -2517,11 +2603,16 @@ HTML_PAGE = """
             });
             
             if(filteredItems.length === 0) {
-                market.innerHTML = '<p style="text-align:center; color:#888; grid-column: 1/-1; padding: 40px;">📭 لا توجد منتجات في هذا القسم</p>';
+                const emptyMsg = currentDeliveryType === 'instant' ? 
+                    '📭 لا توجد منتجات تسليم فوري في هذا القسم' : 
+                    '📭 لا توجد منتجات تسليم يدوي في هذا القسم';
+                market.innerHTML = `<p style="text-align:center; color:#888; grid-column: 1/-1; padding: 40px;">${emptyMsg}</p>`;
             } else {
                 filteredItems.forEach((item, index) => {
                     const isMyProduct = item.seller_id == currentUserId;
                     const isSold = item.sold === true;
+                    const deliveryType = item.delivery_type || 'instant';
+                    const deliveryBadge = deliveryType === 'manual' ? '<span class="delivery-badge manual">👨‍💼 يدوي</span>' : '<span class="delivery-badge instant">⚡ فوري</span>';
                     const productHTML = `
                         <div class="product-card ${isSold ? 'sold-product' : ''}">
                             ${isSold ? '<div class="sold-ribbon">مباع ✓</div>' : ''}
@@ -2531,6 +2622,7 @@ HTML_PAGE = """
                             ${item.category ? `<div class="product-badge">${item.category}</div>` : ''}
                             <div class="product-info">
                                 ${item.category ? `<span class="product-category">${item.category}</span>` : ''}
+                                ${deliveryBadge}
                                 <div class="product-name">${item.item_name}</div>
                                 <div class="product-seller">🏪 ${item.seller_name}</div>
                                 ${isSold && item.buyer_name ? `<div class="sold-info">🎉 تم شراءه بواسطة: ${item.buyer_name}</div>` : ''}
@@ -2539,7 +2631,7 @@ HTML_PAGE = """
                                     ${isSold ? 
                                         `<button class="product-buy-btn" disabled style="opacity: 0.5; cursor: not-allowed;">مباع 🚫</button>` :
                                         (!isMyProduct ? 
-                                            `<button class="product-buy-btn" onclick='buyItem("${item.id}", ${item.price}, "${(item.item_name || '').replace(/"/g, '\\"')}", "${(item.category || '').replace(/"/g, '\\"')}", ${JSON.stringify(item.details || '')})'>شراء 🛒</button>` : 
+                                            `<button class="product-buy-btn" onclick='buyItem("${item.id}", ${item.price}, "${(item.item_name || '').replace(/"/g, '\\"')}", "${(item.category || '').replace(/"/g, '\\"')}", ${JSON.stringify(item.details || '')}, "${deliveryType}")'>شراء 🛒</button>` : 
                                             `<div class="my-product-badge">منتجك ⭐</div>`)
                                     }
                                 </div>
@@ -2577,7 +2669,7 @@ HTML_PAGE = """
 
         let currentPurchaseData = null;
         
-        function buyItem(itemId, price, itemName, category, details) {
+        function buyItem(itemId, price, itemName, category, details, deliveryType) {
             // التحقق من الرصيد أولاً
             if(userBalance < price) {
                 showWarningModal(price);
@@ -2602,14 +2694,35 @@ HTML_PAGE = """
             currentPurchaseData = {
                 itemId: itemId,
                 buyerId: buyerId,
-                buyerName: buyerName
+                buyerName: buyerName,
+                deliveryType: deliveryType || 'instant'
             };
 
-            // عرض نافذة التأكيد
+            // عرض نافذة التأكيد مع نوع التسليم
+            const deliveryText = (deliveryType === 'manual') ? '👨‍💼 تسليم يدوي (سيتم التنفيذ بواسطة المشرف)' : '⚡ تسليم فوري';
             document.getElementById('modalProductName').textContent = itemName;
             document.getElementById('modalProductCategory').textContent = category || 'غير محدد';
             document.getElementById('modalProductPrice').textContent = price + ' ريال';
             document.getElementById('modalProductDetails').textContent = details || 'لا توجد تفاصيل إضافية';
+            
+            // إضافة أو تحديث نص نوع التسليم
+            let deliveryInfoEl = document.getElementById('modalDeliveryType');
+            if(!deliveryInfoEl) {
+                deliveryInfoEl = document.createElement('div');
+                deliveryInfoEl.id = 'modalDeliveryType';
+                deliveryInfoEl.style.cssText = 'text-align: center; padding: 10px; margin: 10px 0; border-radius: 10px; font-weight: bold;';
+                document.getElementById('modalProductDetails').after(deliveryInfoEl);
+            }
+            if(deliveryType === 'manual') {
+                deliveryInfoEl.style.background = 'rgba(243, 156, 18, 0.2)';
+                deliveryInfoEl.style.color = '#f39c12';
+                deliveryInfoEl.innerHTML = '👨‍💼 تسليم يدوي - سيتم تنفيذ طلبك بواسطة المشرف';
+            } else {
+                deliveryInfoEl.style.background = 'rgba(0, 184, 148, 0.2)';
+                deliveryInfoEl.style.color = '#00b894';
+                deliveryInfoEl.innerHTML = '⚡ تسليم فوري - ستحصل على البيانات مباشرة';
+            }
+            
             document.getElementById('buyModal').style.display = 'block';
         }
 
@@ -2633,7 +2746,8 @@ HTML_PAGE = """
                 body: JSON.stringify({
                     buyer_id: currentPurchaseData.buyerId,
                     buyer_name: currentPurchaseData.buyerName,
-                    item_id: currentPurchaseData.itemId
+                    item_id: currentPurchaseData.itemId,
+                    delivery_type: currentPurchaseData.deliveryType
                 })
             }).then(r => {
                 if(!r.ok) throw new Error('فشل الاتصال بالخادم');
@@ -2653,8 +2767,14 @@ HTML_PAGE = """
                         if(sidebarBalanceEl) sidebarBalanceEl.textContent = userBalance.toFixed(2);
                         if(typeof updateNavBalance === 'function') updateNavBalance(userBalance);
                     }
-                    // إظهار رسالة نجاح ثم تحديث الصفحة
-                    alert('✅ تم الشراء بنجاح! 🎉\\n\\nرقم الطلب: ' + (data.order_id || '---') + '\\n\\nستجد البيانات في صفحة مشترياتي وأيضاً في رسائل البوت');
+                    // إظهار رسالة نجاح حسب نوع التسليم
+                    let successMsg = '';
+                    if(data.delivery_type === 'manual') {
+                        successMsg = '✅ تم تسجيل طلبك بنجاح! 📋\\n\\nرقم الطلب: ' + (data.order_id || '---') + '\\n\\n👨‍💼 سيتم تنفيذ طلبك بواسطة المشرف قريباً\\n\\nستصلك رسالة عند اكتمال التنفيذ';
+                    } else {
+                        successMsg = '✅ تم الشراء بنجاح! 🎉\\n\\nرقم الطلب: ' + (data.order_id || '---') + '\\n\\nستجد البيانات في صفحة مشترياتي وأيضاً في رسائل البوت';
+                    }
+                    alert(successMsg);
                     location.reload();
                 } else {
                     closeModal();
@@ -3256,6 +3376,47 @@ def process_product_hidden_data(message):
     temp_product_data[user_id]['hidden_data'] = message.text.strip()
     bot.reply_to(message, "✅ تم إضافة البيانات المخفية")
     
+    # سؤال عن نوع التسليم
+    markup = types.ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
+    markup.add(
+        types.KeyboardButton("⚡ تسليم فوري"),
+        types.KeyboardButton("👨‍💼 تسليم يدوي")
+    )
+    
+    msg = bot.send_message(
+        message.chat.id, 
+        "📦 اختر نوع التسليم:\n\n"
+        "⚡ **تسليم فوري**: يتم إرسال البيانات تلقائياً للمشتري\n"
+        "👨‍💼 **تسليم يدوي**: يتم إشعار الأدمن لتنفيذ الطلب",
+        parse_mode="Markdown",
+        reply_markup=markup
+    )
+    bot.register_next_step_handler(msg, process_product_delivery_type)
+
+def process_product_delivery_type(message):
+    user_id = message.from_user.id
+    
+    if message.text == '/cancel':
+        temp_product_data.pop(user_id, None)
+        return bot.reply_to(message, "❌ تم إلغاء إضافة المنتج", reply_markup=types.ReplyKeyboardRemove())
+    
+    if message.text == "⚡ تسليم فوري":
+        temp_product_data[user_id]['delivery_type'] = 'instant'
+        delivery_display = "⚡ تسليم فوري"
+    elif message.text == "👨‍💼 تسليم يدوي":
+        temp_product_data[user_id]['delivery_type'] = 'manual'
+        delivery_display = "👨‍💼 تسليم يدوي"
+    else:
+        markup = types.ReplyKeyboardMarkup(row_width=2, one_time_keyboard=True, resize_keyboard=True)
+        markup.add(
+            types.KeyboardButton("⚡ تسليم فوري"),
+            types.KeyboardButton("👨‍💼 تسليم يدوي")
+        )
+        msg = bot.reply_to(message, "❌ اختيار غير صحيح! اختر من الأزرار:", reply_markup=markup)
+        return bot.register_next_step_handler(msg, process_product_delivery_type)
+    
+    bot.reply_to(message, f"✅ نوع التسليم: {delivery_display}", reply_markup=types.ReplyKeyboardRemove())
+    
     # عرض ملخص المنتج
     product = temp_product_data[user_id]
     summary = (
@@ -3263,9 +3424,10 @@ def process_product_hidden_data(message):
         f"📝 الاسم: {product['item_name']}\n"
         f"💰 السعر: {product['price']} ريال\n"
         f"🏷️ الفئة: {product['category']}\n"
-        f"� التفاصيل: {product['details']}\n"
-        f"�🖼️ الصورة: {product['image_url']}\n"
-        f"🔐 البيانات: {product['hidden_data']}\n\n"
+        f"📋 التفاصيل: {product['details']}\n"
+        f"🖼️ الصورة: {product['image_url']}\n"
+        f"🔐 البيانات: {product['hidden_data']}\n"
+        f"📦 التسليم: {delivery_display}\n\n"
         "هل تريد إضافة هذا المنتج؟"
     )
     
@@ -3287,6 +3449,7 @@ def confirm_add_product(message):
         if product:
             # إضافة المنتج
             product_id = str(uuid.uuid4())  # رقم فريد لا يتكرر
+            delivery_type = product.get('delivery_type', 'instant')
             item = {
                 'id': product_id,
                 'item_name': product['item_name'],
@@ -3297,6 +3460,7 @@ def confirm_add_product(message):
                 'category': product['category'],
                 'details': product['details'],
                 'image_url': product['image_url'],
+                'delivery_type': delivery_type,
                 'sold': False
             }
             
@@ -3311,6 +3475,7 @@ def confirm_add_product(message):
                     'category': item['category'],
                     'details': item['details'],
                     'image_url': item['image_url'],
+                    'delivery_type': delivery_type,
                     'sold': False,
                     'created_at': firestore.SERVER_TIMESTAMP
                 })
@@ -3321,11 +3486,13 @@ def confirm_add_product(message):
             # حفظ في الذاكرة
             marketplace_items.append(item)
             
+            delivery_display = "⚡ فوري" if delivery_type == 'instant' else "👨‍💼 يدوي"
             bot.reply_to(message,
                          f"✅ **تم إضافة المنتج بنجاح!**\n\n"
                          f"📦 المنتج: {product['item_name']}\n"
                          f"💰 السعر: {product['price']} ريال\n"
                          f"🏷️ الفئة: {product['category']}\n"
+                         f"📦 التسليم: {delivery_display}\n"
                          f"📊 إجمالي المنتجات: {len(marketplace_items)}",
                          parse_mode="Markdown",
                          reply_markup=types.ReplyKeyboardRemove())
@@ -3764,6 +3931,186 @@ def confirm_transaction(call):
     
     bot.edit_message_text(f"✅ تم تأكيد استلام الخدمة: {trans['item_name']}\nتم تحويل {amount} ريال للبائع.", call.message.chat.id, call.message.message_id)
     bot.send_message(seller_id, f"🤑 مبروك! قام العميل بتأكيد الاستلام.\n💰 تم إضافة {amount} ريال لرصيدك.\n📦 الطلب: {trans['item_name']}\n🎮 آيدي: {trans.get('game_id', 'غير محدد')}")
+
+# معالج تنفيذ الطلبات اليدوية
+@bot.callback_query_handler(func=lambda call: call.data.startswith('claim_order_'))
+def claim_manual_order(call):
+    """معالج تنفيذ الطلب اليدوي من قبل الأدمن"""
+    order_id = call.data.replace('claim_order_', '')
+    admin_id = call.from_user.id
+    admin_name = call.from_user.first_name
+    
+    # التحقق من أن المستخدم أدمن
+    if admin_id not in admins_database and admin_id != ADMIN_ID:
+        return bot.answer_callback_query(call.id, "⛔ غير مصرح لك!", show_alert=True)
+    
+    try:
+        # جلب الطلب من Firebase
+        order_ref = db.collection('orders').document(order_id)
+        order_doc = order_ref.get()
+        
+        if not order_doc.exists:
+            return bot.answer_callback_query(call.id, "❌ الطلب غير موجود!", show_alert=True)
+        
+        order = order_doc.to_dict()
+        
+        # التحقق من حالة الطلب
+        if order.get('status') == 'completed':
+            return bot.answer_callback_query(call.id, "✅ تم تنفيذ هذا الطلب مسبقاً!", show_alert=True)
+        
+        if order.get('status') == 'claimed':
+            claimed_by = order.get('claimed_by_name', 'أدمن آخر')
+            return bot.answer_callback_query(call.id, f"⚠️ هذا الطلب مستلم من قبل {claimed_by}!", show_alert=True)
+        
+        # تحديث حالة الطلب إلى مستلم
+        order_ref.update({
+            'status': 'claimed',
+            'claimed_by': str(admin_id),
+            'claimed_by_name': admin_name,
+            'claimed_at': firestore.SERVER_TIMESTAMP
+        })
+        
+        # تحديث رسالة الأدمن
+        try:
+            hidden_data = order.get('hidden_data', 'لا توجد بيانات')
+            
+            # إنشاء زر إكمال الطلب
+            complete_markup = telebot.types.InlineKeyboardMarkup()
+            complete_markup.add(telebot.types.InlineKeyboardButton(
+                "✅ تم التسليم", 
+                callback_data=f"complete_order_{order_id}"
+            ))
+            
+            bot.edit_message_text(
+                f"✅ تم استلام الطلب بواسطتك!\n\n"
+                f"🆔 رقم الطلب: #{order_id}\n"
+                f"📦 المنتج: {order.get('item_name')}\n"
+                f"👤 المشتري: {order.get('buyer_name')}\n"
+                f"🔢 معرف المشتري: {order.get('buyer_id')}\n"
+                f"💰 السعر: {order.get('price')} ريال\n\n"
+                f"🔐 بيانات المنتج:\n{hidden_data}\n\n"
+                f"👇 بعد تنفيذ الطلب اضغط الزر أدناه",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=complete_markup
+            )
+        except Exception as e:
+            print(f"⚠️ خطأ في تحديث رسالة الأدمن: {e}")
+        
+        # إشعار المشتري
+        try:
+            bot.send_message(
+                int(order.get('buyer_id')),
+                f"👨‍💼 تم استلام طلبك!\n\n"
+                f"🆔 رقم الطلب: #{order_id}\n"
+                f"📦 المنتج: {order.get('item_name')}\n"
+                f"✅ المسؤول: {admin_name}\n\n"
+                f"⏳ جاري تنفيذ طلبك..."
+            )
+        except:
+            pass
+        
+        bot.answer_callback_query(call.id, "✅ تم استلام الطلب بنجاح!")
+        
+    except Exception as e:
+        print(f"❌ خطأ في استلام الطلب: {e}")
+        bot.answer_callback_query(call.id, f"❌ حدث خطأ: {str(e)}", show_alert=True)
+
+# معالج إكمال الطلب اليدوي
+@bot.callback_query_handler(func=lambda call: call.data.startswith('complete_order_'))
+def complete_manual_order(call):
+    """معالج إكمال الطلب اليدوي بعد التنفيذ"""
+    from datetime import datetime
+    order_id = call.data.replace('complete_order_', '')
+    admin_id = call.from_user.id
+    admin_name = call.from_user.first_name
+    
+    try:
+        # جلب الطلب من Firebase
+        order_ref = db.collection('orders').document(order_id)
+        order_doc = order_ref.get()
+        
+        if not order_doc.exists:
+            return bot.answer_callback_query(call.id, "❌ الطلب غير موجود!", show_alert=True)
+        
+        order = order_doc.to_dict()
+        
+        # التحقق من أن الأدمن هو من استلم الطلب
+        if order.get('claimed_by') != str(admin_id) and admin_id != ADMIN_ID:
+            return bot.answer_callback_query(call.id, "⛔ هذا الطلب ليس مستلماً بواسطتك!", show_alert=True)
+        
+        if order.get('status') == 'completed':
+            return bot.answer_callback_query(call.id, "✅ تم تنفيذ هذا الطلب مسبقاً!", show_alert=True)
+        
+        # تحديث حالة الطلب إلى مكتمل
+        order_ref.update({
+            'status': 'completed',
+            'completed_by': str(admin_id),
+            'completed_by_name': admin_name,
+            'completed_at': firestore.SERVER_TIMESTAMP
+        })
+        
+        # تحديث رسالة الأدمن
+        try:
+            bot.edit_message_text(
+                f"✅ تم إكمال الطلب بنجاح!\n\n"
+                f"🆔 رقم الطلب: #{order_id}\n"
+                f"📦 المنتج: {order.get('item_name')}\n"
+                f"👤 المشتري: {order.get('buyer_name')}\n"
+                f"💰 السعر: {order.get('price')} ريال\n\n"
+                f"👨‍💼 تم التنفيذ بواسطة: {admin_name}\n"
+                f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id
+            )
+        except:
+            pass
+        
+        # إشعار المشتري بإكمال الطلب
+        try:
+            hidden_data = order.get('hidden_data', '')
+            if hidden_data:
+                bot.send_message(
+                    int(order.get('buyer_id')),
+                    f"🎉 تم تنفيذ طلبك بنجاح!\n\n"
+                    f"🆔 رقم الطلب: #{order_id}\n"
+                    f"📦 المنتج: {order.get('item_name')}\n"
+                    f"👨‍💼 تم التنفيذ بواسطة: {admin_name}\n\n"
+                    f"🔐 بيانات الاشتراك:\n{hidden_data}\n\n"
+                    f"⚠️ احفظ هذه البيانات في مكان آمن!\n"
+                    f"شكراً لتسوقك معنا! 💙"
+                )
+            else:
+                bot.send_message(
+                    int(order.get('buyer_id')),
+                    f"🎉 تم تنفيذ طلبك بنجاح!\n\n"
+                    f"🆔 رقم الطلب: #{order_id}\n"
+                    f"📦 المنتج: {order.get('item_name')}\n"
+                    f"👨‍💼 تم التنفيذ بواسطة: {admin_name}\n\n"
+                    f"شكراً لتسوقك معنا! 💙"
+                )
+        except Exception as e:
+            print(f"⚠️ فشل إشعار المشتري: {e}")
+        
+        # إشعار المالك الرئيسي
+        try:
+            if admin_id != ADMIN_ID:
+                bot.send_message(
+                    ADMIN_ID,
+                    f"✅ تم تنفيذ طلب يدوي\n\n"
+                    f"🆔 الطلب: #{order_id}\n"
+                    f"📦 المنتج: {order.get('item_name')}\n"
+                    f"👨‍💼 المنفذ: {admin_name}\n"
+                    f"👤 المشتري: {order.get('buyer_name')}"
+                )
+        except:
+            pass
+        
+        bot.answer_callback_query(call.id, "✅ تم إكمال الطلب وإشعار المشتري!")
+        
+    except Exception as e:
+        print(f"❌ خطأ في إكمال الطلب: {e}")
+        bot.answer_callback_query(call.id, f"❌ حدث خطأ: {str(e)}", show_alert=True)
 
 # --- مسارات الموقع (Flask) ---
 
@@ -5352,6 +5699,11 @@ def buy_item():
         # حفظ الطلب
         order_id = f"ORD_{random.randint(100000, 999999)}"
         order_ref = db.collection('orders').document(order_id)
+        
+        # تحديد نوع التسليم
+        delivery_type = item.get('delivery_type', 'instant')
+        order_status = 'completed' if delivery_type == 'instant' else 'pending'
+        
         batch.set(order_ref, {
             'buyer_id': buyer_id,
             'buyer_name': buyer_name,
@@ -5362,7 +5714,8 @@ def buy_item():
             'category': item.get('category', ''),
             'image_url': item.get('image_url', ''),
             'seller_id': item.get('seller_id'),
-            'status': 'completed',
+            'delivery_type': delivery_type,
+            'status': order_status,
             'created_at': firestore.SERVER_TIMESTAMP
         })
 
@@ -5377,54 +5730,104 @@ def buy_item():
                 prod['sold'] = True
                 break
 
-        # 6. إرسال المنتج للمشتري
+        # 6. إرسال المنتج للمشتري أو إشعار الأدمن
         hidden_info = item.get('hidden_data', 'لا توجد بيانات')
         message_sent = False
         
-        try:
-            bot.send_message(
-                int(buyer_id),
-                f"✅ تم الشراء بنجاح!\n\n"
-                f"📦 المنتج: {item.get('item_name')}\n"
-                f"💰 السعر: {price} ريال\n"
-                f"🆔 رقم الطلب: #{order_id}\n\n"
-                f"🔐 بيانات الاشتراك:\n{hidden_info}\n\n"
-                f"⚠️ احفظ هذه البيانات في مكان آمن!"
-            )
-            message_sent = True
-            print(f"✅ تم إرسال بيانات المنتج للمشتري {buyer_id}")
-            
-            # إشعار للمالك
-            bot.send_message(
-                ADMIN_ID,
-                f"🔔 عملية بيع جديدة!\n"
-                f"📦 المنتج: {item.get('item_name')}\n"
-                f"👤 المشتري: {buyer_name} ({buyer_id})\n"
-                f"💰 السعر: {price} ريال\n"
-                f"✅ تم إرسال البيانات للمشتري"
-            )
-        except Exception as e:
-            print(f"⚠️ فشل إرسال الرسالة للمشتري {buyer_id}: {e}")
-            # إشعار المالك بالفشل
+        if delivery_type == 'instant':
+            # تسليم فوري - إرسال البيانات مباشرة للمشتري
             try:
                 bot.send_message(
+                    int(buyer_id),
+                    f"✅ تم الشراء بنجاح!\n\n"
+                    f"📦 المنتج: {item.get('item_name')}\n"
+                    f"💰 السعر: {price} ريال\n"
+                    f"🆔 رقم الطلب: #{order_id}\n\n"
+                    f"🔐 بيانات الاشتراك:\n{hidden_info}\n\n"
+                    f"⚠️ احفظ هذه البيانات في مكان آمن!"
+                )
+                message_sent = True
+                print(f"✅ تم إرسال بيانات المنتج للمشتري {buyer_id}")
+                
+                # إشعار للمالك
+                bot.send_message(
                     ADMIN_ID,
-                    f"⚠️ تنبيه: فشل إرسال بيانات المنتج!\n"
+                    f"🔔 عملية بيع جديدة!\n"
                     f"📦 المنتج: {item.get('item_name')}\n"
                     f"👤 المشتري: {buyer_name} ({buyer_id})\n"
-                    f"🔐 البيانات: {hidden_info}\n"
-                    f"❌ السبب: {str(e)}"
+                    f"💰 السعر: {price} ريال\n"
+                    f"✅ تم إرسال البيانات للمشتري"
                 )
+            except Exception as e:
+                print(f"⚠️ فشل إرسال الرسالة للمشتري {buyer_id}: {e}")
+                # إشعار المالك بالفشل
+                try:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"⚠️ تنبيه: فشل إرسال بيانات المنتج!\n"
+                        f"📦 المنتج: {item.get('item_name')}\n"
+                        f"👤 المشتري: {buyer_name} ({buyer_id})\n"
+                        f"🔐 البيانات: {hidden_info}\n"
+                        f"❌ السبب: {str(e)}"
+                    )
+                except:
+                    pass
+        else:
+            # تسليم يدوي - إشعار المشتري بانتظار التنفيذ وإرسال للأدمنز
+            try:
+                bot.send_message(
+                    int(buyer_id),
+                    f"⏳ تم استلام طلبك!\n\n"
+                    f"📦 المنتج: {item.get('item_name')}\n"
+                    f"💰 السعر: {price} ريال\n"
+                    f"🆔 رقم الطلب: #{order_id}\n\n"
+                    f"👨‍💼 طلبك بانتظار التنفيذ من قبل الإدارة\n"
+                    f"📲 سيتم إرسال البيانات لك فور تنفيذ الطلب"
+                )
+                message_sent = True
+                print(f"✅ تم إشعار المشتري {buyer_id} بانتظار التنفيذ")
+            except Exception as e:
+                print(f"⚠️ فشل إرسال رسالة الانتظار للمشتري {buyer_id}: {e}")
+            
+            # إرسال إشعار لجميع الأدمنز مع زر التنفيذ
+            claim_markup = telebot.types.InlineKeyboardMarkup()
+            claim_markup.add(telebot.types.InlineKeyboardButton(
+                "✅ تنفيذ الطلب", 
+                callback_data=f"claim_order_{order_id}"
+            ))
+            
+            admin_message = (
+                f"🆕 طلب جديد بانتظار التنفيذ!\n\n"
+                f"🆔 رقم الطلب: #{order_id}\n"
+                f"📦 المنتج: {item.get('item_name')}\n"
+                f"👤 المشتري: {buyer_name}\n"
+                f"🔢 معرف المشتري: {buyer_id}\n"
+                f"💰 السعر: {price} ريال\n\n"
+                f"👇 اضغط لتنفيذ الطلب"
+            )
+            
+            # إرسال للمالك الرئيسي
+            try:
+                bot.send_message(ADMIN_ID, admin_message, reply_markup=claim_markup)
             except:
                 pass
+            
+            # إرسال لباقي الأدمنز
+            for admin_id in admins_database:
+                if str(admin_id) != str(ADMIN_ID):
+                    try:
+                        bot.send_message(int(admin_id), admin_message, reply_markup=claim_markup)
+                    except:
+                        pass
 
-        # إرجاع البيانات للموقع أيضاً
+        # إرجاع البيانات للموقع
         return {
             'status': 'success',
-            'hidden_data': hidden_info,
+            'hidden_data': hidden_info if delivery_type == 'instant' else None,
             'order_id': order_id,
             'message_sent': message_sent,
-            'new_balance': new_balance
+            'new_balance': new_balance,
+            'delivery_type': delivery_type
         }
 
     except Exception as e:
@@ -6858,6 +7261,13 @@ ADMIN_PRODUCTS_HTML = """
                     <label>🖼️ رابط الصورة (اختياري)</label>
                     <input type="url" id="productImage" placeholder="https://example.com/image.jpg">
                 </div>
+                <div class="form-group">
+                    <label>📦 نوع التسليم *</label>
+                    <select id="productDeliveryType" required>
+                        <option value="instant">⚡ تسليم فوري (إرسال تلقائي للبيانات)</option>
+                        <option value="manual">👨‍💼 تسليم يدوي (تنفيذ من الأدمن)</option>
+                    </select>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeAddModal()">إلغاء</button>
@@ -6996,6 +7406,7 @@ ADMIN_PRODUCTS_HTML = """
             const details = document.getElementById('productDetails').value.trim();
             const hiddenData = document.getElementById('productHiddenData').value.trim();
             const image = document.getElementById('productImage').value.trim();
+            const deliveryType = document.getElementById('productDeliveryType').value;
             
             // التحقق
             if(!name || !price || !category || !hiddenData) {
@@ -7013,7 +7424,8 @@ ADMIN_PRODUCTS_HTML = """
                         category: category,
                         details: details,
                         hidden_data: hiddenData,
-                        image: image
+                        image: image,
+                        delivery_type: deliveryType
                     })
                 });
                 
@@ -7159,6 +7571,11 @@ def api_add_product_new():
         details = data.get('details', '').strip()
         hidden_data = data.get('hidden_data', '').strip()
         image = data.get('image', '').strip()
+        delivery_type = data.get('delivery_type', 'instant').strip()
+        
+        # التحقق من نوع التسليم
+        if delivery_type not in ['instant', 'manual']:
+            delivery_type = 'instant'
         
         # التحقق من البيانات
         if not name or price <= 0 or not category or not hidden_data:
@@ -7176,6 +7593,7 @@ def api_add_product_new():
             'image_url': image,
             'seller_id': ADMIN_ID,
             'seller_name': 'المتجر الرسمي',
+            'delivery_type': delivery_type,
             'sold': False,
             'created_at': time.time()
         }
@@ -7183,7 +7601,7 @@ def api_add_product_new():
         # حفظ في Firebase
         if db:
             db.collection('products').document(product_id).set(product_data)
-            print(f"✅ تم حفظ المنتج في Firebase: {name}")
+            print(f"✅ تم حفظ المنتج في Firebase: {name} (التسليم: {delivery_type})")
         
         # إضافة للذاكرة
         marketplace_items.append(product_data)

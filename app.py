@@ -5434,36 +5434,36 @@ def getMessage():
         json_string = request.get_data().decode('utf-8')
         print(f"📩 Webhook received: {json_string[:200]}...")
         print(f"🤖 BOT_ACTIVE: {BOT_ACTIVE}")
-        print(f"🔧 Bot Token (first 20): {TOKEN[:20]}...")
-        print(f"🔧 Bot ID: {bot.token.split(':')[0] if bot and bot.token else 'N/A'}")
         
         update = telebot.types.Update.de_json(json_string)
         
         # طباعة تفاصيل التحديث
         if update.message:
-            print(f"📝 Message text: {update.message.text}")
-            print(f"📝 Message from: {update.message.from_user.id}")
-            print(f"📝 Chat ID: {update.message.chat.id}")
+            print(f"📝 رسالة نصية من: {update.message.from_user.id}")
+            print(f"📝 النص: {update.message.text}")
+        
+        # ✅ معالجة ضغطات الأزرار (callback_query)
+        if update.callback_query:
+            print(f"🔘 ضغط زر من: {update.callback_query.from_user.id}")
+            print(f"🔘 البيانات: {update.callback_query.data}")
         
         if BOT_ACTIVE:
-            # التحقق من عدد المعالجات المسجلة
-            print(f"🔢 عدد معالجات الرسائل: {len(bot.message_handlers)}")
+            print(f"🔢 معالجات الرسائل: {len(bot.message_handlers)}")
+            print(f"🔢 معالجات الأزرار: {len(bot.callback_query_handlers)}")
             
-            # تعطيل الـ threaded mode مؤقتاً للتشخيص
             bot.threaded = False
             
             try:
-                print("🔄 بدء process_new_updates...")
                 bot.process_new_updates([update])
-                print("✅ تم معالجة التحديث بدون أخطاء")
+                print("✅ تم معالجة التحديث بنجاح")
             except Exception as proc_error:
-                print(f"❌ خطأ في process_new_updates: {proc_error}")
+                print(f"❌ خطأ في المعالجة: {proc_error}")
                 import traceback
                 traceback.print_exc()
         else:
-            print("⚠️ البوت غير نشط - لن يتم معالجة الرسالة")
+            print("⚠️ البوت غير نشط!")
     except Exception as e:
-        print(f"❌ خطأ في معالجة Webhook: {e}")
+        print(f"❌ خطأ في Webhook: {e}")
         import traceback
         traceback.print_exc()
     return "!", 200

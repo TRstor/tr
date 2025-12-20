@@ -4056,6 +4056,8 @@ def claim_manual_order(call):
     admin_id = call.from_user.id
     admin_name = call.from_user.first_name
     
+    print(f"📋 محاولة استلام الطلب: {order_id} بواسطة: {admin_name} ({admin_id})")
+    
     # التحقق من أن المستخدم أدمن
     if admin_id not in admins_database and admin_id != ADMIN_ID:
         return bot.answer_callback_query(call.id, "⛔ غير مصرح لك!", show_alert=True)
@@ -4065,7 +4067,10 @@ def claim_manual_order(call):
         order_ref = db.collection('orders').document(order_id)
         order_doc = order_ref.get()
         
+        print(f"🔍 البحث عن الطلب: {order_id} - موجود: {order_doc.exists}")
+        
         if not order_doc.exists:
+            print(f"❌ الطلب غير موجود في Firebase: {order_id}")
             return bot.answer_callback_query(call.id, "❌ الطلب غير موجود!", show_alert=True)
         
         order = order_doc.to_dict()
@@ -5844,7 +5849,23 @@ def buy_item():
         })
 
         # تنفيذ التغييرات
-        batch.commit()
+        try:
+            batch.commit()
+            print(f"✅ تم حفظ الطلب في Firebase: {order_id} (نوع: {delivery_type})")
+        except Exception as batch_error:
+            print(f"❌ فشل حفظ الطلب في Firebase: {batch_error}")
+            return {'status': 'error', 'message': 'فشل حفظ الطلب! حاول مرة أخرى'}
+        
+        # التحقق من حفظ الطلب (للتسليم اليدوي فقط)
+        if delivery_type == 'manual':
+            try:
+                verify_order = db.collection('orders').document(order_id).get()
+                if verify_order.exists:
+                    print(f"✅ تم التحقق من وجود الطلب: {order_id}")
+                else:
+                    print(f"⚠️ الطلب غير موجود بعد الحفظ: {order_id}")
+            except Exception as verify_error:
+                print(f"⚠️ فشل التحقق من الطلب: {verify_error}")
 
         # 5. تحديث الذاكرة المحلية (اختياري لكن جيد للسرعة)
         users_wallets[buyer_id] = new_balance

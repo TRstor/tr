@@ -5633,11 +5633,16 @@ def get_balance_api():
 def charge_balance_api():
     """شحن الرصيد باستخدام كود الشحن"""
     data = request.json
-    user_id = str(data.get('user_id'))
     key_code = data.get('charge_key', '').strip()
     
-    if not user_id or not key_code:
-        return jsonify({'success': False, 'message': 'بيانات غير مكتملة'})
+    # ===== التحقق الآمن من هوية المستخدم =====
+    if not session.get('user_id'):
+        return jsonify({'success': False, 'message': 'يجب تسجيل الدخول أولاً!'})
+    
+    user_id = str(session.get('user_id'))
+    
+    if not key_code:
+        return jsonify({'success': False, 'message': 'الرجاء إدخال كود الشحن'})
     
     # البحث عن الكود في Firebase مباشرة
     key_data = None
@@ -5742,11 +5747,26 @@ def sell_item():
 def buy_item():
     try:
         data = request.json
-        buyer_id = str(data.get('buyer_id'))
-        buyer_name = data.get('buyer_name')
         item_id = str(data.get('item_id'))  # تأكد أنه نص
         buyer_details = data.get('buyer_details', '')  # تفاصيل المشتري للتسليم اليدوي
 
+        # ===== التحقق الآمن من هوية المشتري =====
+        # لا نثق بـ buyer_id القادم من الطلب!
+        # نأخذه فقط من الـ session (بعد تسجيل الدخول)
+        
+        buyer_id = None
+        buyer_name = None
+        
+        # 1️⃣ التحقق من الجلسة (المستخدم مسجل دخول)
+        if session.get('user_id'):
+            buyer_id = str(session.get('user_id'))
+            buyer_name = session.get('user_name', 'مستخدم')
+            print(f"✅ مشتري موثق من الجلسة: {buyer_id}")
+        else:
+            # 2️⃣ لم يسجل دخول - نرفض الطلب
+            print(f"❌ محاولة شراء بدون تسجيل دخول!")
+            return {'status': 'error', 'message': 'يجب تسجيل الدخول أولاً!'}
+        
         print(f"🛒 محاولة شراء - item_id: {item_id}, buyer_id: {buyer_id}")
 
         # 1. البحث عن المنتج في Firebase مباشرة

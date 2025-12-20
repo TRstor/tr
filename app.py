@@ -3845,8 +3845,8 @@ def open_web_app(message):
                      f"للحصول على أفضل تجربة!",
                      parse_mode="Markdown")
 
-# زر استلام الطلب من قبل المشرف
-@bot.callback_query_handler(func=lambda call: call.data.startswith('claim_'))
+# زر استلام الطلب من قبل المشرف (النظام القديم - للطلبات في الذاكرة)
+@bot.callback_query_handler(func=lambda call: call.data.startswith('claim_') and not call.data.startswith('claim_order_'))
 def claim_order(call):
     order_id = call.data.replace('claim_', '')
     admin_id = call.from_user.id
@@ -3929,8 +3929,8 @@ def claim_order(call):
     
     bot.answer_callback_query(call.id, "✅ تم استلام الطلب! تحقق من رسائلك الخاصة.")
 
-# زر إتمام الطلب من قبل المشرف
-@bot.callback_query_handler(func=lambda call: call.data.startswith('complete_'))
+# زر إتمام الطلب من قبل المشرف (النظام القديم - للطلبات في الذاكرة)
+@bot.callback_query_handler(func=lambda call: call.data.startswith('complete_') and not call.data.startswith('complete_order_'))
 def complete_order(call):
     order_id = call.data.replace('complete_', '')
     admin_id = call.from_user.id

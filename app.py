@@ -2741,7 +2741,6 @@ HTML_PAGE = """
 
         let currentPurchaseData = null;
         
-        function buyItem(itemId, price, itemName, category, details, deliveryType) {
         function buyItem(itemId, price, itemName, category, details, deliveryType, buyerInstructions) {
             // التحقق من الرصيد أولاً
             if(userBalance < price) {

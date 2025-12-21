@@ -4293,10 +4293,15 @@ def get_user_orders():
     
     user_id = str(user_id)
     
-    # جلب جميع الطلبات الخاصة بالمستخدم
+    # جلب جميع الطلبات الخاصة بالمستخدم من Firebase
     user_orders = []
-    for order_id, order in active_orders.items():
-        if str(order['buyer_id']) == user_id:
+    
+    try:
+        orders_ref = query_where(db.collection('orders'), 'buyer_id', '==', user_id)
+        for doc in orders_ref.stream():
+            order = doc.to_dict()
+            order_id = doc.id
+            
             # إضافة اسم المشرف إذا تم استلام الطلب
             admin_name = None
             if order.get('admin_id'):
@@ -4308,13 +4313,37 @@ def get_user_orders():
             
             user_orders.append({
                 'order_id': order_id,
-                'item_name': order['item_name'],
-                'price': order['price'],
-                'game_id': order.get('game_id', ''),
-                'game_name': order.get('game_name', ''),
-                'status': order['status'],
+                'item_name': order.get('item_name', 'منتج'),
+                'price': order.get('price', 0),
+                'game_id': order.get('buyer_details', ''),  # تفاصيل المشتري
+                'game_name': '',
+                'status': order.get('status', 'completed'),
+                'delivery_type': order.get('delivery_type', 'instant'),
                 'admin_name': admin_name
             })
+    except Exception as e:
+        print(f"❌ خطأ في جلب الطلبات: {e}")
+        # fallback للذاكرة
+        for order_id, order in active_orders.items():
+            if str(order.get('buyer_id')) == user_id:
+                admin_name = None
+                if order.get('admin_id'):
+                    try:
+                        admin_info = bot.get_chat(order['admin_id'])
+                        admin_name = admin_info.first_name
+                    except:
+                        admin_name = "مشرف"
+                
+                user_orders.append({
+                    'order_id': order_id,
+                    'item_name': order.get('item_name', 'منتج'),
+                    'price': order.get('price', 0),
+                    'game_id': order.get('game_id', ''),
+                    'game_name': order.get('game_name', ''),
+                    'status': order.get('status', 'completed'),
+                    'delivery_type': order.get('delivery_type', 'instant'),
+                    'admin_name': admin_name
+                })
     
     # ترتيب الطلبات من الأحدث للأقدم
     user_orders.reverse()
@@ -5196,6 +5225,15 @@ MY_PURCHASES_PAGE = """
             font-weight: bold;
             white-space: nowrap;
         }
+        .card-badge.pending {
+            background: linear-gradient(135deg, #fdcb6e, #e17055);
+        }
+        .card-badge.claimed {
+            background: linear-gradient(135deg, #74b9ff, #0984e3);
+        }
+        .card-badge.completed {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+        }
         
         /* زر بيانات الطلب */
         .view-details-btn {
@@ -5463,7 +5501,14 @@ MY_PURCHASES_PAGE = """
                             <span class="meta-item">📅 {{ purchase.get('sold_at', 'غير محدد') }}</span>
                         </div>
                     </div>
-                    <div class="card-badge">✓ مكتمل</div>
+                    {% set status = purchase.get('status', 'completed') %}
+                    {% if status == 'pending' %}
+                    <div class="card-badge pending">⏳ قيد المراجعة</div>
+                    {% elif status == 'claimed' %}
+                    <div class="card-badge claimed">🔄 جاري التنفيذ</div>
+                    {% else %}
+                    <div class="card-badge completed">✓ مكتمل</div>
+                    {% endif %}
                 </div>
                 <button class="view-details-btn" onclick="openModal({{ loop.index }})">
                     📋 بيانات الطلب
@@ -5496,7 +5541,14 @@ MY_PURCHASES_PAGE = """
                                 </div>
                                 <div class="order-info-item">
                                     <div class="order-info-label">الحالة</div>
+                                    {% set status = purchase.get('status', 'completed') %}
+                                    {% if status == 'pending' %}
+                                    <div class="order-info-value" style="color: #e17055;">⏳ قيد المراجعة</div>
+                                    {% elif status == 'claimed' %}
+                                    <div class="order-info-value" style="color: #0984e3;">🔄 جاري التنفيذ</div>
+                                    {% else %}
                                     <div class="order-info-value" style="color: #00b894;">✓ مكتمل</div>
+                                    {% endif %}
                                 </div>
                             </div>
                         </div>

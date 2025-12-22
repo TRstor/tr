@@ -59,16 +59,6 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", 123456789))
 TOKEN = os.environ.get("BOT_TOKEN", "default_token_123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:5000")
 
-# قائمة المشرفين (آيدي تيليجرام)
-# يتم إرسال الطلبات لهم مباشرة في الخاص
-# يمكن إضافة حتى 10 مشرفين
-ADMINS_LIST = [
-    ADMIN_ID,  # المشرف 1
-    # أضف المزيد من المشرفين هنا (حتى 10)
-    # 123456789,  # المشرف 2
-    # 987654321,  # المشرف 3
-]
-
 # التحقق من أن التوكن صحيح (ليس القيمة الافتراضية)
 if TOKEN.startswith("default_token"):
     print("⚠️ BOT_TOKEN غير محدد - استخدم متغير البيئة BOT_TOKEN")
@@ -168,10 +158,6 @@ marketplace_items = []
 # الطلبات النشطة (قيد التنفيذ بواسطة المشرفين)
 # الشكل: { order_id: {buyer_info, item_info, admin_id, status, message_id} }
 active_orders = {}
-
-# قائمة المشرفين الديناميكية (يتم تحديثها عبر الأوامر)
-# تبدأ بالقيمة الأساسية من ADMINS_LIST
-admins_database = ADMINS_LIST.copy()
 
 # بيانات المستخدمين (الرصيد)
 # الشكل: { user_id: balance }
@@ -3285,117 +3271,6 @@ def my_id(message):
     except Exception as e:
         print(f"❌ خطأ: {e}")
 
-# أمر إضافة مشرف (فقط للمالك)
-@bot.message_handler(commands=['add_admin'])
-def add_admin_command(message):
-    # التحقق من أن المستخدم هو المالك
-    if message.from_user.id != ADMIN_ID:
-        return bot.reply_to(message, "⛔ هذا الأمر للمالك فقط!")
-    
-    try:
-        # الأمر: /add_admin ID
-        parts = message.text.split()
-        if len(parts) < 2:
-            return bot.reply_to(message, "⚠️ الاستخدام الصحيح:\n/add_admin الآيدي\n\nمثال: /add_admin 123456789")
-        
-        new_admin_id = int(parts[1])
-        
-        # التحقق من عدم وجوده مسبقاً
-        if new_admin_id in admins_database:
-            return bot.reply_to(message, f"⚠️ المشرف {new_admin_id} موجود مسبقاً في القائمة!")
-        
-        # التحقق من عدد المشرفين (حد أقصى 10)
-        if len(admins_database) >= 10:
-            return bot.reply_to(message, "❌ لا يمكن إضافة أكثر من 10 مشرفين!")
-        
-        # إضافة المشرف
-        admins_database.append(new_admin_id)
-        
-        # إشعار المالك
-        bot.reply_to(message, 
-                     f"✅ تم إضافة مشرف جديد!\n\n"
-                     f"🆔 الآيدي: {new_admin_id}\n"
-                     f"👥 عدد المشرفين: {len(admins_database)}/10")
-        
-        # إشعار المشرف الجديد
-        try:
-            bot.send_message(
-                new_admin_id,
-                "🎉 مبروك! تمت إضافتك كمشرف!\n\n"
-                "✅ ستصلك الطلبات الجديدة مباشرة على الخاص."
-            )
-        except:
-            pass
-            
-    except ValueError:
-        bot.reply_to(message, "❌ الآيدي غير صحيح! يجب أن يكون رقماً.")
-    except Exception as e:
-        bot.reply_to(message, f"❌ حدث خطأ: {str(e)}")
-
-# أمر حذف مشرف (فقط للمالك)
-@bot.message_handler(commands=['remove_admin'])
-def remove_admin_command(message):
-    # التحقق من أن المستخدم هو المالك
-    if message.from_user.id != ADMIN_ID:
-        return bot.reply_to(message, "⛔ هذا الأمر للمالك فقط!")
-    
-    try:
-        # الأمر: /remove_admin ID
-        parts = message.text.split()
-        if len(parts) < 2:
-            return bot.reply_to(message, "⚠️ الاستخدام الصحيح:\n/remove_admin الآيدي\n\nمثال: /remove_admin 123456789")
-        
-        admin_to_remove = int(parts[1])
-        
-        # التحقق من وجوده في القائمة
-        if admin_to_remove not in admins_database:
-            return bot.reply_to(message, f"❌ المشرف {admin_to_remove} غير موجود في القائمة!")
-        
-        # منع حذف المالك
-        if admin_to_remove == ADMIN_ID:
-            return bot.reply_to(message, "⛔ لا يمكن حذف المالك!")
-        
-        # حذف المشرف
-        admins_database.remove(admin_to_remove)
-        
-        bot.reply_to(message, 
-                     f"✅ تم حذف المشرف!\n\n"
-                     f"🆔 الآيدي: {admin_to_remove}\n"
-                     f"👥 عدد المشرفين: {len(admins_database)}/10")
-        
-        # إشعار المشرف المحذوف
-        try:
-            bot.send_message(
-                admin_to_remove,
-                "⚠️ تم إزالتك من قائمة المشرفين.\n"
-                "لن تصلك الطلبات بعد الآن."
-            )
-        except:
-            pass
-            
-    except ValueError:
-        bot.reply_to(message, "❌ الآيدي غير صحيح! يجب أن يكون رقماً.")
-    except Exception as e:
-        bot.reply_to(message, f"❌ حدث خطأ: {str(e)}")
-
-# أمر عرض قائمة المشرفين (فقط للمالك)
-@bot.message_handler(commands=['list_admins'])
-def list_admins_command(message):
-    # التحقق من أن المستخدم هو المالك
-    if message.from_user.id != ADMIN_ID:
-        return bot.reply_to(message, "⛔ هذا الأمر للمالك فقط!")
-    
-    if not admins_database:
-        return bot.reply_to(message, "⚠️ لا يوجد مشرفين حالياً!")
-    
-    admins_list_text = f"👥 قائمة المشرفين ({len(admins_database)}/10):\n\n"
-    
-    for i, admin_id in enumerate(admins_database, 1):
-        owner_badge = " 👑" if admin_id == ADMIN_ID else ""
-        admins_list_text += f"{i}. {admin_id}{owner_badge}\n"
-    
-    bot.reply_to(message, admins_list_text)
-
 # تخزين بيانات المنتج المؤقتة
 temp_product_data = {}
 
@@ -3888,8 +3763,8 @@ def claim_order(call):
     admin_id = call.from_user.id
     admin_name = call.from_user.first_name
     
-    # التحقق من أن المستخدم مشرف مصرح له
-    if admin_id not in admins_database:
+    # التحقق من أن المستخدم هو المالك
+    if admin_id != ADMIN_ID:
         return bot.answer_callback_query(call.id, "⛔ غير مصرح لك!", show_alert=True)
     
     # التحقق من وجود الطلب
@@ -4094,8 +3969,8 @@ def claim_manual_order(call):
     
     print(f"📋 محاولة استلام الطلب: {order_id} بواسطة: {admin_name} ({admin_id})")
     
-    # التحقق من أن المستخدم أدمن
-    if admin_id not in admins_database and admin_id != ADMIN_ID:
+    # التحقق من أن المستخدم هو المالك
+    if admin_id != ADMIN_ID:
         return bot.answer_callback_query(call.id, "⛔ غير مصرح لك!", show_alert=True)
     
     try:
@@ -6089,13 +5964,7 @@ def buy_item():
             except:
                 pass
             
-            # إرسال لباقي الأدمنز
-            for admin_id in admins_database:
-                if str(admin_id) != str(ADMIN_ID):
-                    try:
-                        bot.send_message(int(admin_id), admin_message, reply_markup=claim_markup)
-                    except:
-                        pass
+
 
         # إرجاع البيانات للموقع
         return {

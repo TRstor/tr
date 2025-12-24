@@ -3793,49 +3793,63 @@ def create_edfapay_invoice(user_id, amount, user_name):
     """إنشاء فاتورة دفع في EdfaPay"""
     try:
         # توليد معرف فريد للطلب
-        order_id = f"TR-{user_id}-{int(time.time())}"
+        order_id = f"TR{user_id}{int(time.time())}"
+        order_description = f"Recharge {amount} SAR"
         
-        # بيانات الطلب لـ EdfaPay API
+        # إنشاء الـ Hash
+        # Formula: hash = SHA1(MD5(UPPERCASE(order_id + order_amount + order_currency + order_description + merchant_password)))
+        to_hash = f"{order_id}{amount}SAR{order_description}{EDFAPAY_PASSWORD}".upper()
+        md5_hash = hashlib.md5(to_hash.encode()).hexdigest()
+        final_hash = hashlib.sha1(md5_hash.encode()).hexdigest()
+        
+        # جلب IP العميل (نستخدم قيمة افتراضية)
+        payer_ip = "176.44.76.222"
+        
+        # بيانات الطلب لـ EdfaPay API (multipart/form-data)
         payload = {
-            'merchant_id': EDFAPAY_MERCHANT_ID,
-            'password': EDFAPAY_PASSWORD,
-            'amount': float(amount),
-            'currency': 'SAR',
+            'action': 'SALE',
+            'edfa_merchant_id': EDFAPAY_MERCHANT_ID,
             'order_id': order_id,
-            'order_description': f'شحن رصيد - {amount} ريال',
-            'customer_first_name': user_name,
-            'customer_last_name': '',
-            'customer_email': f'{user_id}@telegram.user',
-            'customer_phone': '',
-            'success_url': f"{SITE_URL}/payment/success",
-            'fail_url': f"{SITE_URL}/payment/cancel",
-            'callback_url': f"{SITE_URL}/payment/edfapay_webhook"
+            'order_amount': str(amount),
+            'order_currency': 'SAR',
+            'order_description': order_description,
+            'req_token': 'N',
+            'payer_first_name': user_name or 'Customer',
+            'payer_last_name': 'User',
+            'payer_address': 'Riyadh',
+            'payer_country': 'SA',
+            'payer_city': 'Riyadh',
+            'payer_zip': '12221',
+            'payer_email': f'user{user_id}@telegram.com',
+            'payer_phone': '966500000000',
+            'payer_ip': payer_ip,
+            'term_url_3ds': f"{SITE_URL}/payment/success",
+            'auth': 'N',
+            'recurring_init': 'N',
+            'hash': final_hash
         }
         
-        # Headers
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
+        print(f"📤 EdfaPay Request: {payload}")
         
-        # إرسال الطلب
-        response = requests.post(EDFAPAY_API_URL, json=payload, headers=headers, timeout=30)
+        # إرسال الطلب (multipart/form-data)
+        # استخدام API الإنتاج
+        api_url = "https://api.edfapay.com/payment/initiate"
+        
+        response = requests.post(api_url, data=payload, timeout=30)
         print(f"📤 EdfaPay Response Status: {response.status_code}")
         print(f"📤 EdfaPay Response: {response.text[:500]}")
         
         result = response.json()
         
         # التحقق من النجاح
-        if response.status_code == 200 and (result.get('status') == 'success' or result.get('redirect_url') or result.get('payment_url')):
-            payment_url = result.get('redirect_url') or result.get('payment_url') or result.get('url')
-            invoice_id = result.get('order_id') or result.get('session_id') or order_id
+        if response.status_code == 200 and result.get('redirect_url'):
+            payment_url = result.get('redirect_url')
             
             # حفظ الطلب المعلق
             pending_payments[order_id] = {
                 'user_id': user_id,
                 'amount': amount,
                 'order_id': order_id,
-                'invoice_id': invoice_id,
                 'status': 'pending',
                 'created_at': time.time()
             }
@@ -3846,7 +3860,6 @@ def create_edfapay_invoice(user_id, amount, user_name):
                     'user_id': user_id,
                     'amount': amount,
                     'order_id': order_id,
-                    'invoice_id': invoice_id,
                     'status': 'pending',
                     'created_at': firestore.SERVER_TIMESTAMP
                 })
@@ -3859,7 +3872,7 @@ def create_edfapay_invoice(user_id, amount, user_name):
                 'invoice_id': order_id
             }
         else:
-            error_msg = result.get('message') or result.get('error') or result.get('errors') or f'خطأ: {response.status_code}'
+            error_msg = result.get('message') or result.get('error') or result.get('errors') or result
             print(f"❌ EdfaPay Error: {error_msg}")
             return {
                 'success': False,
@@ -3872,6 +3885,8 @@ def create_edfapay_invoice(user_id, amount, user_name):
         return {'success': False, 'error': f'خطأ في الاتصال: {str(e)}'}
     except Exception as e:
         print(f"❌ Exception in create_edfapay_invoice: {e}")
+        import traceback
+        traceback.print_exc()
         return {'success': False, 'error': str(e)}
 
 # معالج الرسائل النصية (للمبالغ والأكواد)

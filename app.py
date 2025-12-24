@@ -60,10 +60,10 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", 123456789))
 TOKEN = os.environ.get("BOT_TOKEN", "default_token_123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:5000")
 
-# --- إعدادات بوابة الدفع Adfaly Pay ---
-ADFALY_MERCHANT_ID = os.environ.get("ADFALY_MERCHANT_ID", "")
-ADFALY_PASSWORD = os.environ.get("ADFALY_PASSWORD", "")
-ADFALY_API_URL = "https://adfaly.com/api/createInvoice"
+# --- إعدادات بوابة الدفع EdfaPay ---
+EDFAPAY_MERCHANT_ID = os.environ.get("ADFALY_MERCHANT_ID", "")
+EDFAPAY_PASSWORD = os.environ.get("ADFALY_PASSWORD", "")
+EDFAPAY_API_URL = "https://pay.edfapay.com/api/v1/session"
 
 # التحقق من أن التوكن صحيح (ليس القيمة الافتراضية)
 if TOKEN.startswith("default_token"):
@@ -3698,8 +3698,8 @@ def handle_recharge_payment(call):
     try:
         user_id = str(call.from_user.id)
         
-        # التحقق من إعدادات بوابة الدفع
-        if not ADFALY_MERCHANT_ID or not ADFALY_PASSWORD:
+        # التحقق من إعدادات بوابة الدفع EdfaPay
+        if not EDFAPAY_MERCHANT_ID or not EDFAPAY_PASSWORD:
             bot.answer_callback_query(call.id, "❌ بوابة الدفع غير مفعلة حالياً")
             return bot.send_message(
                 call.message.chat.id,
@@ -3788,48 +3788,65 @@ def handle_cancel_recharge(call):
     except Exception as e:
         bot.answer_callback_query(call.id, "حدث خطأ!")
 
-# دالة إنشاء فاتورة دفع من Adfaly Pay
-def create_adfaly_invoice(user_id, amount, user_name):
-    """إنشاء فاتورة دفع في Adfaly Pay"""
+# دالة إنشاء فاتورة دفع من EdfaPay
+def create_edfapay_invoice(user_id, amount, user_name):
+    """إنشاء فاتورة دفع في EdfaPay"""
     try:
         # توليد معرف فريد للطلب
         order_id = f"TR-{user_id}-{int(time.time())}"
         
-        # بيانات الطلب
+        # بيانات الطلب لـ EdfaPay API
         payload = {
-            'merchant_id': ADFALY_MERCHANT_ID,
-            'password': ADFALY_PASSWORD,
+            'merchant_id': EDFAPAY_MERCHANT_ID,
+            'password': EDFAPAY_PASSWORD,
             'amount': float(amount),
+            'currency': 'SAR',
             'order_id': order_id,
-            'customer_name': user_name,
-            'callback_url': f"{SITE_URL}/payment/adfaly_webhook",
-            'return_url': f"{SITE_URL}/payment/success",
-            'cancel_url': f"{SITE_URL}/payment/cancel"
+            'order_description': f'شحن رصيد - {amount} ريال',
+            'customer_first_name': user_name,
+            'customer_last_name': '',
+            'customer_email': f'{user_id}@telegram.user',
+            'customer_phone': '',
+            'success_url': f"{SITE_URL}/payment/success",
+            'fail_url': f"{SITE_URL}/payment/cancel",
+            'callback_url': f"{SITE_URL}/payment/edfapay_webhook"
+        }
+        
+        # Headers
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
         }
         
         # إرسال الطلب
-        response = requests.post(ADFALY_API_URL, json=payload, timeout=30)
+        response = requests.post(EDFAPAY_API_URL, json=payload, headers=headers, timeout=30)
+        print(f"📤 EdfaPay Response Status: {response.status_code}")
+        print(f"📤 EdfaPay Response: {response.text[:500]}")
+        
         result = response.json()
         
-        if result.get('status') == 'success' or result.get('payment_url'):
-            payment_url = result.get('payment_url') or result.get('url')
-            invoice_id = result.get('invoice_id') or order_id
+        # التحقق من النجاح
+        if response.status_code == 200 and (result.get('status') == 'success' or result.get('redirect_url') or result.get('payment_url')):
+            payment_url = result.get('redirect_url') or result.get('payment_url') or result.get('url')
+            invoice_id = result.get('order_id') or result.get('session_id') or order_id
             
             # حفظ الطلب المعلق
-            pending_payments[invoice_id] = {
+            pending_payments[order_id] = {
                 'user_id': user_id,
                 'amount': amount,
                 'order_id': order_id,
+                'invoice_id': invoice_id,
                 'status': 'pending',
                 'created_at': time.time()
             }
             
             # حفظ في Firebase
             try:
-                db.collection('pending_payments').document(invoice_id).set({
+                db.collection('pending_payments').document(order_id).set({
                     'user_id': user_id,
                     'amount': amount,
                     'order_id': order_id,
+                    'invoice_id': invoice_id,
                     'status': 'pending',
                     'created_at': firestore.SERVER_TIMESTAMP
                 })
@@ -3839,13 +3856,14 @@ def create_adfaly_invoice(user_id, amount, user_name):
             return {
                 'success': True,
                 'payment_url': payment_url,
-                'invoice_id': invoice_id
+                'invoice_id': order_id
             }
         else:
-            error_msg = result.get('message') or result.get('error') or 'خطأ غير معروف'
+            error_msg = result.get('message') or result.get('error') or result.get('errors') or f'خطأ: {response.status_code}'
+            print(f"❌ EdfaPay Error: {error_msg}")
             return {
                 'success': False,
-                'error': error_msg
+                'error': str(error_msg)
             }
             
     except requests.exceptions.Timeout:
@@ -3853,6 +3871,7 @@ def create_adfaly_invoice(user_id, amount, user_name):
     except requests.exceptions.RequestException as e:
         return {'success': False, 'error': f'خطأ في الاتصال: {str(e)}'}
     except Exception as e:
+        print(f"❌ Exception in create_edfapay_invoice: {e}")
         return {'success': False, 'error': str(e)}
 
 # معالج الرسائل النصية (للمبالغ والأكواد)
@@ -3897,7 +3916,7 @@ def handle_user_state_message(message):
             
             # إنشاء الفاتورة
             user_name = message.from_user.first_name
-            result = create_adfaly_invoice(user_id, amount, user_name)
+            result = create_edfapay_invoice(user_id, amount, user_name)
             
             if result['success']:
                 # إنشاء زر للدفع
@@ -6261,7 +6280,122 @@ def buy_item():
         return {'status': 'error', 'message': 'حدث خطأ أثناء الشراء، حاول مرة أخرى.'}
 
 # ============================================
-# === نقاط استقبال بوابة الدفع Adfaly Pay ===
+# === نقاط استقبال بوابة الدفع EdfaPay ===
+# ============================================
+
+@app.route('/payment/edfapay_webhook', methods=['GET', 'POST'])
+def edfapay_webhook():
+    """استقبال إشعارات الدفع من EdfaPay"""
+    
+    # إذا كان الطلب GET (فتح من المتصفح) - عرض رسالة
+    if request.method == 'GET':
+        return jsonify({
+            'status': 'ok',
+            'message': 'EdfaPay Webhook Endpoint',
+            'description': 'This endpoint receives payment notifications from EdfaPay',
+            'method': 'POST only'
+        })
+    
+    try:
+        # جلب البيانات
+        data = request.json or request.form.to_dict()
+        print(f"📩 EdfaPay Webhook: {data}")
+        
+        # استخراج البيانات المهمة
+        order_id = data.get('order_id') or data.get('trans_id') or data.get('id')
+        status = data.get('status') or data.get('result') or data.get('trans_status')
+        amount = data.get('amount') or data.get('trans_amount')
+        
+        if not order_id:
+            print("❌ EdfaPay Webhook: لا يوجد order_id")
+            return jsonify({'status': 'error', 'message': 'Missing order_id'}), 400
+        
+        print(f"📋 Order ID: {order_id}, Status: {status}, Amount: {amount}")
+        
+        # التحقق من حالة الدفع الناجح
+        success_statuses = ['success', 'successful', 'completed', 'paid', 'approved', 'captured', 'SALE']
+        if status and str(status).upper() in [s.upper() for s in success_statuses]:
+            # البحث عن الطلب
+            payment_data = pending_payments.get(order_id)
+            
+            if not payment_data:
+                # البحث في Firebase
+                try:
+                    doc = db.collection('pending_payments').document(order_id).get()
+                    if doc.exists:
+                        payment_data = doc.to_dict()
+                except Exception as e:
+                    print(f"⚠️ خطأ في البحث في Firebase: {e}")
+            
+            if payment_data and payment_data.get('status') != 'completed':
+                user_id = payment_data['user_id']
+                pay_amount = float(payment_data.get('amount', amount or 0))
+                
+                # إضافة الرصيد
+                add_balance(user_id, pay_amount)
+                
+                # تحديث حالة الطلب
+                if order_id in pending_payments:
+                    pending_payments[order_id]['status'] = 'completed'
+                
+                # تحديث في Firebase
+                try:
+                    db.collection('pending_payments').document(order_id).update({
+                        'status': 'completed',
+                        'completed_at': firestore.SERVER_TIMESTAMP,
+                        'payment_data': data
+                    })
+                except Exception as e:
+                    print(f"⚠️ خطأ في تحديث Firebase: {e}")
+                
+                # إرسال إشعار للمستخدم عبر البوت
+                try:
+                    new_balance = get_balance(user_id)
+                    bot.send_message(
+                        int(user_id),
+                        f"✅ *تم شحن رصيدك بنجاح!*\n\n"
+                        f"💰 المبلغ المضاف: {pay_amount} ريال\n"
+                        f"💵 رصيدك الحالي: {new_balance} ريال\n\n"
+                        f"📋 رقم العملية: `{order_id}`\n\n"
+                        f"🎉 استمتع بالتسوق!",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    print(f"⚠️ خطأ في إرسال إشعار للمستخدم: {e}")
+                
+                # إشعار المالك
+                try:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"💳 *تم استلام دفعة جديدة!*\n\n"
+                        f"👤 المستخدم: {user_id}\n"
+                        f"💰 المبلغ: {pay_amount} ريال\n"
+                        f"📋 رقم العملية: `{order_id}`\n"
+                        f"✅ تم إضافة الرصيد تلقائياً",
+                        parse_mode="Markdown"
+                    )
+                except:
+                    pass
+                
+                print(f"✅ تم شحن {pay_amount} ريال للمستخدم {user_id}")
+                return jsonify({'status': 'success', 'message': 'Payment processed'})
+            
+            else:
+                print(f"⚠️ الطلب {order_id} غير موجود أو تم معالجته مسبقاً")
+                return jsonify({'status': 'success', 'message': 'Already processed or not found'})
+        
+        else:
+            print(f"ℹ️ EdfaPay Webhook: حالة الدفع: {status}")
+            return jsonify({'status': 'success', 'message': f'Status: {status}'})
+            
+    except Exception as e:
+        print(f"❌ خطأ في edfapay_webhook: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# ============================================
+# === نقاط استقبال بوابة الدفع (Legacy) ===
 # ============================================
 
 @app.route('/payment/adfaly_webhook', methods=['GET', 'POST'])

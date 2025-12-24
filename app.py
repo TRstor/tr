@@ -12,6 +12,7 @@ import random
 import hashlib
 import time
 import uuid
+import requests
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -58,6 +59,11 @@ except Exception as e:
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 123456789))
 TOKEN = os.environ.get("BOT_TOKEN", "default_token_123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:5000")
+
+# --- إعدادات بوابة الدفع Adfaly Pay ---
+ADFALY_MERCHANT_ID = os.environ.get("ADFALY_MERCHANT_ID", "")
+ADFALY_PASSWORD = os.environ.get("ADFALY_PASSWORD", "")
+ADFALY_API_URL = "https://adfaly.com/api/createInvoice"
 
 # التحقق من أن التوكن صحيح (ليس القيمة الافتراضية)
 if TOKEN.startswith("default_token"):
@@ -181,6 +187,14 @@ failed_login_attempts = {}
 # مفاتيح الشحن المولدة
 # الشكل: { key_code: {amount, used, used_by, created_at} }
 charge_keys = {}
+
+# حالات المستخدمين (لمتابعة المحادثة - مثل انتظار إدخال مبلغ الشحن)
+# الشكل: { user_id: {'state': 'waiting_amount', 'data': {}} }
+user_states = {}
+
+# طلبات الدفع المعلقة (تنتظر الدفع من Adfaly Pay)
+# الشكل: { invoice_id: {user_id, amount, status, created_at} }
+pending_payments = {}
 
 # قائمة الأقسام الديناميكية
 # الشكل: { id: {name, image_url, order, delivery_type, created_at} }
@@ -1998,7 +2012,7 @@ HTML_PAGE = """
         <!-- المساعدة والتواصل -->
         <div class="sidebar-section">
             <div class="sidebar-section-title">المساعدة</div>
-            <div class="sidebar-menu-item" onclick="window.open('https://t.me/SBRAS1', '_blank');">
+            <div class="sidebar-menu-item" onclick="window.open('https://t.me/Sbras_1', '_blank');">
                 <span class="sidebar-menu-icon">📞</span>
                 <span class="sidebar-menu-text">تواصل معنا</span>
             </div>
@@ -3651,77 +3665,343 @@ def generate_keys(message):
     except ValueError:
         bot.reply_to(message, "❌ الرجاء إدخال أرقام صحيحة!")
 
-# أمر شحن الرصيد بالمفتاح
+# أمر شحن الرصيد (يفتح خيارات الشحن)
 @bot.message_handler(commands=['شحن'])
-def charge_with_key(message):
+def recharge_balance(message):
+    """أمر شحن الرصيد - يعرض خيارات الشحن"""
     try:
-        parts = message.text.split()
-        if len(parts) < 2:
-            return bot.reply_to(message,
-                              "❌ **خطأ في الاستخدام!**\n\n"
-                              "📝 الصيغة الصحيحة:\n"
-                              "`/شحن [المفتاح]`\n\n"
-                              "**مثال:**\n"
-                              "`/شحن KEY-12345-6789`",
-                              parse_mode="Markdown")
-        
-        key_code = parts[1].strip()
         user_id = str(message.from_user.id)
-        user_name = message.from_user.first_name
         
-        # التحقق من وجود المفتاح
-        if key_code not in charge_keys:
-            return bot.reply_to(message, "❌ المفتاح غير صحيح أو منتهي الصلاحية!")
+        # إنشاء أزرار خيارات الشحن
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        btn_payment = types.InlineKeyboardButton("💳 شحن إلكتروني", callback_data="recharge_payment")
+        btn_code = types.InlineKeyboardButton("🔑 شحن بكود", callback_data="recharge_code")
+        markup.add(btn_payment)
+        markup.add(btn_code)
         
-        key_data = charge_keys[key_code]
-        
-        # التحقق من استخدام المفتاح
-        if key_data['used']:
-            return bot.reply_to(message, 
-                              f"❌ هذا المفتاح تم استخدامه بالفعل!\n\n"
-                              f"👤 استخدمه: {key_data.get('used_by', 'مستخدم')}")
-        
-        # شحن الرصيد
-        amount = key_data['amount']
-        add_balance(user_id, amount)
-        
-        # تحديث حالة المفتاح في الذاكرة
-        charge_keys[key_code]['used'] = True
-        charge_keys[key_code]['used_by'] = user_name
-        charge_keys[key_code]['used_at'] = time.time()
-        
-        # تحديث في Firebase
-        try:
-            db.collection('charge_keys').document(key_code).update({
-                'used': True,
-                'used_by': user_name,
-                'used_at': time.time()
-            })
-        except Exception as e:
-            print(f"⚠️ خطأ في تحديث المفتاح في Firebase: {e}")
-        
-        # إرسال رسالة نجاح
-        bot.reply_to(message,
-                    f"✅ **تم شحن رصيدك بنجاح!**\n\n"
-                    f"💰 المبلغ المضاف: {amount} ريال\n"
-                    f"💵 رصيدك الحالي: {get_balance(user_id)} ريال\n\n"
-                    f"🎉 استمتع بالتسوق!",
-                    parse_mode="Markdown")
-        
-        # إشعار المالك
-        try:
-            bot.send_message(ADMIN_ID,
-                           f"🔔 **تم استخدام مفتاح شحن**\n\n"
-                           f"👤 المستخدم: {user_name}\n"
-                           f"🆔 الآيدي: {user_id}\n"
-                           f"💰 المبلغ: {amount} ريال\n"
-                           f"🔑 المفتاح: `{key_code}`",
-                           parse_mode="Markdown")
-        except:
-            pass
-            
+        bot.send_message(
+            message.chat.id,
+            "💰 *شحن الرصيد*\n\n"
+            "اختر طريقة الشحن:\n\n"
+            "💳 *شحن إلكتروني* - الدفع عبر بوابة الدفع\n"
+            "🔑 *شحن بكود* - إذا لديك كود شحن",
+            reply_markup=markup,
+            parse_mode="Markdown"
+        )
     except Exception as e:
         bot.reply_to(message, f"❌ حدث خطأ: {str(e)}")
+
+# معالج زر شحن إلكتروني
+@bot.callback_query_handler(func=lambda call: call.data == "recharge_payment")
+def handle_recharge_payment(call):
+    """طلب إدخال مبلغ الشحن"""
+    try:
+        user_id = str(call.from_user.id)
+        
+        # التحقق من إعدادات بوابة الدفع
+        if not ADFALY_MERCHANT_ID or not ADFALY_PASSWORD:
+            bot.answer_callback_query(call.id, "❌ بوابة الدفع غير مفعلة حالياً")
+            return bot.send_message(
+                call.message.chat.id,
+                "❌ *عذراً، بوابة الدفع غير مفعلة حالياً*\n\n"
+                "يمكنك استخدام أكواد الشحن بدلاً من ذلك.",
+                parse_mode="Markdown"
+            )
+        
+        # تعيين حالة المستخدم لانتظار المبلغ
+        user_states[user_id] = {
+            'state': 'waiting_recharge_amount',
+            'created_at': time.time()
+        }
+        
+        bot.answer_callback_query(call.id)
+        
+        # إنشاء زر إلغاء
+        markup = types.InlineKeyboardMarkup()
+        btn_cancel = types.InlineKeyboardButton("❌ إلغاء", callback_data="cancel_recharge")
+        markup.add(btn_cancel)
+        
+        bot.send_message(
+            call.message.chat.id,
+            "💳 *شحن رصيد إلكتروني*\n\n"
+            "💵 أدخل المبلغ الذي تريد شحنه بالريال:\n\n"
+            "📌 *مثال:* `50` أو `100`\n\n"
+            "⚠️ الحد الأدنى: 10 ريال\n"
+            "⚠️ الحد الأقصى: 1000 ريال",
+            reply_markup=markup,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        bot.answer_callback_query(call.id, "حدث خطأ!")
+        print(f"❌ خطأ في handle_recharge_payment: {e}")
+
+# معالج زر شحن بكود
+@bot.callback_query_handler(func=lambda call: call.data == "recharge_code")
+def handle_recharge_code(call):
+    """طلب إدخال كود الشحن"""
+    try:
+        user_id = str(call.from_user.id)
+        
+        # تعيين حالة المستخدم لانتظار الكود
+        user_states[user_id] = {
+            'state': 'waiting_recharge_code',
+            'created_at': time.time()
+        }
+        
+        bot.answer_callback_query(call.id)
+        
+        # إنشاء زر إلغاء
+        markup = types.InlineKeyboardMarkup()
+        btn_cancel = types.InlineKeyboardButton("❌ إلغاء", callback_data="cancel_recharge")
+        markup.add(btn_cancel)
+        
+        bot.send_message(
+            call.message.chat.id,
+            "🔑 *شحن بكود*\n\n"
+            "📝 أرسل كود الشحن الخاص بك:\n\n"
+            "📌 *مثال:* `KEY-XXXXX-XXXXX`",
+            reply_markup=markup,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        bot.answer_callback_query(call.id, "حدث خطأ!")
+        print(f"❌ خطأ في handle_recharge_code: {e}")
+
+# معالج زر إلغاء الشحن
+@bot.callback_query_handler(func=lambda call: call.data == "cancel_recharge")
+def handle_cancel_recharge(call):
+    """إلغاء عملية الشحن"""
+    try:
+        user_id = str(call.from_user.id)
+        
+        # إزالة حالة المستخدم
+        if user_id in user_states:
+            del user_states[user_id]
+        
+        bot.answer_callback_query(call.id, "تم الإلغاء")
+        bot.send_message(
+            call.message.chat.id,
+            "❌ تم إلغاء عملية الشحن.\n\n"
+            "يمكنك البدء من جديد بإرسال /شحن",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        bot.answer_callback_query(call.id, "حدث خطأ!")
+
+# دالة إنشاء فاتورة دفع من Adfaly Pay
+def create_adfaly_invoice(user_id, amount, user_name):
+    """إنشاء فاتورة دفع في Adfaly Pay"""
+    try:
+        # توليد معرف فريد للطلب
+        order_id = f"TR-{user_id}-{int(time.time())}"
+        
+        # بيانات الطلب
+        payload = {
+            'merchant_id': ADFALY_MERCHANT_ID,
+            'password': ADFALY_PASSWORD,
+            'amount': float(amount),
+            'order_id': order_id,
+            'customer_name': user_name,
+            'callback_url': f"{SITE_URL}/payment/adfaly_webhook",
+            'return_url': f"{SITE_URL}/payment/success",
+            'cancel_url': f"{SITE_URL}/payment/cancel"
+        }
+        
+        # إرسال الطلب
+        response = requests.post(ADFALY_API_URL, json=payload, timeout=30)
+        result = response.json()
+        
+        if result.get('status') == 'success' or result.get('payment_url'):
+            payment_url = result.get('payment_url') or result.get('url')
+            invoice_id = result.get('invoice_id') or order_id
+            
+            # حفظ الطلب المعلق
+            pending_payments[invoice_id] = {
+                'user_id': user_id,
+                'amount': amount,
+                'order_id': order_id,
+                'status': 'pending',
+                'created_at': time.time()
+            }
+            
+            # حفظ في Firebase
+            try:
+                db.collection('pending_payments').document(invoice_id).set({
+                    'user_id': user_id,
+                    'amount': amount,
+                    'order_id': order_id,
+                    'status': 'pending',
+                    'created_at': firestore.SERVER_TIMESTAMP
+                })
+            except Exception as e:
+                print(f"⚠️ خطأ في حفظ الطلب في Firebase: {e}")
+            
+            return {
+                'success': True,
+                'payment_url': payment_url,
+                'invoice_id': invoice_id
+            }
+        else:
+            error_msg = result.get('message') or result.get('error') or 'خطأ غير معروف'
+            return {
+                'success': False,
+                'error': error_msg
+            }
+            
+    except requests.exceptions.Timeout:
+        return {'success': False, 'error': 'انتهت مهلة الاتصال'}
+    except requests.exceptions.RequestException as e:
+        return {'success': False, 'error': f'خطأ في الاتصال: {str(e)}'}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+# معالج الرسائل النصية (للمبالغ والأكواد)
+@bot.message_handler(func=lambda message: str(message.from_user.id) in user_states)
+def handle_user_state_message(message):
+    """معالج رسائل المستخدمين حسب حالتهم"""
+    try:
+        user_id = str(message.from_user.id)
+        state_data = user_states.get(user_id)
+        
+        if not state_data:
+            return
+        
+        # التحقق من صلاحية الحالة (10 دقائق)
+        if time.time() - state_data.get('created_at', 0) > 600:
+            del user_states[user_id]
+            return bot.reply_to(message, "⏱ انتهت صلاحية العملية. أرسل /شحن للبدء من جديد")
+        
+        state = state_data.get('state')
+        
+        # === حالة انتظار مبلغ الشحن ===
+        if state == 'waiting_recharge_amount':
+            text = message.text.strip()
+            
+            # التحقق من أن المدخل رقم
+            try:
+                amount = float(text)
+            except ValueError:
+                return bot.reply_to(message, "❌ الرجاء إدخال رقم صحيح فقط (مثال: 50)")
+            
+            # التحقق من الحدود
+            if amount < 10:
+                return bot.reply_to(message, "❌ الحد الأدنى للشحن هو 10 ريال")
+            if amount > 1000:
+                return bot.reply_to(message, "❌ الحد الأقصى للشحن هو 1000 ريال")
+            
+            # إزالة حالة المستخدم
+            del user_states[user_id]
+            
+            # إرسال رسالة انتظار
+            wait_msg = bot.reply_to(message, "⏳ جاري إنشاء رابط الدفع...")
+            
+            # إنشاء الفاتورة
+            user_name = message.from_user.first_name
+            result = create_adfaly_invoice(user_id, amount, user_name)
+            
+            if result['success']:
+                # إنشاء زر للدفع
+                markup = types.InlineKeyboardMarkup()
+                btn_pay = types.InlineKeyboardButton("💳 ادفع الآن", url=result['payment_url'])
+                markup.add(btn_pay)
+                
+                bot.edit_message_text(
+                    f"✅ *تم إنشاء طلب الشحن!*\n\n"
+                    f"💰 المبلغ: {amount} ريال\n"
+                    f"📋 رقم الطلب: `{result['invoice_id']}`\n\n"
+                    f"👇 اضغط الزر أدناه للدفع:\n\n"
+                    f"⚠️ بعد الدفع سيتم إضافة الرصيد تلقائياً",
+                    chat_id=wait_msg.chat.id,
+                    message_id=wait_msg.message_id,
+                    reply_markup=markup,
+                    parse_mode="Markdown"
+                )
+                
+                # إشعار المالك
+                try:
+                    bot.send_message(ADMIN_ID,
+                        f"🔔 *طلب شحن جديد*\n\n"
+                        f"👤 المستخدم: {user_name}\n"
+                        f"🆔 الآيدي: {user_id}\n"
+                        f"💰 المبلغ: {amount} ريال\n"
+                        f"📋 رقم الطلب: `{result['invoice_id']}`",
+                        parse_mode="Markdown"
+                    )
+                except:
+                    pass
+            else:
+                bot.edit_message_text(
+                    f"❌ *فشل إنشاء طلب الدفع*\n\n"
+                    f"السبب: {result['error']}\n\n"
+                    f"حاول مرة أخرى لاحقاً أو تواصل مع الدعم",
+                    chat_id=wait_msg.chat.id,
+                    message_id=wait_msg.message_id,
+                    parse_mode="Markdown"
+                )
+        
+        # === حالة انتظار كود الشحن ===
+        elif state == 'waiting_recharge_code':
+            key_code = message.text.strip()
+            user_name = message.from_user.first_name
+            
+            # إزالة حالة المستخدم
+            del user_states[user_id]
+            
+            # التحقق من وجود المفتاح
+            if key_code not in charge_keys:
+                return bot.reply_to(message, "❌ المفتاح غير صحيح أو منتهي الصلاحية!")
+            
+            key_data = charge_keys[key_code]
+            
+            # التحقق من استخدام المفتاح
+            if key_data['used']:
+                return bot.reply_to(message, 
+                    f"❌ هذا المفتاح تم استخدامه بالفعل!\n\n"
+                    f"👤 استخدمه: {key_data.get('used_by', 'مستخدم')}")
+            
+            # شحن الرصيد
+            amount = key_data['amount']
+            add_balance(user_id, amount)
+            
+            # تحديث حالة المفتاح
+            charge_keys[key_code]['used'] = True
+            charge_keys[key_code]['used_by'] = user_name
+            charge_keys[key_code]['used_at'] = time.time()
+            
+            # تحديث في Firebase
+            try:
+                db.collection('charge_keys').document(key_code).update({
+                    'used': True,
+                    'used_by': user_name,
+                    'used_at': time.time()
+                })
+            except Exception as e:
+                print(f"⚠️ خطأ في تحديث المفتاح في Firebase: {e}")
+            
+            # إرسال رسالة نجاح
+            bot.reply_to(message,
+                f"✅ *تم شحن رصيدك بنجاح!*\n\n"
+                f"💰 المبلغ المضاف: {amount} ريال\n"
+                f"💵 رصيدك الحالي: {get_balance(user_id)} ريال\n\n"
+                f"🎉 استمتع بالتسوق!",
+                parse_mode="Markdown"
+            )
+            
+            # إشعار المالك
+            try:
+                bot.send_message(ADMIN_ID,
+                    f"🔔 *تم استخدام مفتاح شحن*\n\n"
+                    f"👤 المستخدم: {user_name}\n"
+                    f"🆔 الآيدي: {user_id}\n"
+                    f"💰 المبلغ: {amount} ريال\n"
+                    f"🔑 المفتاح: `{key_code}`",
+                    parse_mode="Markdown"
+                )
+            except:
+                pass
+                
+    except Exception as e:
+        print(f"❌ خطأ في handle_user_state_message: {e}")
 
 # أمر عرض المفاتيح النشطة (للمالك فقط)
 @bot.message_handler(commands=['المفاتيح'])
@@ -5979,6 +6259,227 @@ def buy_item():
     except Exception as e:
         print(f"❌ Error in buy_item: {e}")
         return {'status': 'error', 'message': 'حدث خطأ أثناء الشراء، حاول مرة أخرى.'}
+
+# ============================================
+# === نقاط استقبال بوابة الدفع Adfaly Pay ===
+# ============================================
+
+@app.route('/payment/adfaly_webhook', methods=['POST'])
+def adfaly_webhook():
+    """استقبال إشعارات الدفع من Adfaly Pay"""
+    try:
+        # جلب البيانات
+        data = request.json or request.form.to_dict()
+        print(f"📩 Adfaly Webhook: {data}")
+        
+        # استخراج البيانات المهمة
+        invoice_id = data.get('invoice_id') or data.get('order_id') or data.get('id')
+        status = data.get('status') or data.get('payment_status')
+        amount = data.get('amount') or data.get('paid_amount')
+        
+        if not invoice_id:
+            print("❌ Adfaly Webhook: لا يوجد invoice_id")
+            return jsonify({'status': 'error', 'message': 'Missing invoice_id'}), 400
+        
+        # التحقق من حالة الدفع
+        if status and status.lower() in ['paid', 'success', 'completed', 'successful']:
+            # البحث عن الطلب
+            payment_data = pending_payments.get(invoice_id)
+            
+            if not payment_data:
+                # البحث في Firebase
+                try:
+                    doc = db.collection('pending_payments').document(invoice_id).get()
+                    if doc.exists:
+                        payment_data = doc.to_dict()
+                except:
+                    pass
+            
+            if payment_data and payment_data.get('status') != 'completed':
+                user_id = payment_data['user_id']
+                pay_amount = float(payment_data.get('amount', amount or 0))
+                
+                # إضافة الرصيد
+                add_balance(user_id, pay_amount)
+                
+                # تحديث حالة الطلب
+                if invoice_id in pending_payments:
+                    pending_payments[invoice_id]['status'] = 'completed'
+                
+                # تحديث في Firebase
+                try:
+                    db.collection('pending_payments').document(invoice_id).update({
+                        'status': 'completed',
+                        'completed_at': firestore.SERVER_TIMESTAMP
+                    })
+                except Exception as e:
+                    print(f"⚠️ خطأ في تحديث Firebase: {e}")
+                
+                # إرسال إشعار للمستخدم عبر البوت
+                try:
+                    new_balance = get_balance(user_id)
+                    bot.send_message(
+                        int(user_id),
+                        f"✅ *تم شحن رصيدك بنجاح!*\n\n"
+                        f"💰 المبلغ المضاف: {pay_amount} ريال\n"
+                        f"💵 رصيدك الحالي: {new_balance} ريال\n\n"
+                        f"📋 رقم العملية: `{invoice_id}`\n\n"
+                        f"🎉 استمتع بالتسوق!",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    print(f"⚠️ خطأ في إرسال إشعار للمستخدم: {e}")
+                
+                # إشعار المالك
+                try:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"💳 *تم استلام دفعة جديدة!*\n\n"
+                        f"👤 المستخدم: {user_id}\n"
+                        f"💰 المبلغ: {pay_amount} ريال\n"
+                        f"📋 رقم العملية: `{invoice_id}`\n"
+                        f"✅ تم إضافة الرصيد تلقائياً",
+                        parse_mode="Markdown"
+                    )
+                except:
+                    pass
+                
+                print(f"✅ تم شحن {pay_amount} ريال للمستخدم {user_id}")
+                return jsonify({'status': 'success', 'message': 'Payment processed'})
+            
+            else:
+                print(f"⚠️ الطلب {invoice_id} غير موجود أو تم معالجته مسبقاً")
+                return jsonify({'status': 'success', 'message': 'Already processed or not found'})
+        
+        else:
+            print(f"ℹ️ Adfaly Webhook: حالة الدفع: {status}")
+            return jsonify({'status': 'success', 'message': f'Status: {status}'})
+            
+    except Exception as e:
+        print(f"❌ خطأ في adfaly_webhook: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/payment/success')
+def payment_success():
+    """صفحة نجاح الدفع"""
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>تم الدفع بنجاح</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { 
+                font-family: 'Tajawal', sans-serif; 
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                min-height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 20px;
+            }
+            .container {
+                background: rgba(255,255,255,0.1);
+                backdrop-filter: blur(10px);
+                border-radius: 20px;
+                padding: 40px;
+                text-align: center;
+                max-width: 400px;
+                border: 1px solid rgba(255,255,255,0.2);
+            }
+            .icon { font-size: 80px; margin-bottom: 20px; animation: bounce 1s ease infinite; }
+            @keyframes bounce {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-10px); }
+            }
+            h1 { color: #55efc4; margin-bottom: 15px; font-size: 24px; }
+            p { color: #dfe6e9; margin-bottom: 25px; line-height: 1.6; }
+            .btn {
+                display: inline-block;
+                background: linear-gradient(135deg, #00b894, #55efc4);
+                color: white;
+                padding: 15px 40px;
+                border-radius: 30px;
+                text-decoration: none;
+                font-weight: bold;
+                transition: transform 0.3s;
+            }
+            .btn:hover { transform: scale(1.05); }
+        </style>
+        <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+    </head>
+    <body>
+        <div class="container">
+            <div class="icon">✅</div>
+            <h1>تم الدفع بنجاح!</h1>
+            <p>تم شحن رصيدك بنجاح.<br>يمكنك الآن العودة للبوت والتسوق.</p>
+            <a href="https://t.me/{{ bot_username }}" class="btn">العودة للبوت</a>
+        </div>
+    </body>
+    </html>
+    ''', bot_username=BOT_USERNAME)
+
+@app.route('/payment/cancel')
+def payment_cancel():
+    """صفحة إلغاء الدفع"""
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>تم إلغاء الدفع</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { 
+                font-family: 'Tajawal', sans-serif; 
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                min-height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 20px;
+            }
+            .container {
+                background: rgba(255,255,255,0.1);
+                backdrop-filter: blur(10px);
+                border-radius: 20px;
+                padding: 40px;
+                text-align: center;
+                max-width: 400px;
+                border: 1px solid rgba(255,255,255,0.2);
+            }
+            .icon { font-size: 80px; margin-bottom: 20px; }
+            h1 { color: #ff7675; margin-bottom: 15px; font-size: 24px; }
+            p { color: #dfe6e9; margin-bottom: 25px; line-height: 1.6; }
+            .btn {
+                display: inline-block;
+                background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+                color: white;
+                padding: 15px 40px;
+                border-radius: 30px;
+                text-decoration: none;
+                font-weight: bold;
+                transition: transform 0.3s;
+            }
+            .btn:hover { transform: scale(1.05); }
+        </style>
+        <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+    </head>
+    <body>
+        <div class="container">
+            <div class="icon">❌</div>
+            <h1>تم إلغاء الدفع</h1>
+            <p>تم إلغاء عملية الدفع.<br>يمكنك المحاولة مرة أخرى.</p>
+            <a href="https://t.me/{{ bot_username }}" class="btn">العودة للبوت</a>
+        </div>
+    </body>
+    </html>
+    ''', bot_username=BOT_USERNAME)
 
 # لاستقبال تحديثات تيليجرام (Webhook)
 @app.route('/webhook', methods=['POST'])

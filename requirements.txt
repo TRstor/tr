@@ -6,3 +6,4 @@ Flask
 firebase-admin
 gunicorn
 flask-limiter
+requests

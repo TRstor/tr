@@ -6298,23 +6298,34 @@ def buy_item():
 # === نقاط استقبال بوابة الدفع EdfaPay ===
 # ============================================
 
+# Webhook الديناميكي لـ EdfaPay (يستخدم merchant_id في الرابط)
+@app.route('/merchant_webhook/<merchant_id>', methods=['GET', 'POST'])
+def merchant_webhook(merchant_id):
+    """استقبال إشعارات الدفع من EdfaPay على الرابط الديناميكي"""
+    return process_edfapay_callback(request, f"merchant_webhook/{merchant_id}")
+
 @app.route('/payment/edfapay_webhook', methods=['GET', 'POST'])
 def edfapay_webhook():
     """استقبال إشعارات الدفع من EdfaPay"""
+    return process_edfapay_callback(request, "edfapay_webhook")
+
+def process_edfapay_callback(req, source):
+    """معالجة callback من EdfaPay"""
     
     # إذا كان الطلب GET (فتح من المتصفح) - عرض رسالة
-    if request.method == 'GET':
+    if req.method == 'GET':
         return jsonify({
             'status': 'ok',
             'message': 'EdfaPay Webhook Endpoint',
             'description': 'This endpoint receives payment notifications from EdfaPay',
+            'source': source,
             'method': 'POST only'
         })
     
     try:
         # جلب البيانات
-        data = request.json or request.form.to_dict()
-        print(f"📩 EdfaPay Webhook: {data}")
+        data = req.json or req.form.to_dict()
+        print(f"📩 EdfaPay Webhook ({source}): {data}")
         
         # استخراج البيانات المهمة
         order_id = data.get('order_id') or data.get('trans_id') or data.get('id')

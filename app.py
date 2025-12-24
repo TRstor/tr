@@ -6302,6 +6302,13 @@ def buy_item():
 @app.route('/merchant_webhook/<merchant_id>', methods=['GET', 'POST'])
 def merchant_webhook(merchant_id):
     """استقبال إشعارات الدفع من EdfaPay على الرابط الديناميكي"""
+    # تجاهل رسائل Telegram (تحتوي على update_id)
+    if request.method == 'POST':
+        data = request.json or request.form.to_dict()
+        if data.get('update_id') or data.get('message'):
+            # هذه رسالة من Telegram وليست من EdfaPay
+            print(f"⚠️ تم تجاهل رسالة Telegram على merchant_webhook")
+            return jsonify({'status': 'ok', 'message': 'Telegram message ignored'}), 200
     return process_edfapay_callback(request, f"merchant_webhook/{merchant_id}")
 
 @app.route('/payment/edfapay_webhook', methods=['GET', 'POST'])

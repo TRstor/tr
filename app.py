@@ -6264,9 +6264,19 @@ def buy_item():
 # === نقاط استقبال بوابة الدفع Adfaly Pay ===
 # ============================================
 
-@app.route('/payment/adfaly_webhook', methods=['POST'])
+@app.route('/payment/adfaly_webhook', methods=['GET', 'POST'])
 def adfaly_webhook():
     """استقبال إشعارات الدفع من Adfaly Pay"""
+    
+    # إذا كان الطلب GET (فتح من المتصفح) - عرض رسالة
+    if request.method == 'GET':
+        return jsonify({
+            'status': 'ok',
+            'message': 'Adfaly Pay Webhook Endpoint',
+            'description': 'This endpoint receives payment notifications from Adfaly Pay',
+            'method': 'POST only'
+        })
+    
     try:
         # جلب البيانات
         data = request.json or request.form.to_dict()

@@ -8901,7 +8901,7 @@ def dashboard():
                             <td>{inv['merchant_name']} <small style="color:#888">({inv['merchant_id']})</small></td>
                             <td style="color:#00cec9; font-weight:bold;">{inv['amount']} ريال</td>
                             <td dir="ltr">{inv['customer_phone']}</td>
-                            <td><span class="badge {'badge-success' if inv['status'] == 'completed' else 'badge-danger' if inv['status'] == 'expired' else 'badge-pending'}">{'مكتمل' if inv['status'] == 'completed' else 'مرفوضة' if inv['status'] == 'expired' else 'معلق'}</span></td>
+                            <td><span class="badge {'badge-success' if inv['status'] == 'completed' else 'badge-danger' if inv['status'] in ['expired', 'failed', 'declined'] else 'badge-pending'}">{'مكتمل' if inv['status'] == 'completed' else 'مرفوضة' if inv['status'] in ['expired', 'failed', 'declined'] else 'معلق'}</span></td>
                         </tr>
                         """ for inv in invoices_list]) if invoices_list else '<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد فواتير</td></tr>'}
                     </tbody>

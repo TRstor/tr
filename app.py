@@ -8565,6 +8565,11 @@ def dashboard():
             inv_data = inv.to_dict()
             status = inv_data.get('status', 'pending')
             amount = inv_data.get('amount', 0)
+            expires_at = inv_data.get('expires_at', 0)
+            
+            # التحقق من انتهاء الصلاحية (أكثر من ساعة)
+            if status == 'pending' and expires_at > 0 and time.time() > expires_at:
+                status = 'expired'  # اعتبرها مرفوضة
             
             if status == 'completed':
                 completed_invoices += 1
@@ -8896,7 +8901,7 @@ def dashboard():
                             <td>{inv['merchant_name']} <small style="color:#888">({inv['merchant_id']})</small></td>
                             <td style="color:#00cec9; font-weight:bold;">{inv['amount']} ريال</td>
                             <td dir="ltr">{inv['customer_phone']}</td>
-                            <td><span class="badge {'badge-success' if inv['status'] == 'completed' else 'badge-pending'}">{'مكتمل' if inv['status'] == 'completed' else 'معلق'}</span></td>
+                            <td><span class="badge {'badge-success' if inv['status'] == 'completed' else 'badge-danger' if inv['status'] == 'expired' else 'badge-pending'}">{'مكتمل' if inv['status'] == 'completed' else 'مرفوضة' if inv['status'] == 'expired' else 'معلق'}</span></td>
                         </tr>
                         """ for inv in invoices_list]) if invoices_list else '<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد فواتير</td></tr>'}
                     </tbody>
@@ -8925,7 +8930,7 @@ def dashboard():
                             <td>{pay['user_id']}</td>
                             <td style="color:#00cec9; font-weight:bold;">{pay['amount']} ريال</td>
                             <td><span class="badge {'badge-info' if pay['is_invoice'] else 'badge-warning'}">{'فاتورة' if pay['is_invoice'] else 'شحن'}</span></td>
-                            <td><span class="badge {'badge-success' if pay['status'] == 'completed' else 'badge-danger' if pay['status'] == 'failed' else 'badge-pending'}">{pay['status']}</span></td>
+                            <td><span class="badge {'badge-success' if pay['status'] == 'completed' else 'badge-danger' if pay['status'] == 'failed' else 'badge-pending'}">{'مكتمل' if pay['status'] == 'completed' else 'فشل' if pay['status'] == 'failed' else 'معلق'}</span></td>
                         </tr>
                         """ for pay in payments_list]) if payments_list else '<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد مدفوعات</td></tr>'}
                     </tbody>

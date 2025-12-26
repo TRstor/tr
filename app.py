@@ -5480,24 +5480,69 @@ CHARGE_PAGE = """
             </div>
         </div>
         
-        <!-- قسم الشحن بالكود -->
+        <!-- قسم الشحن بالبطاقة -->
         <div class="section-card">
             <div class="section-title">
-                <span>🔑</span>
-                شحن بالكود
+                <span>💳</span>
+                شحن رصيدك
             </div>
             
-            <input type="text" id="chargeCode" class="code-input" placeholder="KEY-XXXXX-XXXXX" maxlength="20" style="width: 100%; margin-bottom: 15px;">
-            <button class="activate-btn" onclick="activateCode()" id="activateBtn" style="width: 100%;">
-                ⚡ تفعيل الكود
-            </button>
+            <form id="chargeForm" onsubmit="processPayment(event)">
+                <!-- رقم الجوال -->
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; color: #888; font-size: 14px; margin-bottom: 8px;">📱 رقم الجوال</label>
+                    <div style="display: flex; gap: 10px; direction: ltr;">
+                        <select id="countryCode" style="width: 110px; padding: 14px 8px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: white; font-size: 14px;">
+                            <option value="966">🇸🇦 +966</option>
+                            <option value="971">🇦🇪 +971</option>
+                            <option value="965">🇰🇼 +965</option>
+                            <option value="973">🇧🇭 +973</option>
+                            <option value="974">🇶🇦 +974</option>
+                            <option value="968">🇴🇲 +968</option>
+                            <option value="962">🇯🇴 +962</option>
+                            <option value="20">🇪🇬 +20</option>
+                            <option value="212">🇲🇦 +212</option>
+                            <option value="216">🇹🇳 +216</option>
+                            <option value="213">🇩🇿 +213</option>
+                            <option value="964">🇮🇶 +964</option>
+                            <option value="963">🇸🇾 +963</option>
+                            <option value="961">🇱🇧 +961</option>
+                            <option value="967">🇾🇪 +967</option>
+                            <option value="90">🇹🇷 +90</option>
+                        </select>
+                        <input type="tel" id="phoneNumber" placeholder="5xxxxxxxx" required
+                               style="flex: 1; padding: 14px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: white; font-size: 16px; text-align: center;">
+                    </div>
+                </div>
+                
+                <!-- المبلغ -->
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; color: #888; font-size: 14px; margin-bottom: 8px;">💰 المبلغ المراد شحنه</label>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input type="number" id="chargeAmount" placeholder="100" min="10" max="5000" required
+                               style="flex: 1; padding: 14px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: white; font-size: 18px; text-align: center;">
+                        <span style="color: #888; font-size: 16px;">ريال</span>
+                    </div>
+                    <p style="color: #666; font-size: 12px; margin-top: 8px; text-align: center;">الحد الأدنى: 10 ريال | الحد الأقصى: 5000 ريال</p>
+                </div>
+                
+                <!-- أزرار مبالغ سريعة -->
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 20px;">
+                    <button type="button" onclick="setAmount(25)" style="padding: 10px; border: 2px solid #333; border-radius: 10px; background: transparent; color: #a29bfe; font-size: 14px; cursor: pointer; transition: all 0.3s;">25</button>
+                    <button type="button" onclick="setAmount(50)" style="padding: 10px; border: 2px solid #333; border-radius: 10px; background: transparent; color: #a29bfe; font-size: 14px; cursor: pointer; transition: all 0.3s;">50</button>
+                    <button type="button" onclick="setAmount(100)" style="padding: 10px; border: 2px solid #333; border-radius: 10px; background: transparent; color: #a29bfe; font-size: 14px; cursor: pointer; transition: all 0.3s;">100</button>
+                    <button type="button" onclick="setAmount(200)" style="padding: 10px; border: 2px solid #333; border-radius: 10px; background: transparent; color: #a29bfe; font-size: 14px; cursor: pointer; transition: all 0.3s;">200</button>
+                </div>
+                
+                <!-- زر الدفع -->
+                <button type="submit" id="payBtn" style="width: 100%; padding: 16px; border: none; border-radius: 12px; background: linear-gradient(135deg, #00b894 0%, #00cec9 100%); color: white; font-size: 18px; font-weight: bold; cursor: pointer; transition: all 0.3s; font-family: 'Tajawal', sans-serif;">
+                    💳 إتمام الدفع
+                </button>
+            </form>
             
-            <div style="text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
-                <p style="color: #888; font-size: 14px; margin-bottom: 12px;">🛒 ليس لديك كود؟</p>
-                <a href="https://tr-store1.com/" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #6c5ce7, #a29bfe); color: white; padding: 12px 30px; border-radius: 25px; text-decoration: none; font-weight: bold; font-size: 15px; transition: all 0.3s; box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4);">
-                    💳 اشترِ كود الآن
-                </a>
-            </div>
+            <p style="text-align: center; color: #666; font-size: 12px; margin-top: 15px;">
+                🔒 دفع آمن عبر <span style="color: #00cec9;">EdfaPay</span>
+            </p>
         </div>
         
         <!-- سجل المعاملات -->
@@ -5539,49 +5584,66 @@ CHARGE_PAGE = """
     <script>
         const userId = '{{ user_id }}';
         
-        async function activateCode() {
-            const code = document.getElementById('chargeCode').value.trim();
-            const btn = document.getElementById('activateBtn');
+        function setAmount(amount) {
+            document.getElementById('chargeAmount').value = amount;
+        }
+        
+        async function processPayment(event) {
+            event.preventDefault();
             
-            if(!code) {
-                alert('❌ الرجاء إدخال كود الشحن');
+            const phone = document.getElementById('phoneNumber').value.trim();
+            const countryCode = document.getElementById('countryCode').value;
+            const amount = document.getElementById('chargeAmount').value;
+            const btn = document.getElementById('payBtn');
+            
+            // التحقق من رقم الجوال
+            if(!phone || phone.length < 7) {
+                alert('❌ الرجاء إدخال رقم جوال صحيح');
                 return;
             }
             
+            // التحقق من المبلغ
+            if(!amount || amount < 10 || amount > 5000) {
+                alert('❌ المبلغ يجب أن يكون بين 10 و 5000 ريال');
+                return;
+            }
+            
+            // إزالة الصفر من البداية
+            let cleanPhone = phone;
+            if(cleanPhone.startsWith('0')) {
+                cleanPhone = cleanPhone.substring(1);
+            }
+            
+            const fullPhone = countryCode + cleanPhone;
+            
             btn.disabled = true;
-            btn.textContent = '⏳ جاري التفعيل...';
+            btn.textContent = '⏳ جاري التحويل...';
             
             try {
-                const response = await fetch('/charge_balance', {
+                const response = await fetch('/wallet/pay', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
-                        user_id: userId,
-                        charge_key: code
+                        phone: fullPhone,
+                        amount: parseFloat(amount)
                     })
                 });
                 
                 const result = await response.json();
                 
-                if(result.success) {
-                    // تحديث الرصيد
-                    document.getElementById('currentBalance').textContent = result.new_balance;
-                    document.getElementById('chargeCode').value = '';
-                    
-                    // إظهار رسالة النجاح
-                    showToast('✅ ' + result.message);
-                    
-                    // إعادة تحميل الصفحة لتحديث السجل
-                    setTimeout(() => location.reload(), 1500);
+                if(result.success && result.payment_url) {
+                    // توجيه لصفحة الدفع
+                    window.location.href = result.payment_url;
                 } else {
-                    alert('❌ ' + result.message);
+                    alert('❌ ' + (result.message || 'حدث خطأ'));
+                    btn.disabled = false;
+                    btn.textContent = '💳 إتمام الدفع';
                 }
             } catch(error) {
                 alert('❌ حدث خطأ في الاتصال');
+                btn.disabled = false;
+                btn.textContent = '💳 إتمام الدفع';
             }
-            
-            btn.disabled = false;
-            btn.textContent = '⚡ تفعيل';
         }
         
         function showToast(message) {
@@ -5590,11 +5652,6 @@ CHARGE_PAGE = """
             toast.classList.add('show');
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
-        
-        // تفعيل بالضغط على Enter
-        document.getElementById('chargeCode').addEventListener('keypress', function(e) {
-            if(e.key === 'Enter') activateCode();
-        });
     </script>
 </body>
 </html>
@@ -5682,6 +5739,113 @@ def wallet_page():
                                   total_charges=total_charges,
                                   charges_count=charges_count,
                                   purchases_count=purchases_count)
+
+# ===== معالجة الدفع من المحفظة =====
+@app.route('/wallet/pay', methods=['POST'])
+@limiter.limit("5 per minute")
+def wallet_pay():
+    """معالجة طلب الشحن من صفحة المحفظة"""
+    
+    # التحقق من تسجيل الدخول
+    user_id = session.get('user_id')
+    if not user_id:
+        return jsonify({'success': False, 'message': 'يجب تسجيل الدخول أولاً'})
+    
+    try:
+        data = request.json
+        phone = data.get('phone', '').strip()
+        amount = float(data.get('amount', 0))
+        
+        # التحقق من البيانات
+        if not phone or len(phone) < 10:
+            return jsonify({'success': False, 'message': 'رقم جوال غير صحيح'})
+        
+        if amount < 10 or amount > 5000:
+            return jsonify({'success': False, 'message': 'المبلغ يجب أن يكون بين 10 و 5000 ريال'})
+        
+        # التحقق من إعدادات EdfaPay
+        if not EDFAPAY_MERCHANT_ID or not EDFAPAY_PASSWORD:
+            return jsonify({'success': False, 'message': 'بوابة الدفع غير مفعلة'})
+        
+        # إنشاء طلب الدفع
+        order_id = f"TR{user_id}{int(time.time())}"
+        order_description = f"شحن رصيد - {user_id}"
+        
+        # حساب الـ hash
+        to_hash = f"{order_id}{amount}SAR{order_description}{EDFAPAY_PASSWORD}".upper()
+        md5_hash = hashlib.md5(to_hash.encode()).hexdigest()
+        sha1_hash = hashlib.sha1(md5_hash.encode()).hexdigest()
+        final_hash = sha1_hash.upper()
+        
+        # إنشاء طلب EdfaPay
+        payload = {
+            'action': 'SALE',
+            'edfa_merchant_id': EDFAPAY_MERCHANT_ID,
+            'order_id': order_id,
+            'order_amount': str(amount),
+            'order_currency': 'SAR',
+            'order_description': order_description,
+            'req_token': 'N',
+            'payer_first_name': 'Customer',
+            'payer_last_name': 'User',
+            'payer_address': 'Saudi Arabia',
+            'payer_country': 'SA',
+            'payer_city': 'Riyadh',
+            'payer_zip': '12221',
+            'payer_email': f'user{user_id}@wallet.com',
+            'payer_phone': phone,
+            'payer_ip': request.headers.get('X-Forwarded-For', request.remote_addr) or '176.44.76.222',
+            'term_url_3ds': f"{SITE_URL}/payment/success?order_id={order_id}",
+            'auth': 'N',
+            'recurring_init': 'N',
+            'hash': final_hash
+        }
+        
+        print(f"📤 Wallet Pay Request: {payload}")
+        
+        response = requests.post(EDFAPAY_API_URL, data=payload, timeout=30)
+        result = response.json()
+        
+        print(f"📥 EdfaPay Response: {result}")
+        
+        if response.status_code == 200 and result.get('redirect_url'):
+            payment_url = result.get('redirect_url')
+            
+            # حفظ الطلب المعلق
+            pending_payments[order_id] = {
+                'user_id': str(user_id),
+                'amount': amount,
+                'order_id': order_id,
+                'phone': phone,
+                'status': 'pending',
+                'created_at': time.time()
+            }
+            
+            # حفظ في Firebase
+            try:
+                db.collection('pending_payments').document(order_id).set({
+                    'user_id': str(user_id),
+                    'amount': amount,
+                    'order_id': order_id,
+                    'phone': phone,
+                    'status': 'pending',
+                    'created_at': firestore.SERVER_TIMESTAMP
+                })
+            except Exception as e:
+                print(f"⚠️ خطأ في حفظ الطلب: {e}")
+            
+            return jsonify({
+                'success': True,
+                'payment_url': payment_url,
+                'order_id': order_id
+            })
+        else:
+            error_msg = result.get('message') or result.get('error') or 'فشل في إنشاء طلب الدفع'
+            return jsonify({'success': False, 'message': error_msg})
+            
+    except Exception as e:
+        print(f"❌ Wallet Pay Error: {e}")
+        return jsonify({'success': False, 'message': 'حدث خطأ في معالجة الطلب'})
 
 # صفحة مشترياتي المنفصلة
 MY_PURCHASES_PAGE = """

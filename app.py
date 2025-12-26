@@ -5490,9 +5490,9 @@ CHARGE_PAGE = """
             <form id="chargeForm" onsubmit="processPayment(event)">
                 <!-- رقم الجوال -->
                 <div style="margin-bottom: 20px;">
-                    <label style="display: block; color: #888; font-size: 14px; margin-bottom: 8px;">📱 رقم الجوال</label>
+                    <label style="display: block; color: #888; font-size: 14px; margin-bottom: 8px; text-align: right;">📱 رقم الجوال</label>
                     <div style="display: flex; gap: 10px; direction: ltr;">
-                        <select id="countryCode" style="width: 110px; padding: 14px 8px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: white; font-size: 14px;">
+                        <select id="countryCode" style="width: 100px; padding: 14px 5px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: white; font-size: 14px; cursor: pointer;">
                             <option value="966">🇸🇦 +966</option>
                             <option value="971">🇦🇪 +971</option>
                             <option value="965">🇰🇼 +965</option>
@@ -5510,14 +5510,14 @@ CHARGE_PAGE = """
                             <option value="967">🇾🇪 +967</option>
                             <option value="90">🇹🇷 +90</option>
                         </select>
-                        <input type="tel" id="phoneNumber" placeholder="5xxxxxxxx" required
-                               style="flex: 1; padding: 14px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: white; font-size: 16px; text-align: center;">
+                        <input type="tel" id="phoneNumber" placeholder="5xxxxxxxx" required maxlength="10"
+                               style="flex: 1; padding: 14px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: #a29bfe; font-size: 18px; text-align: center; letter-spacing: 2px; font-family: monospace;">
                     </div>
                 </div>
                 
                 <!-- المبلغ -->
                 <div style="margin-bottom: 20px;">
-                    <label style="display: block; color: #888; font-size: 14px; margin-bottom: 8px;">💰 المبلغ المراد شحنه</label>
+                    <label style="display: block; color: #888; font-size: 14px; margin-bottom: 8px; text-align: right;">💰 المبلغ المراد شحنه</label>
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <input type="number" id="chargeAmount" placeholder="100" min="10" max="5000" required
                                style="flex: 1; padding: 14px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: white; font-size: 18px; text-align: center;">

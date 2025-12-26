@@ -5490,9 +5490,9 @@ CHARGE_PAGE = """
             <form id="chargeForm" onsubmit="processPayment(event)">
                 <!-- رقم الجوال -->
                 <div style="margin-bottom: 20px;">
-                    <label style="display: block; color: #888; font-size: 14px; margin-bottom: 8px; text-align: right;">📱 رقم الجوال</label>
+                    <label style="display: block; color: #dfe6e9; font-size: 14px; margin-bottom: 8px;">📱 رقم الجوال</label>
                     <div style="display: flex; gap: 10px; direction: ltr;">
-                        <select id="countryCode" style="width: 100px; padding: 14px 5px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: white; font-size: 14px; cursor: pointer;">
+                        <select id="countryCode" style="width: 100px; padding: 12px 8px; border: 2px solid rgba(255,255,255,0.1); border-radius: 12px; background: rgba(255,255,255,0.05); color: #fff; font-size: 14px; font-family: 'Tajawal', sans-serif; cursor: pointer;">
                             <option value="966">🇸🇦 +966</option>
                             <option value="971">🇦🇪 +971</option>
                             <option value="965">🇰🇼 +965</option>
@@ -5511,19 +5511,19 @@ CHARGE_PAGE = """
                             <option value="90">🇹🇷 +90</option>
                         </select>
                         <input type="tel" id="phoneNumber" placeholder="5xxxxxxxx" required maxlength="10"
-                               style="flex: 1; padding: 14px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: #a29bfe; font-size: 18px; text-align: center; letter-spacing: 2px; font-family: monospace;">
+                               style="flex: 1; padding: 12px; border: 2px solid rgba(255,255,255,0.1); border-radius: 12px; background: rgba(255,255,255,0.05); color: #fff; font-size: 16px; text-align: center; font-family: 'Tajawal', sans-serif;">
                     </div>
                 </div>
                 
                 <!-- المبلغ -->
                 <div style="margin-bottom: 20px;">
-                    <label style="display: block; color: #888; font-size: 14px; margin-bottom: 8px; text-align: right;">💰 المبلغ المراد شحنه</label>
+                    <label style="display: block; color: #dfe6e9; font-size: 14px; margin-bottom: 8px;">💰 المبلغ المراد شحنه</label>
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <input type="number" id="chargeAmount" placeholder="100" min="10" max="5000" required
-                               style="flex: 1; padding: 14px; border: 2px solid #333; border-radius: 12px; background: #0f0f1a; color: white; font-size: 18px; text-align: center;">
-                        <span style="color: #888; font-size: 16px;">ريال</span>
+                               style="flex: 1; padding: 12px; border: 2px solid rgba(255,255,255,0.1); border-radius: 12px; background: rgba(255,255,255,0.05); color: #fff; font-size: 18px; text-align: center; font-family: 'Tajawal', sans-serif;">
+                        <span style="color: #b2bec3; font-size: 16px;">ريال</span>
                     </div>
-                    <p style="color: #666; font-size: 12px; margin-top: 8px; text-align: center;">الحد الأدنى: 10 ريال | الحد الأقصى: 5000 ريال</p>
+                    <p style="color: #636e72; font-size: 12px; margin-top: 8px; text-align: center;">الحد الأدنى: 10 ريال | الحد الأقصى: 5000 ريال</p>
                 </div>
                 
                 <!-- أزرار مبالغ سريعة -->

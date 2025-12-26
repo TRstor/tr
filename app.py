@@ -4763,6 +4763,32 @@ def add_security_headers(response):
     response.headers['Server'] = 'Protected'
     return response
 
+# --- حماية من محاولات الاختراق ---
+BLOCKED_PATHS = [
+    '/wp-admin', '/wp-login', '/wp-content', '/wp-includes',
+    '/wordpress', '/.env', '/.git', '/phpmyadmin', '/pma',
+    '/admin.php', '/xmlrpc.php', '/wp-config', '/config.php',
+    '/shell', '/c99', '/r57', '/webshell', '/backdoor',
+    '/.htaccess', '/.htpasswd', '/cgi-bin', '/admin/config',
+    '/phpinfo', '/info.php', '/test.php', '/debug',
+    '/backup', '/.bak', '/.sql', '/.zip', '/.tar',
+    '/vendor/', '/node_modules/', '/.DS_Store'
+]
+
+@app.before_request
+def block_suspicious_requests():
+    """حظر الطلبات المشبوهة"""
+    path = request.path.lower()
+    
+    # التحقق من الروابط المحظورة
+    for blocked in BLOCKED_PATHS:
+        if blocked in path:
+            # سجل المحاولة
+            print(f"🚫 محاولة اختراق محظورة: {request.path} من {request.remote_addr}")
+            return "Forbidden", 403
+    
+    return None
+
 # --- التحقق من صلاحية الجلسة ---
 @app.before_request
 def check_session_validity():

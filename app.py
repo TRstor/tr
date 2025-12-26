@@ -3697,14 +3697,16 @@ def edfapay_settings(message):
                 timeout=30
             )
             
+            # تنظيف النص من الرموز الخاصة
+            response_text = response.text[:300].replace('`', "'").replace('_', '-').replace('*', '')
+            
             bot.send_message(
                 message.chat.id,
-                f"📡 *حالة EdfaPay Callback*\n\n"
-                f"🔑 Merchant ID: `{EDFAPAY_MERCHANT_ID}`\n"
-                f"🌐 SITE_URL: `{SITE_URL}`\n\n"
-                f"📡 Response ({response.status_code}):\n`{response.text[:300]}`\n\n"
-                f"💡 للتسجيل أرسل: `/edfapay register`",
-                parse_mode="Markdown"
+                f"📡 حالة EdfaPay Callback\n\n"
+                f"🔑 Merchant ID: {EDFAPAY_MERCHANT_ID}\n"
+                f"🌐 SITE_URL: {SITE_URL}\n\n"
+                f"📡 Response ({response.status_code}):\n{response_text}\n\n"
+                f"💡 للتسجيل أرسل: /edfapay register"
             )
             
     except Exception as e:

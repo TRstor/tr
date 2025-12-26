@@ -3418,13 +3418,15 @@ HTML_PAGE = """
         
         // عرض تفاصيل المنتج
         function showProductDetails(productId) {
-            const product = marketProducts.find(p => p.id === productId);
+            const product = allItems.find(p => p.id === productId);
             if(!product) {
                 showCustomAlert('المنتج غير موجود', 'error');
                 return;
             }
             
             const deliveryText = product.delivery_type === 'manual' ? 'تسليم يدوي 🤝' : 'تسليم فوري ⚡';
+            const safeItemName = (product.item_name || '').replace(/'/g, "\\'").replace(/"/g, '\\"');
+            const buyerInstr = product.buyer_instructions ? product.buyer_instructions.replace(/'/g, "\\'").replace(/"/g, '\\"') : '';
             
             let detailsHTML = `
                 <div class="product-detail-modal">
@@ -3465,7 +3467,7 @@ HTML_PAGE = """
                     
                     <div class="pdm-actions">
                         <button class="pdm-btn close" onclick="closeProductDetailModal()">إغلاق</button>
-                        <button class="pdm-btn cart" onclick="closeProductDetailModal(); addToCart('${product.id}', '${(product.item_name || '').replace(/'/g, "\\'")}', '${product.delivery_type || 'instant'}', ${JSON.stringify(product.buyer_instructions || '')})">أضف للسلة 🛒</button>
+                        <button class="pdm-btn cart" id="pdmAddCartBtn" data-id="${product.id}" data-name="${safeItemName}" data-delivery="${product.delivery_type || 'instant'}" data-instructions="${buyerInstr}">أضف للسلة 🛒</button>
                     </div>
                 </div>
             `;
@@ -3480,6 +3482,12 @@ HTML_PAGE = """
             }
             modal.innerHTML = detailsHTML;
             modal.style.display = 'flex';
+            
+            // إضافة event listener لزر السلة
+            document.getElementById('pdmAddCartBtn').addEventListener('click', function() {
+                closeProductDetailModal();
+                addToCart(this.dataset.id, this.dataset.name, this.dataset.delivery, this.dataset.instructions);
+            });
             
             // إغلاق عند النقر خارج المودال
             modal.onclick = function(e) {

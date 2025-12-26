@@ -7636,6 +7636,66 @@ def show_invoice(invoice_id):
         </html>
         ''', invoice_id=invoice_id, amount=invoice_data.get('amount', 0)), 410
     
+    # إذا كانت الفاتورة مرفوضة أو فاشلة
+    if invoice_data.get('status') in ['failed', 'declined']:
+        return render_template_string('''
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>الفاتورة مرفوضة</title>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { 
+                    font-family: 'Tajawal', sans-serif; 
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }
+                .container {
+                    background: rgba(255,255,255,0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 40px;
+                    text-align: center;
+                    max-width: 400px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                .icon { font-size: 80px; margin-bottom: 20px; }
+                h1 { color: #ff7675; margin-bottom: 15px; font-size: 24px; }
+                p { color: #dfe6e9; line-height: 1.8; }
+                .invoice-info {
+                    background: rgba(255,118,117,0.1);
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin-top: 20px;
+                }
+                .invoice-info div {
+                    color: #b2bec3;
+                    font-size: 14px;
+                    margin: 5px 0;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="icon">❌</div>
+                <h1>تم رفض الدفع</h1>
+                <p>عذراً، فشلت عملية الدفع لهذه الفاتورة.<br>الرجاء التواصل مع التاجر للحصول على فاتورة جديدة.</p>
+                <div class="invoice-info">
+                    <div>رقم الفاتورة: <strong>{{ invoice_id }}</strong></div>
+                    <div>المبلغ: <strong>{{ amount }} ريال</strong></div>
+                </div>
+            </div>
+        </body>
+        </html>
+        ''', invoice_id=invoice_id, amount=invoice_data.get('amount', 0)), 410
+    
     # إذا كانت الفاتورة مدفوعة مسبقاً
     if invoice_data.get('status') == 'completed':
         return render_template_string('''

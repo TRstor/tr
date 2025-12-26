@@ -7458,39 +7458,34 @@ def wallet_pay():
         if not EDFAPAY_MERCHANT_ID or not EDFAPAY_PASSWORD:
             return jsonify({'success': False, 'message': 'بوابة الدفع غير مفعلة'})
         
-        # إنشاء طلب الدفع
+        # استخدام نفس طريقة التيليجرام بالضبط
+        amount_int = int(amount)
         order_id = f"TR{user_id}{int(time.time())}"
-        order_description = f"Recharge {int(amount)} SAR"
+        order_description = f"Recharge {amount_int} SAR"
         
-        # تنسيق المبلغ (بدون فواصل عشرية إذا كان رقم صحيح)
-        if amount == int(amount):
-            amount_str = str(int(amount))
-        else:
-            amount_str = f"{amount:.2f}"
-        
-        # حساب الـ hash - نفس طريقة التيليجرام
-        to_hash = f"{order_id}{amount_str}SAR{order_description}{EDFAPAY_PASSWORD}".upper()
+        # حساب الـ hash - نفس طريقة التيليجرام بالضبط
+        to_hash = f"{order_id}{amount_int}SAR{order_description}{EDFAPAY_PASSWORD}".upper()
         md5_hash = hashlib.md5(to_hash.encode()).hexdigest()
         final_hash = hashlib.sha1(md5_hash.encode()).hexdigest()
         
-        # إنشاء طلب EdfaPay
+        # إنشاء طلب EdfaPay - نفس التيليجرام
         payload = {
             'action': 'SALE',
             'edfa_merchant_id': EDFAPAY_MERCHANT_ID,
             'order_id': order_id,
-            'order_amount': amount_str,
+            'order_amount': str(amount_int),
             'order_currency': 'SAR',
             'order_description': order_description,
             'req_token': 'N',
             'payer_first_name': 'Customer',
             'payer_last_name': 'User',
-            'payer_address': 'Saudi Arabia',
+            'payer_address': 'Riyadh',
             'payer_country': 'SA',
             'payer_city': 'Riyadh',
             'payer_zip': '12221',
-            'payer_email': f'user{user_id}@wallet.com',
-            'payer_phone': phone,
-            'payer_ip': request.headers.get('X-Forwarded-For', request.remote_addr) or '176.44.76.222',
+            'payer_email': f'user{user_id}@telegram.com',
+            'payer_phone': '966500000000',
+            'payer_ip': '176.44.76.222',
             'term_url_3ds': f"{SITE_URL}/payment/success?order_id={order_id}",
             'auth': 'N',
             'recurring_init': 'N',

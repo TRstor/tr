@@ -6851,7 +6851,22 @@ def process_edfapay_callback(req, source):
                     # إشعار التاجر
                     try:
                         new_balance = get_balance(user_id)
-                        customer_phone = payment_data.get('customer_phone', '') or merchant_invoices.get(invoice_id, {}).get('customer_phone', 'غير محدد')
+                        # جلب رقم العميل من عدة مصادر
+                        customer_phone = ''
+                        if invoice_id:
+                            # أولاً: من الذاكرة
+                            if invoice_id in merchant_invoices:
+                                customer_phone = merchant_invoices[invoice_id].get('customer_phone', '')
+                            # ثانياً: من Firebase
+                            if not customer_phone:
+                                try:
+                                    inv_doc = db.collection('merchant_invoices').document(invoice_id).get()
+                                    if inv_doc.exists:
+                                        customer_phone = inv_doc.to_dict().get('customer_phone', '')
+                                except:
+                                    pass
+                        if not customer_phone:
+                            customer_phone = 'غير محدد'
                         
                         bot.send_message(
                             int(user_id),
@@ -6866,14 +6881,17 @@ def process_edfapay_callback(req, source):
                     except Exception as e:
                         print(f"⚠️ خطأ في إرسال إشعار للتاجر: {e}")
                     
-                    # إشعار المالك
+                    # إشعار المالك (مفصّل للحماية والتوثيق)
                     try:
+                        merchant_name = merchant_invoices.get(invoice_id, {}).get('merchant_name', 'غير معروف')
                         bot.send_message(
                             ADMIN_ID,
                             f"🧾 *دفع فاتورة تاجر!*\n\n"
-                            f"👤 التاجر: `{user_id}`\n"
+                            f"👤 التاجر: {merchant_name}\n"
+                            f"🆔 آيدي: `{user_id}`\n"
                             f"💰 المبلغ: {pay_amount} ريال\n"
                             f"📋 الفاتورة: `{invoice_id}`\n"
+                            f"📱 رقم العميل: `{customer_phone}`\n"
                             f"🔗 EdfaPay: `{trans_id}`",
                             parse_mode="Markdown"
                         )
@@ -6973,12 +6991,34 @@ def process_edfapay_callback(req, source):
             try:
                 raw_reason = data.get('decline_reason', status)
                 clean_reason = str(raw_reason).replace('_', ' ').replace('*', '').replace('`', '')[:100]
-                bot.send_message(
-                    ADMIN_ID,
-                    f"❌ عملية دفع مرفوضة\n\n"
-                    f"📋 الطلب: {order_id}\n"
-                    f"❗ السبب: {clean_reason}"
-                )
+                
+                # جلب بيانات إضافية للمالك
+                merchant_id = payment_data.get('user_id', 'غير محدد') if payment_data else 'غير محدد'
+                invoice_id = payment_data.get('invoice_id', '') if payment_data else ''
+                is_merchant_inv = payment_data.get('is_merchant_invoice', False) if payment_data else False
+                
+                # جلب رقم العميل إن وجد
+                customer_phone = 'غير محدد'
+                if invoice_id and invoice_id in merchant_invoices:
+                    customer_phone = merchant_invoices[invoice_id].get('customer_phone', 'غير محدد')
+                
+                if is_merchant_inv:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"❌ فشل دفع فاتورة تاجر\n\n"
+                        f"👤 التاجر: {merchant_id}\n"
+                        f"🧾 الفاتورة: {invoice_id}\n"
+                        f"📱 رقم العميل: {customer_phone}\n"
+                        f"❗ السبب: {clean_reason}"
+                    )
+                else:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"❌ عملية شحن مرفوضة\n\n"
+                        f"👤 المستخدم: {merchant_id}\n"
+                        f"📋 الطلب: {order_id}\n"
+                        f"❗ السبب: {clean_reason}"
+                    )
             except:
                 pass
             

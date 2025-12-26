@@ -844,41 +844,48 @@ HTML_PAGE = """
         .item-card { display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #444; }
         .buy-btn { background: var(--green); width: auto; padding: 8px 20px; font-size: 0.9rem; }
         
-        /* تصميم بطاقات المنتجات الجديد */
+        /* تصميم بطاقات المنتجات الجديد - عريض */
         .product-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 16px;
+            gap: 12px;
             margin-top: 16px;
         }
-        @media (min-width: 600px) {
+        @media (min-width: 500px) {
+            .product-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (min-width: 768px) {
             .product-grid {
                 grid-template-columns: repeat(3, 1fr);
             }
         }
         .product-card {
-            background: var(--card-bg);
+            background: linear-gradient(145deg, #1e1e2e, #252538);
             border-radius: 16px;
             overflow: hidden;
             position: relative;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
             transition: transform 0.3s, box-shadow 0.3s;
             display: flex;
             flex-direction: column;
+            border: 1px solid rgba(255,255,255,0.05);
         }
         .product-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.4);
         }
         .product-image {
             width: 100%;
-            height: 140px;
+            height: 160px;
             object-fit: cover;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 50px;
+            font-size: 60px;
+            position: relative;
         }
         .product-image img {
             width: 100%;
@@ -887,32 +894,24 @@ HTML_PAGE = """
         }
         .product-badge {
             position: absolute;
-            top: 8px;
-            right: 8px;
+            top: 10px;
+            right: 10px;
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
             color: white;
-            padding: 4px 10px;
-            border-radius: 15px;
-            font-size: 11px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 10px;
             font-weight: bold;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.3);
         }
         .product-info {
-            padding: 12px;
+            padding: 14px;
             flex: 1;
             display: flex;
             flex-direction: column;
         }
         .product-category {
-            color: #a29bfe;
-            font-size: 11px;
-            font-weight: 500;
-            margin-bottom: 6px;
-            display: inline-block;
-            background: rgba(162, 155, 254, 0.2);
-            padding: 3px 8px;
-            border-radius: 10px;
-            align-self: flex-start;
+            display: none; /* مخفي لأنه موجود في البادج */
         }
         /* شارة نوع التسليم */
         .delivery-badge {
@@ -924,87 +923,95 @@ HTML_PAGE = """
             margin-bottom: 6px;
         }
         .delivery-badge.instant {
-            background: linear-gradient(135deg, rgba(0, 184, 148, 0.2), rgba(85, 239, 196, 0.1));
-            color: #00b894;
-            border: 1px solid rgba(0, 184, 148, 0.3);
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 184, 148, 0.9);
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 9px;
+            backdrop-filter: blur(5px);
         }
         .delivery-badge.manual {
-            background: linear-gradient(135deg, rgba(253, 203, 110, 0.2), rgba(243, 156, 18, 0.1));
-            color: #f39c12;
-            border: 1px solid rgba(243, 156, 18, 0.3);
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(243, 156, 18, 0.9);
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 9px;
+            backdrop-filter: blur(5px);
         }
         .product-name {
-            font-size: 15px;
+            font-size: 13px;
             font-weight: bold;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             color: var(--text-color);
-            line-height: 1.3;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         .product-seller {
-            color: #888;
-            font-size: 11px;
-            margin-bottom: 10px;
+            color: #666;
+            font-size: 10px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
-        .product-price-section {
-            text-align: center;
-            padding: 10px 0;
-            border-top: 1px solid #444;
+        .product-price-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.1);
         }
         .product-price {
-            font-size: 18px;
+            font-size: 14px;
             font-weight: bold;
             color: #00b894;
         }
-        .product-buttons {
-            display: flex;
-            gap: 8px;
-            padding-top: 10px;
-        }
-        .btn-details {
-            flex: 1;
-            background: linear-gradient(135deg, #636e72, #74b9ff);
-            color: white;
-            border: none;
-            padding: 10px 12px;
-            border-radius: 12px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-size: 12px;
-        }
-        .btn-details:hover {
-            transform: scale(1.02);
-            box-shadow: 0 4px 12px rgba(99, 110, 114, 0.4);
+        .product-price-old {
+            font-size: 11px;
+            color: #888;
+            text-decoration: line-through;
+            margin-right: 6px;
         }
         .btn-add-cart {
-            flex: 1;
-            background: linear-gradient(135deg, #00b894, #00cec9);
+            background: linear-gradient(135deg, #0984e3, #74b9ff);
             color: white;
             border: none;
-            padding: 10px 12px;
-            border-radius: 12px;
+            padding: 10px 16px;
+            border-radius: 20px;
             font-weight: bold;
             cursor: pointer;
             transition: all 0.3s;
-            box-shadow: 0 2px 6px rgba(0, 184, 148, 0.3);
-            font-size: 12px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
         }
         .btn-add-cart:hover {
-            transform: scale(1.02);
-            box-shadow: 0 4px 12px rgba(0, 184, 148, 0.5);
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(9, 132, 227, 0.4);
         }
         .btn-sold {
-            flex: 1;
-            background: #555;
-            color: #999;
+            background: #444;
+            color: #888;
             border: none;
-            padding: 10px 12px;
-            border-radius: 12px;
+            padding: 10px 16px;
+            border-radius: 20px;
             font-weight: bold;
             cursor: not-allowed;
-            font-size: 12px;
-            opacity: 0.7;
+            font-size: 11px;
         }
         
         /* مودال تفاصيل المنتج */
@@ -3017,28 +3024,23 @@ HTML_PAGE = """
                     const deliveryType = item.delivery_type || 'instant';
                     const deliveryBadge = deliveryType === 'manual' ? '<span class="delivery-badge manual">👨‍💼 يدوي</span>' : '<span class="delivery-badge instant">⚡ فوري</span>';
                     const productHTML = `
-                        <div class="product-card ${isSold ? 'sold-product' : ''}">
+                        <div class="product-card ${isSold ? 'sold-product' : ''}" onclick="${!isSold && !isMyProduct ? `showProductDetails('${item.id}')` : ''}">
                             ${isSold ? '<div class="sold-ribbon">مباع ✓</div>' : ''}
                             <div class="product-image">
                                 ${item.image_url ? `<img src="${item.image_url}" alt="${item.item_name}">` : '🎁'}
+                                ${deliveryBadge}
                             </div>
                             ${item.category ? `<div class="product-badge">${item.category}</div>` : ''}
                             <div class="product-info">
-                                ${item.category ? `<span class="product-category">${item.category}</span>` : ''}
-                                ${deliveryBadge}
                                 <div class="product-name">${item.item_name}</div>
                                 <div class="product-seller">🏪 ${item.seller_name}</div>
-                                ${isSold && item.buyer_name ? `<div class="sold-info">🎉 تم شراءه بواسطة: ${item.buyer_name}</div>` : ''}
-                                <div class="product-price-section">
+                                <div class="product-price-row">
                                     <div class="product-price">${item.price} ريال</div>
-                                </div>
-                                <div class="product-buttons">
                                     ${isSold ? 
-                                        `<button class="btn-sold" disabled>مباع 🚫</button>` :
+                                        `<button class="btn-sold" disabled>مباع</button>` :
                                         (!isMyProduct ? 
-                                            `<button class="btn-details" onclick='showProductDetails("${item.id}")'>التفاصيل 📋</button>
-                                             <button class="btn-add-cart" onclick='addToCart("${item.id}", "${(item.item_name || '').replace(/"/g, '\\"')}", "${deliveryType}", ${JSON.stringify(item.buyer_instructions || '')})'>أضف للسلة 🛒</button>` : 
-                                            `<div class="my-product-badge">منتجك ⭐</div>`)
+                                            `<button class="btn-add-cart" onclick="event.stopPropagation(); addToCart('${item.id}', '${(item.item_name || '').replace(/'/g, "\\'").replace(/"/g, '\\"')}', '${deliveryType}', ${JSON.stringify(item.buyer_instructions || '')})">🛒 أضف</button>` : 
+                                            `<span class="my-product-badge">منتجك ⭐</span>`)
                                     }
                                 </div>
                             </div>

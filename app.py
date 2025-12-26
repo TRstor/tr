@@ -7495,7 +7495,14 @@ def wallet_pay():
         print(f"📤 Wallet Pay Request: {payload}")
         
         response = requests.post(EDFAPAY_API_URL, data=payload, timeout=30)
-        result = response.json()
+        
+        print(f"📥 EdfaPay Raw Response: {response.text}")
+        
+        try:
+            result = response.json()
+        except:
+            print(f"❌ فشل في تحليل JSON: {response.text}")
+            return jsonify({'success': False, 'message': 'خطأ في بوابة الدفع - حاول مرة أخرى'})
         
         print(f"📥 EdfaPay Response: {result}")
         
@@ -7531,12 +7538,21 @@ def wallet_pay():
                 'order_id': order_id
             })
         else:
-            error_msg = result.get('message') or result.get('error') or 'فشل في إنشاء طلب الدفع'
+            error_msg = result.get('message') or result.get('error') or result.get('error_message') or 'فشل في إنشاء طلب الدفع'
+            print(f"❌ EdfaPay Error: {error_msg}")
             return jsonify({'success': False, 'message': error_msg})
             
+    except requests.exceptions.Timeout:
+        print(f"❌ Wallet Pay Timeout")
+        return jsonify({'success': False, 'message': 'انتهى وقت الاتصال - حاول مرة أخرى'})
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Wallet Pay Request Error: {e}")
+        return jsonify({'success': False, 'message': 'خطأ في الاتصال ببوابة الدفع'})
     except Exception as e:
         print(f"❌ Wallet Pay Error: {e}")
-        return jsonify({'success': False, 'message': 'حدث خطأ في معالجة الطلب'})
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'حدث خطأ: {str(e)}'})
 
 # صفحة مشترياتي المنفصلة
 MY_PURCHASES_PAGE = """

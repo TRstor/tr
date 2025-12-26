@@ -3951,7 +3951,7 @@ def create_edfapay_invoice(user_id, amount, user_name):
             'payer_email': f'user{user_id}@telegram.com',
             'payer_phone': '966500000000',
             'payer_ip': payer_ip,
-            'term_url_3ds': f"{SITE_URL}/payment/success",
+            'term_url_3ds': f"{SITE_URL}/payment/success?order_id={order_id}",
             'auth': 'N',
             'recurring_init': 'N',
             'hash': final_hash
@@ -4799,6 +4799,22 @@ def check_session_validity():
         if time.time() - login_time > 1800:  # 30 * 60 = 1800 ثانية
             session.clear()
             print("⏰ انتهت صلاحية الجلسة")
+
+@app.route('/robots.txt')
+def robots_txt():
+    """ملف robots.txt للمحركات البحث"""
+    return """User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /webhook
+Disallow: /payment/
+Disallow: /api/
+""", 200, {'Content-Type': 'text/plain'}
+
+@app.route('/favicon.ico')
+def favicon():
+    """أيقونة الموقع"""
+    return '', 204
 
 @app.route('/')
 def index():

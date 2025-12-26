@@ -252,6 +252,10 @@ user_states = {}
 # الشكل: { invoice_id: {user_id, amount, status, created_at} }
 pending_payments = {}
 
+# الفواتير المنشأة من التجار (للعملاء)
+# الشكل: { invoice_id: {merchant_id, merchant_name, amount, customer_phone, status, created_at} }
+merchant_invoices = {}
+
 # قائمة الأقسام الديناميكية
 # الشكل: { id: {name, image_url, order, delivery_type, created_at} }
 categories_list = [
@@ -4161,6 +4165,66 @@ def handle_user_state_message(message):
                 )
             except:
                 pass
+        
+        # === حالة انتظار مبلغ الفاتورة ===
+        elif state == 'waiting_invoice_amount':
+            text = message.text.strip()
+            merchant_name = state_data.get('merchant_name', message.from_user.first_name)
+            
+            # التحقق من أن المدخل رقم
+            try:
+                amount = float(text)
+            except ValueError:
+                return bot.reply_to(message, "❌ الرجاء إدخال رقم صحيح فقط (مثال: 100)")
+            
+            # التحقق من الحدود
+            if amount < 1:
+                return bot.reply_to(message, "❌ الحد الأدنى للفاتورة هو 1 ريال")
+            if amount > 10000:
+                return bot.reply_to(message, "❌ الحد الأقصى للفاتورة هو 10,000 ريال")
+            
+            # إزالة حالة المستخدم
+            del user_states[user_id]
+            
+            # إنشاء معرف فريد للفاتورة
+            invoice_id = generate_invoice_id()
+            invoice_url = f"{SITE_URL}/invoice/{invoice_id}"
+            
+            # حفظ الفاتورة المعلقة (بدون رقم هاتف بعد)
+            merchant_invoices[invoice_id] = {
+                'invoice_id': invoice_id,
+                'merchant_id': user_id,
+                'merchant_name': merchant_name,
+                'amount': amount,
+                'customer_phone': None,
+                'status': 'waiting_payment',
+                'created_at': time.time()
+            }
+            
+            # حفظ في Firebase
+            try:
+                db.collection('merchant_invoices').document(invoice_id).set({
+                    'invoice_id': invoice_id,
+                    'merchant_id': user_id,
+                    'merchant_name': merchant_name,
+                    'amount': amount,
+                    'customer_phone': None,
+                    'status': 'waiting_payment',
+                    'created_at': firestore.SERVER_TIMESTAMP
+                })
+            except Exception as e:
+                print(f"⚠️ خطأ في حفظ الفاتورة: {e}")
+            
+            # إرسال رابط الفاتورة للتاجر
+            bot.send_message(
+                message.chat.id,
+                f"✅ *تم إنشاء الفاتورة بنجاح!*\n\n"
+                f"💰 المبلغ: {amount} ريال\n"
+                f"🆔 رقم الفاتورة: `{invoice_id}`\n\n"
+                f"🔗 *رابط الفاتورة:*\n`{invoice_url}`\n\n"
+                f"📤 أرسل هذا الرابط للعميل للدفع",
+                parse_mode="Markdown"
+            )
                 
     except Exception as e:
         print(f"❌ خطأ في handle_user_state_message: {e}")
@@ -4197,6 +4261,173 @@ def open_web_app(message):
                      f"💡 **نصيحة:** انسخ الرابط وافتحه في متصفح خارجي (Chrome/Safari) "
                      f"للحصول على أفضل تجربة!",
                      parse_mode="Markdown")
+
+# ============ نظام الفواتير للتجار ============
+
+@bot.message_handler(commands=['فاتورة'])
+def create_invoice_command(message):
+    """أمر إنشاء فاتورة للعميل"""
+    user_id = str(message.from_user.id)
+    user_name = message.from_user.first_name
+    
+    # تعيين حالة انتظار إدخال مبلغ الفاتورة
+    user_states[user_id] = {
+        'state': 'waiting_invoice_amount',
+        'created_at': time.time(),
+        'merchant_name': user_name
+    }
+    
+    # إنشاء زر إلغاء
+    markup = types.InlineKeyboardMarkup()
+    btn_cancel = types.InlineKeyboardButton("❌ إلغاء", callback_data="cancel_invoice")
+    markup.add(btn_cancel)
+    
+    bot.send_message(
+        message.chat.id,
+        "🧾 *إنشاء فاتورة جديدة*\n\n"
+        "💰 أدخل مبلغ الفاتورة بالريال:\n\n"
+        "_مثال: 100_",
+        parse_mode="Markdown",
+        reply_markup=markup
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "cancel_invoice")
+def handle_cancel_invoice(call):
+    """إلغاء إنشاء الفاتورة"""
+    user_id = str(call.from_user.id)
+    
+    if user_id in user_states:
+        del user_states[user_id]
+    
+    bot.answer_callback_query(call.id, "تم الإلغاء")
+    bot.edit_message_text(
+        "❌ تم إلغاء إنشاء الفاتورة.",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id
+    )
+
+def generate_invoice_id():
+    """توليد معرف قصير وفريد للفاتورة"""
+    chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    return ''.join(random.choice(chars) for _ in range(6))
+
+def create_customer_invoice(merchant_id, merchant_name, amount, customer_phone):
+    """إنشاء فاتورة دفع للعميل وإرسالها لـ EdfaPay"""
+    try:
+        # توليد معرف فريد للفاتورة
+        invoice_id = f"INV{generate_invoice_id()}"
+        order_id = f"INV{merchant_id}{int(time.time())}"
+        order_description = f"Invoice {invoice_id} - {amount} SAR"
+        
+        # إنشاء الـ Hash
+        to_hash = f"{order_id}{amount}SAR{order_description}{EDFAPAY_PASSWORD}".upper()
+        md5_hash = hashlib.md5(to_hash.encode()).hexdigest()
+        final_hash = hashlib.sha1(md5_hash.encode()).hexdigest()
+        
+        # تحويل رقم الهاتف للصيغة الدولية
+        phone = customer_phone.strip()
+        if phone.startswith('0'):
+            phone = '966' + phone[1:]
+        elif not phone.startswith('966'):
+            phone = '966' + phone
+        
+        # بيانات الطلب
+        payload = {
+            'action': 'SALE',
+            'edfa_merchant_id': EDFAPAY_MERCHANT_ID,
+            'order_id': order_id,
+            'order_amount': str(amount),
+            'order_currency': 'SAR',
+            'order_description': order_description,
+            'req_token': 'N',
+            'payer_first_name': 'Customer',
+            'payer_last_name': 'User',
+            'payer_address': 'Saudi Arabia',
+            'payer_country': 'SA',
+            'payer_city': 'Riyadh',
+            'payer_zip': '12221',
+            'payer_email': f'customer{int(time.time())}@invoice.com',
+            'payer_phone': phone,
+            'payer_ip': '176.44.76.222',
+            'term_url_3ds': f"{SITE_URL}/payment/success?order_id={order_id}&invoice={invoice_id}",
+            'auth': 'N',
+            'recurring_init': 'N',
+            'hash': final_hash
+        }
+        
+        print(f"📤 EdfaPay Invoice Request: {payload}")
+        
+        response = requests.post(EDFAPAY_API_URL, data=payload, timeout=30)
+        print(f"📤 EdfaPay Response: {response.status_code} - {response.text[:500]}")
+        
+        result = response.json()
+        
+        if response.status_code == 200 and result.get('redirect_url'):
+            payment_url = result.get('redirect_url')
+            
+            # حفظ الفاتورة في الذاكرة
+            merchant_invoices[invoice_id] = {
+                'invoice_id': invoice_id,
+                'order_id': order_id,
+                'merchant_id': merchant_id,
+                'merchant_name': merchant_name,
+                'amount': amount,
+                'customer_phone': phone,
+                'status': 'pending',
+                'created_at': time.time()
+            }
+            
+            # حفظ الطلب المعلق (لربطه بالـ webhook)
+            pending_payments[order_id] = {
+                'user_id': merchant_id,  # سيتم إضافة الرصيد للتاجر
+                'amount': amount,
+                'order_id': order_id,
+                'invoice_id': invoice_id,
+                'is_merchant_invoice': True,  # علامة أنها فاتورة تاجر
+                'status': 'pending',
+                'created_at': time.time()
+            }
+            
+            # حفظ في Firebase
+            try:
+                db.collection('merchant_invoices').document(invoice_id).set({
+                    'invoice_id': invoice_id,
+                    'order_id': order_id,
+                    'merchant_id': merchant_id,
+                    'merchant_name': merchant_name,
+                    'amount': amount,
+                    'customer_phone': phone,
+                    'status': 'pending',
+                    'created_at': firestore.SERVER_TIMESTAMP
+                })
+                
+                db.collection('pending_payments').document(order_id).set({
+                    'user_id': merchant_id,
+                    'amount': amount,
+                    'order_id': order_id,
+                    'invoice_id': invoice_id,
+                    'is_merchant_invoice': True,
+                    'status': 'pending',
+                    'created_at': firestore.SERVER_TIMESTAMP
+                })
+            except Exception as e:
+                print(f"⚠️ خطأ في حفظ الفاتورة في Firebase: {e}")
+            
+            return {
+                'success': True,
+                'payment_url': payment_url,
+                'invoice_id': invoice_id,
+                'order_id': order_id
+            }
+        else:
+            error_msg = result.get('message') or result.get('error') or str(result)
+            return {'success': False, 'error': error_msg}
+            
+    except Exception as e:
+        print(f"❌ Exception in create_customer_invoice: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'error': str(e)}
 
 # زر استلام الطلب من قبل المشرف (النظام القديم - للطلبات في الذاكرة)
 @bot.callback_query_handler(func=lambda call: call.data.startswith('claim_') and not call.data.startswith('claim_order_'))
@@ -6574,6 +6805,8 @@ def process_edfapay_callback(req, source):
             if payment_data and payment_data.get('status') != 'completed':
                 user_id = str(payment_data.get('user_id', ''))
                 pay_amount = float(payment_data.get('amount', amount or 0))
+                is_merchant_invoice = payment_data.get('is_merchant_invoice', False)
+                invoice_id = payment_data.get('invoice_id', '')
                 
                 if not user_id:
                     print(f"❌ لا يوجد user_id في الطلب")
@@ -6599,34 +6832,82 @@ def process_edfapay_callback(req, source):
                 except Exception as e:
                     print(f"⚠️ خطأ في تحديث Firebase: {e}")
                 
-                # إشعار المستخدم
-                try:
-                    new_balance = get_balance(user_id)
-                    bot.send_message(
-                        int(user_id),
-                        f"✅ *تم شحن رصيدك بنجاح!*\n\n"
-                        f"💰 المبلغ المضاف: {pay_amount} ريال\n"
-                        f"💵 رصيدك الحالي: {new_balance} ريال\n\n"
-                        f"📋 رقم العملية: `{order_id}`\n\n"
-                        f"🎉 استمتع بالتسوق!",
-                        parse_mode="Markdown"
-                    )
-                except Exception as e:
-                    print(f"⚠️ خطأ في إرسال إشعار: {e}")
+                # ===== إشعارات مختلفة حسب نوع الدفع =====
                 
-                # إشعار المالك
-                try:
-                    bot.send_message(
-                        ADMIN_ID,
-                        f"💳 *دفعة جديدة ناجحة!*\n\n"
-                        f"👤 المستخدم: `{user_id}`\n"
-                        f"💰 المبلغ: {pay_amount} ريال\n"
-                        f"📋 الطلب: `{order_id}`\n"
-                        f"🔗 EdfaPay: `{trans_id}`",
-                        parse_mode="Markdown"
-                    )
-                except:
-                    pass
+                if is_merchant_invoice and invoice_id:
+                    # 🔹 فاتورة تاجر - إشعار التاجر
+                    try:
+                        # تحديث حالة الفاتورة
+                        if invoice_id in merchant_invoices:
+                            merchant_invoices[invoice_id]['status'] = 'completed'
+                        
+                        db.collection('merchant_invoices').document(invoice_id).update({
+                            'status': 'completed',
+                            'completed_at': firestore.SERVER_TIMESTAMP
+                        })
+                    except:
+                        pass
+                    
+                    # إشعار التاجر
+                    try:
+                        new_balance = get_balance(user_id)
+                        customer_phone = payment_data.get('customer_phone', '') or merchant_invoices.get(invoice_id, {}).get('customer_phone', 'غير محدد')
+                        
+                        bot.send_message(
+                            int(user_id),
+                            f"💰 *تم استلام دفعة جديدة!*\n\n"
+                            f"🧾 رقم الفاتورة: `{invoice_id}`\n"
+                            f"💵 المبلغ: {pay_amount} ريال\n"
+                            f"📱 رقم العميل: `{customer_phone}`\n\n"
+                            f"💳 رصيدك الحالي: {new_balance} ريال\n\n"
+                            f"✅ تم إضافة المبلغ لرصيدك",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        print(f"⚠️ خطأ في إرسال إشعار للتاجر: {e}")
+                    
+                    # إشعار المالك
+                    try:
+                        bot.send_message(
+                            ADMIN_ID,
+                            f"🧾 *دفع فاتورة تاجر!*\n\n"
+                            f"👤 التاجر: `{user_id}`\n"
+                            f"💰 المبلغ: {pay_amount} ريال\n"
+                            f"📋 الفاتورة: `{invoice_id}`\n"
+                            f"🔗 EdfaPay: `{trans_id}`",
+                            parse_mode="Markdown"
+                        )
+                    except:
+                        pass
+                else:
+                    # 🔹 شحن عادي - إشعار المستخدم
+                    try:
+                        new_balance = get_balance(user_id)
+                        bot.send_message(
+                            int(user_id),
+                            f"✅ *تم شحن رصيدك بنجاح!*\n\n"
+                            f"💰 المبلغ المضاف: {pay_amount} ريال\n"
+                            f"💵 رصيدك الحالي: {new_balance} ريال\n\n"
+                            f"📋 رقم العملية: `{order_id}`\n\n"
+                            f"🎉 استمتع بالتسوق!",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        print(f"⚠️ خطأ في إرسال إشعار: {e}")
+                    
+                    # إشعار المالك
+                    try:
+                        bot.send_message(
+                            ADMIN_ID,
+                            f"💳 *دفعة جديدة ناجحة!*\n\n"
+                            f"👤 المستخدم: `{user_id}`\n"
+                            f"💰 المبلغ: {pay_amount} ريال\n"
+                            f"📋 الطلب: `{order_id}`\n"
+                            f"🔗 EdfaPay: `{trans_id}`",
+                            parse_mode="Markdown"
+                        )
+                    except:
+                        pass
                 
                 return jsonify({'status': 'success', 'message': 'Payment processed'})
             
@@ -7102,6 +7383,437 @@ def payment_success():
         </body>
         </html>
         ''', bot_username=BOT_USERNAME, order_id=order_id)
+
+# ============ صفحة الفاتورة للعميل ============
+@app.route('/invoice/<invoice_id>')
+def show_invoice(invoice_id):
+    """عرض صفحة الفاتورة للعميل"""
+    
+    # البحث عن الفاتورة في الذاكرة
+    invoice_data = merchant_invoices.get(invoice_id)
+    
+    # البحث في Firebase إذا لم توجد
+    if not invoice_data:
+        try:
+            doc = db.collection('merchant_invoices').document(invoice_id).get()
+            if doc.exists:
+                invoice_data = doc.to_dict()
+                merchant_invoices[invoice_id] = invoice_data
+        except Exception as e:
+            print(f"⚠️ خطأ في جلب الفاتورة: {e}")
+    
+    # إذا لم توجد الفاتورة
+    if not invoice_data:
+        return render_template_string('''
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>فاتورة غير موجودة</title>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { 
+                    font-family: 'Tajawal', sans-serif; 
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }
+                .container {
+                    background: rgba(255,255,255,0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 40px;
+                    text-align: center;
+                    max-width: 400px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                .icon { font-size: 80px; margin-bottom: 20px; }
+                h1 { color: #ff7675; margin-bottom: 15px; font-size: 24px; }
+                p { color: #dfe6e9; line-height: 1.6; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="icon">❌</div>
+                <h1>فاتورة غير موجودة</h1>
+                <p>عذراً، لم يتم العثور على هذه الفاتورة أو أنها منتهية الصلاحية.</p>
+            </div>
+        </body>
+        </html>
+        '''), 404
+    
+    # إذا كانت الفاتورة مدفوعة مسبقاً
+    if invoice_data.get('status') == 'completed':
+        return render_template_string('''
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>الفاتورة مدفوعة</title>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { 
+                    font-family: 'Tajawal', sans-serif; 
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }
+                .container {
+                    background: rgba(255,255,255,0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 40px;
+                    text-align: center;
+                    max-width: 400px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                .icon { font-size: 80px; margin-bottom: 20px; }
+                h1 { color: #00cec9; margin-bottom: 15px; font-size: 24px; }
+                p { color: #dfe6e9; line-height: 1.6; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="icon">✅</div>
+                <h1>تم دفع الفاتورة</h1>
+                <p>هذه الفاتورة تم دفعها مسبقاً.</p>
+            </div>
+        </body>
+        </html>
+        ''')
+    
+    # عرض صفحة الفاتورة
+    merchant_name = invoice_data.get('merchant_name', 'التاجر')
+    amount = invoice_data.get('amount', 0)
+    
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>فاتورة - {{ merchant_name }}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { 
+                font-family: 'Tajawal', sans-serif; 
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                min-height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 20px;
+            }
+            .invoice-card {
+                background: rgba(255,255,255,0.1);
+                backdrop-filter: blur(10px);
+                border-radius: 20px;
+                padding: 30px;
+                width: 100%;
+                max-width: 400px;
+                border: 1px solid rgba(255,255,255,0.2);
+            }
+            .header {
+                text-align: center;
+                margin-bottom: 25px;
+            }
+            .merchant-icon {
+                width: 70px;
+                height: 70px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 0 auto 15px;
+                font-size: 30px;
+            }
+            .merchant-name {
+                color: #fff;
+                font-size: 22px;
+                font-weight: 700;
+            }
+            .invoice-id {
+                color: #a29bfe;
+                font-size: 12px;
+                margin-top: 5px;
+            }
+            .amount-section {
+                background: rgba(255,255,255,0.05);
+                border-radius: 15px;
+                padding: 20px;
+                text-align: center;
+                margin-bottom: 25px;
+            }
+            .amount-label {
+                color: #b2bec3;
+                font-size: 14px;
+                margin-bottom: 8px;
+            }
+            .amount-value {
+                color: #00cec9;
+                font-size: 36px;
+                font-weight: 700;
+            }
+            .amount-currency {
+                color: #81ecec;
+                font-size: 18px;
+                margin-right: 5px;
+            }
+            .form-group {
+                margin-bottom: 20px;
+            }
+            .form-label {
+                display: block;
+                color: #dfe6e9;
+                margin-bottom: 8px;
+                font-size: 14px;
+            }
+            .form-input {
+                width: 100%;
+                padding: 15px;
+                border: 2px solid rgba(255,255,255,0.1);
+                border-radius: 12px;
+                background: rgba(255,255,255,0.05);
+                color: #fff;
+                font-size: 18px;
+                font-family: 'Tajawal', sans-serif;
+                text-align: center;
+                direction: ltr;
+                transition: border-color 0.3s;
+            }
+            .form-input:focus {
+                outline: none;
+                border-color: #667eea;
+            }
+            .form-input::placeholder {
+                color: #636e72;
+            }
+            .pay-btn {
+                width: 100%;
+                padding: 16px;
+                border: none;
+                border-radius: 12px;
+                background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+                color: #fff;
+                font-size: 18px;
+                font-weight: 700;
+                font-family: 'Tajawal', sans-serif;
+                cursor: pointer;
+                transition: transform 0.2s, box-shadow 0.2s;
+            }
+            .pay-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 30px rgba(0,206,201,0.3);
+            }
+            .pay-btn:disabled {
+                background: #636e72;
+                cursor: not-allowed;
+                transform: none;
+            }
+            .secure-note {
+                text-align: center;
+                color: #636e72;
+                font-size: 12px;
+                margin-top: 20px;
+            }
+            .secure-note span {
+                color: #00b894;
+            }
+            .error-msg {
+                color: #ff7675;
+                font-size: 13px;
+                margin-top: 8px;
+                display: none;
+            }
+            .loading {
+                display: none;
+            }
+            .loading.show {
+                display: inline-block;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="invoice-card">
+            <div class="header">
+                <div class="merchant-icon">🏪</div>
+                <div class="merchant-name">{{ merchant_name }}</div>
+                <div class="invoice-id">رقم الفاتورة: {{ invoice_id }}</div>
+            </div>
+            
+            <div class="amount-section">
+                <div class="amount-label">المبلغ المطلوب</div>
+                <div class="amount-value">
+                    {{ amount }}
+                    <span class="amount-currency">ريال</span>
+                </div>
+            </div>
+            
+            <form id="paymentForm" action="/invoice/{{ invoice_id }}/pay" method="POST">
+                <div class="form-group">
+                    <label class="form-label">📱 رقم الجوال</label>
+                    <input type="tel" name="phone" class="form-input" 
+                           placeholder="05xxxxxxxx" 
+                           pattern="^(05|5|9665)[0-9]{8}$"
+                           maxlength="12"
+                           required
+                           id="phoneInput">
+                    <div class="error-msg" id="phoneError">الرجاء إدخال رقم جوال صحيح</div>
+                </div>
+                
+                <button type="submit" class="pay-btn" id="payBtn">
+                    <span class="loading" id="loading">⏳ </span>
+                    💳 ادفع الآن
+                </button>
+            </form>
+            
+            <div class="secure-note">
+                🔒 <span>دفع آمن</span> عبر بوابة EdfaPay
+            </div>
+        </div>
+        
+        <script>
+            const form = document.getElementById('paymentForm');
+            const phoneInput = document.getElementById('phoneInput');
+            const phoneError = document.getElementById('phoneError');
+            const payBtn = document.getElementById('payBtn');
+            const loading = document.getElementById('loading');
+            
+            phoneInput.addEventListener('input', function() {
+                phoneError.style.display = 'none';
+            });
+            
+            form.addEventListener('submit', function(e) {
+                const phone = phoneInput.value.trim();
+                const pattern = /^(05|5|9665|966)[0-9]{8,9}$/;
+                
+                if (!pattern.test(phone)) {
+                    e.preventDefault();
+                    phoneError.style.display = 'block';
+                    return;
+                }
+                
+                payBtn.disabled = true;
+                loading.classList.add('show');
+            });
+        </script>
+    </body>
+    </html>
+    ''', merchant_name=merchant_name, amount=amount, invoice_id=invoice_id)
+
+@app.route('/invoice/<invoice_id>/pay', methods=['POST'])
+def process_invoice_payment(invoice_id):
+    """معالجة دفع الفاتورة"""
+    
+    # جلب رقم الهاتف
+    phone = request.form.get('phone', '').strip()
+    
+    # البحث عن الفاتورة
+    invoice_data = merchant_invoices.get(invoice_id)
+    
+    if not invoice_data:
+        try:
+            doc = db.collection('merchant_invoices').document(invoice_id).get()
+            if doc.exists:
+                invoice_data = doc.to_dict()
+        except:
+            pass
+    
+    if not invoice_data:
+        return redirect(f'/invoice/{invoice_id}')
+    
+    # التحقق من أن الفاتورة لم تدفع
+    if invoice_data.get('status') == 'completed':
+        return redirect(f'/invoice/{invoice_id}')
+    
+    # إنشاء طلب الدفع
+    merchant_id = invoice_data.get('merchant_id')
+    merchant_name = invoice_data.get('merchant_name')
+    amount = invoice_data.get('amount')
+    
+    result = create_customer_invoice(merchant_id, merchant_name, amount, phone)
+    
+    if result['success']:
+        # تحديث الفاتورة الأصلية
+        try:
+            merchant_invoices[invoice_id]['customer_phone'] = phone
+            merchant_invoices[invoice_id]['order_id'] = result['order_id']
+            
+            db.collection('merchant_invoices').document(invoice_id).update({
+                'customer_phone': phone,
+                'order_id': result['order_id']
+            })
+        except:
+            pass
+        
+        # إعادة توجيه لصفحة الدفع
+        return redirect(result['payment_url'])
+    else:
+        # عرض رسالة خطأ
+        return render_template_string('''
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>خطأ</title>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { 
+                    font-family: 'Tajawal', sans-serif; 
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }
+                .container {
+                    background: rgba(255,255,255,0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 40px;
+                    text-align: center;
+                    max-width: 400px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                .icon { font-size: 80px; margin-bottom: 20px; }
+                h1 { color: #ff7675; margin-bottom: 15px; font-size: 24px; }
+                p { color: #dfe6e9; line-height: 1.6; margin-bottom: 20px; }
+                .btn {
+                    display: inline-block;
+                    padding: 12px 30px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: #fff;
+                    text-decoration: none;
+                    border-radius: 10px;
+                    font-weight: 600;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="icon">⚠️</div>
+                <h1>حدث خطأ</h1>
+                <p>{{ error }}</p>
+                <a href="/invoice/{{ invoice_id }}" class="btn">حاول مرة أخرى</a>
+            </div>
+        </body>
+        </html>
+        ''', error=result.get('error', 'خطأ غير معروف'), invoice_id=invoice_id)
 
 @app.route('/payment/cancel')
 def payment_cancel():

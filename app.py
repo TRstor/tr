@@ -4311,12 +4311,12 @@ def generate_invoice_id():
     chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
     return ''.join(random.choice(chars) for _ in range(6))
 
-def create_customer_invoice(merchant_id, merchant_name, amount, customer_phone):
+def create_customer_invoice(merchant_id, merchant_name, amount, customer_phone, original_invoice_id=None):
     """إنشاء فاتورة دفع للعميل وإرسالها لـ EdfaPay"""
     try:
-        # توليد معرف فريد للفاتورة
-        invoice_id = f"INV{generate_invoice_id()}"
-        order_id = f"INV{merchant_id}{int(time.time())}"
+        # استخدام معرف الفاتورة الأصلي أو توليد جديد
+        invoice_id = original_invoice_id or f"INV{generate_invoice_id()}"
+        order_id = f"{invoice_id}{int(time.time())}"
         order_description = f"Invoice {invoice_id} - {amount} SAR"
         
         # إنشاء الـ Hash
@@ -6949,27 +6949,35 @@ def process_edfapay_callback(req, source):
                 try:
                     user_id = payment_data.get('user_id')
                     pay_amount = payment_data.get('amount', 0)
-                    decline_reason = data.get('decline_reason', 'فشلت العملية')
+                    is_merchant_invoice = payment_data.get('is_merchant_invoice', False)
                     
-                    bot.send_message(
-                        int(user_id),
-                        f"❌ *فشلت عملية الشحن*\n\n"
-                        f"💰 المبلغ: {pay_amount} ريال\n"
-                        f"❗ السبب: {decline_reason}\n\n"
-                        f"💡 تأكد من رصيد البطاقة أو جرب بطاقة أخرى",
-                        parse_mode="Markdown"
-                    )
+                    # تنظيف سبب الرفض من الأحرف الخاصة
+                    decline_reason = data.get('decline_reason', 'فشلت العملية')
+                    # إزالة الأحرف التي تسبب مشاكل في Markdown
+                    decline_reason = decline_reason.replace('_', ' ').replace('*', '').replace('`', '').replace('[', '').replace(']', '')
+                    # اختصار الرسالة إذا كانت طويلة
+                    if len(decline_reason) > 50:
+                        decline_reason = 'تم رفض البطاقة'
+                    
+                    # رسالة مختلفة حسب نوع الدفع
+                    if is_merchant_invoice:
+                        msg_text = f"❌ فشلت عملية الدفع\n\n💰 المبلغ: {pay_amount} ريال\n❗ السبب: {decline_reason}\n\n💡 أخبر العميل بالمحاولة مرة أخرى"
+                    else:
+                        msg_text = f"❌ فشلت عملية الشحن\n\n💰 المبلغ: {pay_amount} ريال\n❗ السبب: {decline_reason}\n\n💡 تأكد من رصيد البطاقة أو جرب بطاقة أخرى"
+                    
+                    bot.send_message(int(user_id), msg_text)
                 except Exception as e:
                     print(f"⚠️ خطأ في إرسال إشعار للعميل: {e}")
             
             # إشعار المالك بالفشل
             try:
+                raw_reason = data.get('decline_reason', status)
+                clean_reason = str(raw_reason).replace('_', ' ').replace('*', '').replace('`', '')[:100]
                 bot.send_message(
                     ADMIN_ID,
-                    f"❌ *عملية دفع مرفوضة*\n\n"
-                    f"📋 الطلب: `{order_id}`\n"
-                    f"❗ السبب: {data.get('decline_reason', status)}",
-                    parse_mode="Markdown"
+                    f"❌ عملية دفع مرفوضة\n\n"
+                    f"📋 الطلب: {order_id}\n"
+                    f"❗ السبب: {clean_reason}"
                 )
             except:
                 pass
@@ -7743,7 +7751,7 @@ def process_invoice_payment(invoice_id):
     merchant_name = invoice_data.get('merchant_name')
     amount = invoice_data.get('amount')
     
-    result = create_customer_invoice(merchant_id, merchant_name, amount, phone)
+    result = create_customer_invoice(merchant_id, merchant_name, amount, phone, invoice_id)
     
     if result['success']:
         # تحديث الفاتورة الأصلية

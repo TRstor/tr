@@ -3023,23 +3023,28 @@ HTML_PAGE = """
                     const isSold = item.sold === true;
                     const deliveryType = item.delivery_type || 'instant';
                     const deliveryBadge = deliveryType === 'manual' ? '<span class="delivery-badge manual">👨‍💼 يدوي</span>' : '<span class="delivery-badge instant">⚡ فوري</span>';
+                    
+                    // تجهيز البيانات للأزرار
+                    const safeItemName = (item.item_name || '').replace(/'/g, "\\\\'").replace(/"/g, '\\\\"');
+                    const buyerInstr = item.buyer_instructions ? item.buyer_instructions.replace(/'/g, "\\\\'").replace(/"/g, '\\\\"') : '';
+                    
                     const productHTML = `
-                        <div class="product-card ${isSold ? 'sold-product' : ''}" onclick="${!isSold && !isMyProduct ? `showProductDetails('${item.id}')` : ''}">
+                        <div class="product-card ${isSold ? 'sold-product' : ''}" data-product-id="${item.id}">
                             ${isSold ? '<div class="sold-ribbon">مباع ✓</div>' : ''}
-                            <div class="product-image">
+                            <div class="product-image" ${!isSold && !isMyProduct ? `onclick="showProductDetails('${item.id}')"` : ''}>
                                 ${item.image_url ? `<img src="${item.image_url}" alt="${item.item_name}">` : '🎁'}
                                 ${deliveryBadge}
                             </div>
                             ${item.category ? `<div class="product-badge">${item.category}</div>` : ''}
                             <div class="product-info">
-                                <div class="product-name">${item.item_name}</div>
+                                <div class="product-name" ${!isSold && !isMyProduct ? `onclick="showProductDetails('${item.id}')"` : ''}>${item.item_name}</div>
                                 <div class="product-seller">🏪 ${item.seller_name}</div>
                                 <div class="product-price-row">
                                     <div class="product-price">${item.price} ريال</div>
                                     ${isSold ? 
                                         `<button class="btn-sold" disabled>مباع</button>` :
                                         (!isMyProduct ? 
-                                            `<button class="btn-add-cart" onclick="event.stopPropagation(); addToCart('${item.id}', '${(item.item_name || '').replace(/'/g, "\\'").replace(/"/g, '\\"')}', '${deliveryType}', ${JSON.stringify(item.buyer_instructions || '')})">🛒 أضف</button>` : 
+                                            `<button class="btn-add-cart" data-id="${item.id}" data-name="${safeItemName}" data-delivery="${deliveryType}" data-instructions="${buyerInstr}">🛒 أضف</button>` : 
                                             `<span class="my-product-badge">منتجك ⭐</span>`)
                                     }
                                 </div>
@@ -3047,6 +3052,18 @@ HTML_PAGE = """
                         </div>
                     `;
                     market.innerHTML += productHTML;
+                });
+                
+                // إضافة event listeners للأزرار
+                document.querySelectorAll('.btn-add-cart').forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const id = this.dataset.id;
+                        const name = this.dataset.name;
+                        const delivery = this.dataset.delivery;
+                        const instructions = this.dataset.instructions;
+                        addToCart(id, name, delivery, instructions);
+                    });
                 });
             }
             

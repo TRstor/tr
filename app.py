@@ -4368,7 +4368,8 @@ def create_customer_invoice(merchant_id, merchant_name, amount, customer_phone, 
         if response.status_code == 200 and result.get('redirect_url'):
             payment_url = result.get('redirect_url')
             
-            # حفظ الفاتورة في الذاكرة
+            # حفظ الفاتورة في الذاكرة (صلاحية ساعة واحدة)
+            expires_at = time.time() + 3600  # ساعة واحدة
             merchant_invoices[invoice_id] = {
                 'invoice_id': invoice_id,
                 'order_id': order_id,
@@ -4377,7 +4378,8 @@ def create_customer_invoice(merchant_id, merchant_name, amount, customer_phone, 
                 'amount': amount,
                 'customer_phone': phone,
                 'status': 'pending',
-                'created_at': time.time()
+                'created_at': time.time(),
+                'expires_at': expires_at
             }
             
             # حفظ الطلب المعلق (لربطه بالـ webhook)
@@ -4401,7 +4403,8 @@ def create_customer_invoice(merchant_id, merchant_name, amount, customer_phone, 
                     'amount': amount,
                     'customer_phone': phone,
                     'status': 'pending',
-                    'created_at': firestore.SERVER_TIMESTAMP
+                    'created_at': firestore.SERVER_TIMESTAMP,
+                    'expires_at': expires_at
                 })
                 
                 db.collection('pending_payments').document(order_id).set({
@@ -7496,6 +7499,78 @@ def show_invoice(invoice_id):
         </html>
         '''), 404
     
+    # التحقق من انتهاء صلاحية الفاتورة (ساعة واحدة)
+    expires_at = invoice_data.get('expires_at', 0)
+    current_time = time.time()
+    
+    # إذا انتهت صلاحية الفاتورة
+    if expires_at > 0 and current_time > expires_at and invoice_data.get('status') != 'completed':
+        # تحديث الحالة إلى منتهية
+        try:
+            invoice_data['status'] = 'expired'
+            merchant_invoices[invoice_id] = invoice_data
+            db.collection('merchant_invoices').document(invoice_id).update({'status': 'expired'})
+        except:
+            pass
+        
+        return render_template_string('''
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>انتهت صلاحية الفاتورة</title>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { 
+                    font-family: 'Tajawal', sans-serif; 
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }
+                .container {
+                    background: rgba(255,255,255,0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 40px;
+                    text-align: center;
+                    max-width: 400px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                .icon { font-size: 80px; margin-bottom: 20px; }
+                h1 { color: #fdcb6e; margin-bottom: 15px; font-size: 24px; }
+                p { color: #dfe6e9; line-height: 1.8; }
+                .invoice-info {
+                    background: rgba(253,203,110,0.1);
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin-top: 20px;
+                }
+                .invoice-info div {
+                    color: #b2bec3;
+                    font-size: 14px;
+                    margin: 5px 0;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="icon">⏰</div>
+                <h1>انتهت صلاحية الفاتورة</h1>
+                <p>عذراً، لم يتم الدفع خلال المدة المحددة (ساعة واحدة).<br>الرجاء التواصل مع التاجر للحصول على فاتورة جديدة.</p>
+                <div class="invoice-info">
+                    <div>رقم الفاتورة: <strong>{{ invoice_id }}</strong></div>
+                    <div>المبلغ: <strong>{{ amount }} ريال</strong></div>
+                </div>
+            </div>
+        </body>
+        </html>
+        ''', invoice_id=invoice_id, amount=invoice_data.get('amount', 0)), 410
+    
     # إذا كانت الفاتورة مدفوعة مسبقاً
     if invoice_data.get('status') == 'completed':
         return render_template_string('''
@@ -7544,6 +7619,10 @@ def show_invoice(invoice_id):
     # عرض صفحة الفاتورة
     merchant_name = invoice_data.get('merchant_name', 'التاجر')
     amount = invoice_data.get('amount', 0)
+    expires_at_ts = invoice_data.get('expires_at', time.time() + 3600)
+    remaining_seconds = int(expires_at_ts - time.time())
+    if remaining_seconds < 0:
+        remaining_seconds = 0
     
     return render_template_string('''
     <!DOCTYPE html>
@@ -7603,7 +7682,29 @@ def show_invoice(invoice_id):
                 border-radius: 15px;
                 padding: 20px;
                 text-align: center;
-                margin-bottom: 25px;
+                margin-bottom: 20px;
+            }
+            .timer-section {
+                background: rgba(253,203,110,0.1);
+                border: 1px solid rgba(253,203,110,0.3);
+                border-radius: 12px;
+                padding: 12px;
+                text-align: center;
+                margin-bottom: 20px;
+            }
+            .timer-label {
+                color: #fdcb6e;
+                font-size: 12px;
+                margin-bottom: 5px;
+            }
+            .timer-value {
+                color: #fdcb6e;
+                font-size: 24px;
+                font-weight: 700;
+                font-family: monospace;
+            }
+            .timer-expired {
+                color: #ff7675 !important;
             }
             .amount-label {
                 color: #b2bec3;
@@ -7741,6 +7842,11 @@ def show_invoice(invoice_id):
                 </div>
             </div>
             
+            <div class="timer-section">
+                <div class="timer-label">⏰ الوقت المتبقي للدفع</div>
+                <div class="timer-value" id="countdown">00:00:00</div>
+            </div>
+            
             <form id="paymentForm" action="/invoice/{{ invoice_id }}/pay" method="POST">
                 <div class="form-group">
                     <label class="form-label">📱 رقم الجوال</label>
@@ -7841,10 +7947,43 @@ def show_invoice(invoice_id):
                 payBtn.disabled = true;
                 loading.classList.add('show');
             });
+            
+            // العداد التنازلي
+            let remainingSeconds = {{ remaining_seconds }};
+            const countdownEl = document.getElementById('countdown');
+            
+            function updateCountdown() {
+                if (remainingSeconds <= 0) {
+                    countdownEl.textContent = 'انتهت الصلاحية';
+                    countdownEl.classList.add('timer-expired');
+                    payBtn.disabled = true;
+                    payBtn.textContent = '⏰ انتهت صلاحية الفاتورة';
+                    return;
+                }
+                
+                const hours = Math.floor(remainingSeconds / 3600);
+                const minutes = Math.floor((remainingSeconds % 3600) / 60);
+                const seconds = remainingSeconds % 60;
+                
+                countdownEl.textContent = 
+                    String(hours).padStart(2, '0') + ':' +
+                    String(minutes).padStart(2, '0') + ':' +
+                    String(seconds).padStart(2, '0');
+                
+                // تغيير اللون للأحمر إذا أقل من 5 دقائق
+                if (remainingSeconds < 300) {
+                    countdownEl.classList.add('timer-expired');
+                }
+                
+                remainingSeconds--;
+            }
+            
+            updateCountdown();
+            setInterval(updateCountdown, 1000);
         </script>
     </body>
     </html>
-    ''', merchant_name=merchant_name, amount=amount, invoice_id=invoice_id)
+    ''', merchant_name=merchant_name, amount=amount, invoice_id=invoice_id, remaining_seconds=remaining_seconds)
 
 @app.route('/invoice/<invoice_id>/pay', methods=['POST'])
 def process_invoice_payment(invoice_id):
@@ -7868,6 +8007,11 @@ def process_invoice_payment(invoice_id):
             pass
     
     if not invoice_data:
+        return redirect(f'/invoice/{invoice_id}')
+    
+    # التحقق من انتهاء صلاحية الفاتورة
+    expires_at = invoice_data.get('expires_at', 0)
+    if expires_at > 0 and time.time() > expires_at:
         return redirect(f'/invoice/{invoice_id}')
     
     # التحقق من أن الفاتورة لم تدفع

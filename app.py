@@ -248,6 +248,10 @@ charge_keys = {}
 # الشكل: { user_id: {'state': 'waiting_amount', 'data': {}} }
 user_states = {}
 
+# سلة التسوق (تُحمل من Firebase)
+# الشكل: { user_id: { items: [...], created_at, expires_at } }
+user_carts = {}
+
 # طلبات الدفع المعلقة (تنتظر الدفع من Adfaly Pay)
 # الشكل: { invoice_id: {user_id, amount, status, created_at} }
 pending_payments = {}
@@ -367,6 +371,25 @@ def load_all_data_from_firebase():
                 print(f"✅ تم تحميل إعدادات العرض (أعمدة: {display_settings['categories_columns']})")
         except Exception as e:
             print(f"⚠️ خطأ في تحميل إعدادات العرض: {e}")
+        
+        # 7️⃣ تحميل سلات التسوق النشطة
+        try:
+            global user_carts
+            carts_ref = db.collection('carts')
+            for doc in carts_ref.stream():
+                data = doc.to_dict()
+                # التحقق من صلاحية السلة (3 ساعات)
+                expires_at = data.get('expires_at')
+                if expires_at:
+                    from datetime import datetime
+                    if isinstance(expires_at, datetime):
+                        if expires_at.replace(tzinfo=None) > datetime.utcnow():
+                            user_carts[doc.id] = data
+                else:
+                    user_carts[doc.id] = data
+            print(f"✅ تم تحميل {len(user_carts)} سلة تسوق نشطة")
+        except Exception as e:
+            print(f"⚠️ خطأ في تحميل سلات التسوق: {e}")
         
         print("🎉 اكتمل تحميل البيانات من Firebase!")
         
@@ -935,6 +958,11 @@ HTML_PAGE = """
             font-weight: bold;
             color: #00b894;
         }
+        .product-btns {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
         .product-buy-btn {
             background: linear-gradient(135deg, #00b894, #00cec9);
             color: white;
@@ -950,6 +978,24 @@ HTML_PAGE = """
         .product-buy-btn:hover {
             transform: scale(1.05);
             box-shadow: 0 4px 10px rgba(0, 184, 148, 0.5);
+        }
+        .product-cart-btn {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            color: white;
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 12px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .product-cart-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.5);
         }
         .my-product-badge {
             background: linear-gradient(135deg, #fdcb6e, #e17055);
@@ -2799,7 +2845,10 @@ HTML_PAGE = """
                                     ${isSold ? 
                                         `<button class="product-buy-btn" disabled style="opacity: 0.5; cursor: not-allowed;">مباع 🚫</button>` :
                                         (!isMyProduct ? 
-                                            `<button class="product-buy-btn" onclick='buyItem("${item.id}", ${item.price}, "${(item.item_name || '').replace(/"/g, '\\"')}", "${(item.category || '').replace(/"/g, '\\"')}", ${JSON.stringify(item.details || '')}, "${deliveryType}", ${JSON.stringify(item.buyer_instructions || '')})'>شراء 🛒</button>` : 
+                                            `<div class="product-btns">
+                                                <button class="product-buy-btn" onclick='buyItem("${item.id}", ${item.price}, "${(item.item_name || '').replace(/"/g, '\\"')}", "${(item.category || '').replace(/"/g, '\\"')}", ${JSON.stringify(item.details || '')}, "${deliveryType}", ${JSON.stringify(item.buyer_instructions || '')})'>شراء 🛒</button>
+                                                <button class="product-cart-btn" onclick='addToCart("${item.id}", "${(item.item_name || '').replace(/"/g, '\\"')}")' title="أضف للسلة">➕</button>
+                                            </div>` : 
                                             `<div class="my-product-badge">منتجك ⭐</div>`)
                                     }
                                 </div>
@@ -3125,6 +3174,14 @@ HTML_PAGE = """
                         }
                         // الانتقال لصفحة المحفظة
                         window.location.href = '/wallet?user_id=' + currentUserId;
+                    } else if(action === 'cart') {
+                        // التحقق من تسجيل الدخول أولاً
+                        if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
+                            showLoginModal();
+                            return;
+                        }
+                        // الذهاب للسلة
+                        window.location.href = '/cart';
                     } else if(action === 'account') {
                         // التحقق من تسجيل الدخول أولاً
                         if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
@@ -3150,6 +3207,78 @@ HTML_PAGE = """
             }
             toggleSidebar();
         }
+        
+        // إضافة للسلة
+        async function addToCart(productId, productName) {
+            if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
+                showLoginModal();
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/cart/add', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        user_id: currentUserId,
+                        product_id: productId
+                    })
+                });
+                const data = await response.json();
+                
+                if(data.status === 'success') {
+                    // تحديث عداد السلة
+                    updateCartBadge(data.cart_count);
+                    // إظهار رسالة نجاح
+                    showCartToast('✅ تمت إضافة "' + productName + '" للسلة');
+                } else {
+                    alert('❌ ' + (data.message || 'حدث خطأ'));
+                }
+            } catch(error) {
+                console.error('Cart error:', error);
+                alert('❌ حدث خطأ في الاتصال');
+            }
+        }
+        
+        function updateCartBadge(count) {
+            const badge = document.getElementById('cartBadge');
+            if(badge) {
+                if(count > 0) {
+                    badge.textContent = count;
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+            }
+        }
+        
+        function showCartToast(message) {
+            // إنشاء توست مؤقت
+            let toast = document.getElementById('cartToast');
+            if(!toast) {
+                toast = document.createElement('div');
+                toast.id = 'cartToast';
+                toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:12px 24px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:1000;opacity:0;transition:opacity 0.3s;border-left:4px solid #00b894;';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = message;
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+        }
+        
+        // تحميل عدد السلة عند فتح الصفحة
+        async function loadCartCount() {
+            if(!currentUserId || currentUserId == 0) return;
+            try {
+                const response = await fetch('/api/cart/count?user_id=' + currentUserId);
+                const data = await response.json();
+                updateCartBadge(data.count || 0);
+            } catch(e) {}
+        }
+        
+        window.addEventListener('DOMContentLoaded', function() {
+            loadCartCount();
+        });
     </script>
     
     <!-- شريط الملاحة السفلي العائم -->
@@ -3157,6 +3286,11 @@ HTML_PAGE = """
         <div class="floating-nav-item active" data-action="home">
             <div class="floating-nav-icon">🏠</div>
             <div class="floating-nav-label">الرئيسية</div>
+        </div>
+        <div class="floating-nav-item" data-action="cart">
+            <span class="nav-badge {% if cart_count == 0 %}hidden{% endif %}" id="cartBadge">{{ cart_count }}</span>
+            <div class="floating-nav-icon">🛒</div>
+            <div class="floating-nav-label">السلة</div>
         </div>
         <div class="floating-nav-item" data-action="orders">
             <span class="nav-badge hidden" id="ordersBadge">0</span>
@@ -5117,6 +5251,12 @@ def index():
         except Exception as e:
             print(f"❌ خطأ في جلب مشتريات المستخدم: {e}")
 
+    # جلب عدد منتجات السلة
+    cart_count = 0
+    if user_id:
+        cart = user_carts.get(str(user_id), {})
+        cart_count = len(cart.get('items', []))
+
     # عرض الصفحة
     return render_template_string(HTML_PAGE, 
                                   items=items,
@@ -5126,7 +5266,1140 @@ def index():
                                   current_user_id=user_id or 0, 
                                   current_user=user_id,
                                   user_name=user_name,
-                                  profile_photo=profile_photo)
+                                  profile_photo=profile_photo,
+                                  cart_count=cart_count)
+
+# ============================================
+# 🛒 نظام سلة التسوق
+# ============================================
+
+CART_PAGE = """
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🛒 سلة التسوق</title>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6c5ce7;
+            --primary-light: #a29bfe;
+            --bg-color: #0f0f1a;
+            --card-bg: #1a1a2e;
+            --text-color: #ffffff;
+            --green: #00b894;
+            --red: #e74c3c;
+            --gold: #f1c40f;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Tajawal', sans-serif; 
+            background: var(--bg-color); 
+            color: var(--text-color); 
+            min-height: 100vh;
+            padding-bottom: 100px;
+        }
+        
+        /* الهيدر */
+        .page-header {
+            background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 20px rgba(108, 92, 231, 0.4);
+        }
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .back-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+        .page-title {
+            font-size: 20px;
+            font-weight: bold;
+        }
+        .header-spacer {
+            width: 40px;
+        }
+        
+        /* العداد التنازلي */
+        .timer-bar {
+            background: linear-gradient(135deg, rgba(231, 76, 60, 0.2), rgba(241, 196, 15, 0.2));
+            padding: 12px 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .timer-text {
+            color: #f39c12;
+            font-size: 14px;
+        }
+        .timer-countdown {
+            font-weight: bold;
+            color: #e74c3c;
+            font-size: 16px;
+        }
+        
+        /* المحتوى */
+        .content {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        /* السلة فارغة */
+        .empty-cart {
+            text-align: center;
+            padding: 60px 20px;
+        }
+        .empty-cart-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+        .empty-cart-text {
+            color: #888;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        .shop-btn {
+            display: inline-block;
+            padding: 15px 40px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            color: white;
+            text-decoration: none;
+            border-radius: 12px;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .shop-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(108, 92, 231, 0.4);
+        }
+        
+        /* منتج في السلة */
+        .cart-item {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            position: relative;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .cart-item.unavailable {
+            opacity: 0.6;
+            border: 2px solid var(--red);
+        }
+        .cart-item.price-changed {
+            border: 2px solid var(--gold);
+        }
+        .item-image {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            background: rgba(108, 92, 231, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+            flex-shrink: 0;
+        }
+        .item-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 12px;
+        }
+        .item-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .item-name {
+            font-weight: bold;
+            font-size: 15px;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .item-category {
+            color: #888;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+        .item-price {
+            color: var(--green);
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .item-status {
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-top: 4px;
+        }
+        .status-available {
+            background: rgba(0, 184, 148, 0.2);
+            color: var(--green);
+        }
+        .status-sold {
+            background: rgba(231, 76, 60, 0.2);
+            color: var(--red);
+        }
+        .status-price-changed {
+            background: rgba(241, 196, 15, 0.2);
+            color: var(--gold);
+        }
+        .delete-btn {
+            background: rgba(231, 76, 60, 0.2);
+            border: none;
+            color: var(--red);
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+        .delete-btn:hover {
+            background: var(--red);
+            color: white;
+            transform: scale(1.1);
+        }
+        
+        /* الملخص */
+        .cart-summary {
+            background: linear-gradient(135deg, var(--card-bg), rgba(108, 92, 231, 0.1));
+            border-radius: 20px;
+            padding: 20px;
+            margin-top: 20px;
+            border: 1px solid rgba(108, 92, 231, 0.3);
+        }
+        .summary-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .summary-row:last-child {
+            border-bottom: none;
+        }
+        .summary-label {
+            color: #888;
+        }
+        .summary-value {
+            font-weight: bold;
+        }
+        .summary-total {
+            font-size: 20px;
+            color: var(--green);
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 2px solid rgba(255,255,255,0.1);
+        }
+        .balance-info {
+            text-align: center;
+            padding: 15px;
+            background: rgba(0, 184, 148, 0.1);
+            border-radius: 12px;
+            margin-top: 15px;
+        }
+        .balance-current {
+            color: #888;
+            font-size: 14px;
+        }
+        .balance-amount {
+            color: var(--green);
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .balance-after {
+            color: #888;
+            font-size: 13px;
+            margin-top: 8px;
+        }
+        .insufficient-balance {
+            background: rgba(231, 76, 60, 0.1);
+            color: var(--red);
+            padding: 12px;
+            border-radius: 10px;
+            text-align: center;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        /* زر الشراء */
+        .checkout-btn {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, var(--green), #00cec9);
+            border: none;
+            border-radius: 14px;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+            font-family: 'Tajawal', sans-serif;
+        }
+        .checkout-btn:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0, 184, 148, 0.4);
+        }
+        .checkout-btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        .charge-btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+            text-align: center;
+            text-decoration: none;
+            font-family: 'Tajawal', sans-serif;
+            transition: all 0.3s;
+        }
+        
+        /* نافذة التأكيد */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .modal.show {
+            display: flex;
+        }
+        .modal-content {
+            background: var(--card-bg);
+            border-radius: 20px;
+            padding: 25px;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+        .modal-icon {
+            font-size: 60px;
+            margin-bottom: 15px;
+        }
+        .modal-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .modal-text {
+            color: #888;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        .modal-items {
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+            text-align: right;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .modal-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 14px;
+        }
+        .modal-item:last-child {
+            border-bottom: none;
+        }
+        .modal-total {
+            font-size: 18px;
+            font-weight: bold;
+            padding-top: 10px;
+            margin-top: 10px;
+            border-top: 2px solid rgba(255,255,255,0.1);
+            color: var(--green);
+        }
+        .modal-btns {
+            display: flex;
+            gap: 10px;
+        }
+        .modal-btn {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: 'Tajawal', sans-serif;
+            transition: all 0.3s;
+        }
+        .btn-confirm {
+            background: linear-gradient(135deg, var(--green), #00cec9);
+            color: white;
+        }
+        .btn-cancel {
+            background: rgba(255,255,255,0.1);
+            color: white;
+        }
+        
+        /* التوست */
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--card-bg);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 1001;
+            opacity: 0;
+            transition: all 0.3s;
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+        .toast.success {
+            border-left: 4px solid var(--green);
+        }
+        .toast.error {
+            border-left: 4px solid var(--red);
+        }
+        
+        /* التحميل */
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(108, 92, 231, 0.2);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-header">
+        <div class="header-content">
+            <a href="/" class="back-btn">→</a>
+            <div class="page-title">🛒 سلة التسوق</div>
+            <div class="header-spacer"></div>
+        </div>
+    </div>
+    
+    <div class="timer-bar" id="timerBar" style="display: none;">
+        <span class="timer-text">⏰ تنتهي السلة خلال: </span>
+        <span class="timer-countdown" id="timerCountdown">--:--:--</span>
+    </div>
+    
+    <div class="content">
+        <div class="loading" id="loadingDiv">
+            <div class="spinner"></div>
+            <p>جاري تحميل السلة...</p>
+        </div>
+        
+        <div id="cartContent" style="display: none;">
+            <!-- سيتم ملؤها بـ JavaScript -->
+        </div>
+    </div>
+    
+    <!-- نافذة التأكيد -->
+    <div class="modal" id="confirmModal">
+        <div class="modal-content">
+            <div class="modal-icon">⚠️</div>
+            <div class="modal-title">تأكيد الشراء</div>
+            <div class="modal-text">هل أنت متأكد من شراء جميع المنتجات في السلة؟</div>
+            <div class="modal-items" id="modalItems"></div>
+            <div class="modal-total" id="modalTotal"></div>
+            <div class="modal-btns">
+                <button class="modal-btn btn-confirm" onclick="processCheckout()">✅ تأكيد</button>
+                <button class="modal-btn btn-cancel" onclick="closeModal()">❌ إلغاء</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- نافذة النجاح -->
+    <div class="modal" id="successModal">
+        <div class="modal-content">
+            <div class="modal-icon">🎉</div>
+            <div class="modal-title">تم الشراء بنجاح!</div>
+            <div class="modal-text" id="successText"></div>
+            <button class="modal-btn btn-confirm" onclick="window.location.href='/my_purchases'" style="width: 100%;">📦 عرض مشترياتي</button>
+        </div>
+    </div>
+    
+    <!-- توست -->
+    <div class="toast" id="toast"></div>
+    
+    <script>
+        const userId = '{{ user_id }}';
+        const userBalance = {{ balance }};
+        let cartData = null;
+        let countdownInterval = null;
+        
+        // تحميل السلة
+        async function loadCart() {
+            try {
+                const response = await fetch('/api/cart/get?user_id=' + userId);
+                const data = await response.json();
+                
+                document.getElementById('loadingDiv').style.display = 'none';
+                document.getElementById('cartContent').style.display = 'block';
+                
+                if (data.status === 'success') {
+                    cartData = data.cart;
+                    renderCart();
+                    startCountdown(data.cart.expires_at);
+                } else {
+                    renderEmptyCart();
+                }
+            } catch (error) {
+                console.error('Error loading cart:', error);
+                document.getElementById('loadingDiv').style.display = 'none';
+                document.getElementById('cartContent').innerHTML = '<div class="empty-cart"><div class="empty-cart-icon">❌</div><div class="empty-cart-text">حدث خطأ في تحميل السلة</div></div>';
+            }
+        }
+        
+        // عرض السلة
+        function renderCart() {
+            const content = document.getElementById('cartContent');
+            
+            if (!cartData || !cartData.items || cartData.items.length === 0) {
+                renderEmptyCart();
+                return;
+            }
+            
+            let html = '';
+            let total = 0;
+            let availableCount = 0;
+            let hasUnavailable = false;
+            
+            cartData.items.forEach((item, index) => {
+                const statusClass = item.sold ? 'unavailable' : (item.price_changed ? 'price-changed' : '');
+                const statusBadge = item.sold ? 
+                    '<span class="item-status status-sold">❌ نفد</span>' : 
+                    (item.price_changed ? 
+                        '<span class="item-status status-price-changed">💰 تغير السعر</span>' : 
+                        '<span class="item-status status-available">✅ متاح</span>');
+                
+                if (!item.sold) {
+                    total += item.current_price || item.price;
+                    availableCount++;
+                } else {
+                    hasUnavailable = true;
+                }
+                
+                html += `
+                    <div class="cart-item ${statusClass}" data-id="${item.product_id}">
+                        <div class="item-image">
+                            ${item.image_url ? `<img src="${item.image_url}" onerror="this.parentElement.innerHTML='🎁'">` : '🎁'}
+                        </div>
+                        <div class="item-info">
+                            <div class="item-name">${item.name}</div>
+                            <div class="item-category">${item.category || 'عام'}</div>
+                            <div class="item-price">${item.current_price || item.price} ر.س</div>
+                            ${statusBadge}
+                        </div>
+                        <button class="delete-btn" onclick="removeItem('${item.product_id}')">🗑️</button>
+                    </div>
+                `;
+            });
+            
+            // الملخص
+            const balanceAfter = userBalance - total;
+            const canCheckout = balanceAfter >= 0 && availableCount > 0;
+            
+            html += `
+                <div class="cart-summary">
+                    <div class="summary-title">📋 ملخص الطلب</div>
+                    <div class="summary-row">
+                        <span class="summary-label">📦 عدد المنتجات:</span>
+                        <span class="summary-value">${availableCount}</span>
+                    </div>
+                    <div class="summary-row summary-total">
+                        <span class="summary-label">💰 الإجمالي:</span>
+                        <span class="summary-value">${total.toFixed(2)} ر.س</span>
+                    </div>
+                    <div class="balance-info">
+                        <div class="balance-current">رصيدك الحالي</div>
+                        <div class="balance-amount">${userBalance.toFixed(2)} ر.س</div>
+                        <div class="balance-after">المتبقي بعد الشراء: ${balanceAfter.toFixed(2)} ر.س</div>
+                    </div>
+                    ${balanceAfter < 0 ? `
+                        <div class="insufficient-balance">
+                            ⚠️ رصيدك غير كافي! تحتاج ${Math.abs(balanceAfter).toFixed(2)} ر.س إضافية
+                        </div>
+                        <a href="/wallet?user_id=${userId}" class="charge-btn">💳 شحن الرصيد</a>
+                    ` : ''}
+                    ${hasUnavailable ? `
+                        <div class="insufficient-balance" style="background: rgba(241, 196, 15, 0.1); color: #f39c12;">
+                            ⚠️ بعض المنتجات غير متاحة وسيتم تجاهلها
+                        </div>
+                    ` : ''}
+                    <button class="checkout-btn" onclick="showConfirmModal()" ${!canCheckout ? 'disabled' : ''}>
+                        ${canCheckout ? '✅ إتمام الشراء' : (balanceAfter < 0 ? '💳 اشحن أولاً' : 'لا توجد منتجات متاحة')}
+                    </button>
+                </div>
+            `;
+            
+            content.innerHTML = html;
+        }
+        
+        // سلة فارغة
+        function renderEmptyCart() {
+            document.getElementById('timerBar').style.display = 'none';
+            document.getElementById('cartContent').innerHTML = `
+                <div class="empty-cart">
+                    <div class="empty-cart-icon">🛒</div>
+                    <div class="empty-cart-text">سلتك فارغة</div>
+                    <a href="/" class="shop-btn">🏪 تصفح المتجر</a>
+                </div>
+            `;
+        }
+        
+        // حذف منتج
+        async function removeItem(productId) {
+            try {
+                const response = await fetch('/api/cart/remove', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ user_id: userId, product_id: productId })
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    showToast('تم حذف المنتج من السلة', 'success');
+                    loadCart();
+                } else {
+                    showToast(data.message || 'حدث خطأ', 'error');
+                }
+            } catch (error) {
+                showToast('حدث خطأ في الاتصال', 'error');
+            }
+        }
+        
+        // نافذة التأكيد
+        function showConfirmModal() {
+            if (!cartData || !cartData.items) return;
+            
+            const availableItems = cartData.items.filter(i => !i.sold);
+            let total = 0;
+            
+            let itemsHtml = '';
+            availableItems.forEach(item => {
+                const price = item.current_price || item.price;
+                total += price;
+                itemsHtml += `
+                    <div class="modal-item">
+                        <span>${item.name}</span>
+                        <span>${price} ر.س</span>
+                    </div>
+                `;
+            });
+            
+            document.getElementById('modalItems').innerHTML = itemsHtml;
+            document.getElementById('modalTotal').innerHTML = `الإجمالي: ${total.toFixed(2)} ر.س`;
+            document.getElementById('confirmModal').classList.add('show');
+        }
+        
+        function closeModal() {
+            document.getElementById('confirmModal').classList.remove('show');
+        }
+        
+        // تنفيذ الشراء
+        async function processCheckout() {
+            closeModal();
+            
+            const checkoutBtn = document.querySelector('.checkout-btn');
+            checkoutBtn.textContent = '⏳ جاري الشراء...';
+            checkoutBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/cart/checkout', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ user_id: userId })
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    document.getElementById('successText').innerHTML = `
+                        تم شراء ${data.purchased_count} منتج بنجاح!<br>
+                        <small style="color: #888;">ستجد البيانات في صفحة مشترياتي وفي رسائل البوت</small>
+                    `;
+                    document.getElementById('successModal').classList.add('show');
+                } else {
+                    showToast(data.message || 'حدث خطأ', 'error');
+                    checkoutBtn.textContent = '✅ إتمام الشراء';
+                    checkoutBtn.disabled = false;
+                }
+            } catch (error) {
+                showToast('حدث خطأ في الاتصال', 'error');
+                checkoutBtn.textContent = '✅ إتمام الشراء';
+                checkoutBtn.disabled = false;
+            }
+        }
+        
+        // العداد التنازلي
+        function startCountdown(expiresAt) {
+            if (!expiresAt) return;
+            
+            document.getElementById('timerBar').style.display = 'block';
+            
+            function updateTimer() {
+                const now = new Date().getTime();
+                const expiry = new Date(expiresAt).getTime();
+                const diff = expiry - now;
+                
+                if (diff <= 0) {
+                    document.getElementById('timerCountdown').textContent = 'انتهت!';
+                    clearInterval(countdownInterval);
+                    loadCart();
+                    return;
+                }
+                
+                const hours = Math.floor(diff / (1000 * 60 * 60));
+                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+                
+                document.getElementById('timerCountdown').textContent = 
+                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+            
+            updateTimer();
+            countdownInterval = setInterval(updateTimer, 1000);
+        }
+        
+        // التوست
+        function showToast(message, type) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast ' + type + ' show';
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+        
+        // تحميل السلة عند فتح الصفحة
+        window.addEventListener('DOMContentLoaded', loadCart);
+    </script>
+</body>
+</html>
+"""
+
+@app.route('/cart')
+def cart_page():
+    """صفحة سلة التسوق"""
+    user_id = session.get('user_id')
+    if not user_id:
+        return redirect('/')
+    
+    balance = get_balance(user_id)
+    return render_template_string(CART_PAGE, user_id=user_id, balance=balance)
+
+# --- API سلة التسوق ---
+
+@app.route('/api/cart/add', methods=['POST'])
+@limiter.limit("30 per minute")
+def api_cart_add():
+    """إضافة منتج للسلة"""
+    try:
+        data = request.json
+        user_id = str(data.get('user_id'))
+        product_id = data.get('product_id')
+        
+        if not user_id or not product_id:
+            return jsonify({'status': 'error', 'message': 'بيانات ناقصة'})
+        
+        # التحقق من المنتج
+        product_doc = db.collection('products').document(product_id).get()
+        if not product_doc.exists:
+            return jsonify({'status': 'error', 'message': 'المنتج غير موجود'})
+        
+        product = product_doc.to_dict()
+        
+        # منع إضافة منتج مباع
+        if product.get('sold', False):
+            return jsonify({'status': 'error', 'message': 'عذراً، هذا المنتج تم بيعه! 🚫'})
+        
+        # جلب أو إنشاء السلة
+        from datetime import datetime, timedelta
+        
+        cart = user_carts.get(user_id, {})
+        now = datetime.utcnow()
+        
+        # التحقق من انتهاء السلة
+        if cart.get('expires_at'):
+            expires = cart['expires_at']
+            if isinstance(expires, str):
+                expires = datetime.fromisoformat(expires.replace('Z', ''))
+            if expires < now:
+                cart = {}  # السلة انتهت
+        
+        # إنشاء سلة جديدة أو تحديث
+        if not cart.get('items'):
+            cart = {
+                'items': [],
+                'created_at': now.isoformat(),
+                'expires_at': (now + timedelta(hours=3)).isoformat(),
+                'status': 'active'
+            }
+        
+        # التحقق من عدم وجود المنتج في السلة
+        existing_ids = [item['product_id'] for item in cart.get('items', [])]
+        if product_id in existing_ids:
+            return jsonify({'status': 'error', 'message': 'المنتج موجود في السلة بالفعل!'})
+        
+        # إضافة المنتج
+        cart_item = {
+            'product_id': product_id,
+            'name': product.get('item_name', 'منتج'),
+            'price': float(product.get('price', 0)),
+            'category': product.get('category', ''),
+            'image_url': product.get('image_url', ''),
+            'added_at': now.isoformat()
+        }
+        cart['items'].append(cart_item)
+        cart['updated_at'] = now.isoformat()
+        
+        # حفظ في الذاكرة و Firebase
+        user_carts[user_id] = cart
+        
+        if db:
+            db.collection('carts').document(user_id).set(cart)
+        
+        # تحديث إحصائيات المنتج
+        try:
+            stats_ref = db.collection('cart_stats').document(product_id)
+            stats_doc = stats_ref.get()
+            if stats_doc.exists:
+                stats_ref.update({'add_to_cart_count': firestore.Increment(1)})
+            else:
+                stats_ref.set({'product_id': product_id, 'add_to_cart_count': 1, 'purchase_count': 0})
+        except:
+            pass
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'تمت الإضافة للسلة! 🛒',
+            'cart_count': len(cart['items'])
+        })
+        
+    except Exception as e:
+        print(f"❌ خطأ في إضافة للسلة: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ'})
+
+@app.route('/api/cart/get')
+def api_cart_get():
+    """جلب محتويات السلة"""
+    try:
+        user_id = request.args.get('user_id')
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'معرف المستخدم مطلوب'})
+        
+        from datetime import datetime
+        
+        cart = user_carts.get(str(user_id), {})
+        
+        if not cart or not cart.get('items'):
+            return jsonify({'status': 'empty', 'message': 'السلة فارغة'})
+        
+        # التحقق من انتهاء الصلاحية
+        now = datetime.utcnow()
+        expires_at = cart.get('expires_at')
+        if expires_at:
+            if isinstance(expires_at, str):
+                expires = datetime.fromisoformat(expires_at.replace('Z', ''))
+            else:
+                expires = expires_at
+            if expires < now:
+                # حذف السلة المنتهية
+                user_carts.pop(str(user_id), None)
+                if db:
+                    db.collection('carts').document(str(user_id)).delete()
+                return jsonify({'status': 'expired', 'message': 'انتهت صلاحية السلة'})
+        
+        # تحديث حالة المنتجات
+        updated_items = []
+        for item in cart['items']:
+            product_doc = db.collection('products').document(item['product_id']).get()
+            if product_doc.exists:
+                product = product_doc.to_dict()
+                item['sold'] = product.get('sold', False)
+                item['current_price'] = float(product.get('price', item['price']))
+                item['price_changed'] = item['current_price'] != item['price']
+                updated_items.append(item)
+            else:
+                item['sold'] = True  # المنتج محذوف
+                updated_items.append(item)
+        
+        cart['items'] = updated_items
+        
+        return jsonify({
+            'status': 'success',
+            'cart': cart
+        })
+        
+    except Exception as e:
+        print(f"❌ خطأ في جلب السلة: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ'})
+
+@app.route('/api/cart/remove', methods=['POST'])
+def api_cart_remove():
+    """حذف منتج من السلة"""
+    try:
+        data = request.json
+        user_id = str(data.get('user_id'))
+        product_id = data.get('product_id')
+        
+        if not user_id or not product_id:
+            return jsonify({'status': 'error', 'message': 'بيانات ناقصة'})
+        
+        cart = user_carts.get(user_id, {})
+        if not cart or not cart.get('items'):
+            return jsonify({'status': 'error', 'message': 'السلة فارغة'})
+        
+        # حذف المنتج
+        cart['items'] = [i for i in cart['items'] if i['product_id'] != product_id]
+        
+        from datetime import datetime
+        cart['updated_at'] = datetime.utcnow().isoformat()
+        
+        # حفظ
+        user_carts[user_id] = cart
+        if db:
+            db.collection('carts').document(user_id).set(cart)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'تم حذف المنتج',
+            'cart_count': len(cart['items'])
+        })
+        
+    except Exception as e:
+        print(f"❌ خطأ في حذف من السلة: {e}")
+        return jsonify({'status': 'error', 'message': 'حدث خطأ'})
+
+@app.route('/api/cart/checkout', methods=['POST'])
+@limiter.limit("5 per minute")
+def api_cart_checkout():
+    """إتمام شراء السلة"""
+    try:
+        data = request.json
+        user_id = str(data.get('user_id'))
+        
+        if not user_id:
+            return jsonify({'status': 'error', 'message': 'معرف المستخدم مطلوب'})
+        
+        # جلب السلة
+        cart = user_carts.get(user_id, {})
+        if not cart or not cart.get('items'):
+            return jsonify({'status': 'error', 'message': 'السلة فارغة'})
+        
+        # تصفية المنتجات المتاحة
+        available_items = []
+        total = 0
+        
+        for item in cart['items']:
+            product_doc = db.collection('products').document(item['product_id']).get()
+            if product_doc.exists:
+                product = product_doc.to_dict()
+                if not product.get('sold', False):
+                    item['product_data'] = product
+                    item['current_price'] = float(product.get('price', item['price']))
+                    total += item['current_price']
+                    available_items.append(item)
+        
+        if not available_items:
+            return jsonify({'status': 'error', 'message': 'لا توجد منتجات متاحة في السلة'})
+        
+        # التحقق من الرصيد
+        user_doc = db.collection('users').document(user_id).get()
+        if not user_doc.exists:
+            return jsonify({'status': 'error', 'message': 'حدث خطأ في المستخدم'})
+        
+        user_data = user_doc.to_dict()
+        balance = float(user_data.get('balance', 0))
+        
+        if balance < total:
+            return jsonify({'status': 'error', 'message': f'رصيدك غير كافي! تحتاج {total - balance:.2f} ر.س إضافية'})
+        
+        # تنفيذ الشراء باستخدام batch
+        batch = db.batch()
+        new_balance = balance - total
+        purchased_items = []
+        order_ids = []
+        
+        # جلب اسم المشتري
+        buyer_name = user_data.get('first_name', 'مستخدم')
+        
+        for item in available_items:
+            product = item['product_data']
+            product_id = item['product_id']
+            
+            # تحديث المنتج كمباع
+            product_ref = db.collection('products').document(product_id)
+            batch.update(product_ref, {
+                'sold': True,
+                'buyer_id': user_id,
+                'buyer_name': buyer_name,
+                'sold_at': firestore.SERVER_TIMESTAMP
+            })
+            
+            # إنشاء الطلب
+            import random
+            order_id = f"ORD_{random.randint(100000, 999999)}"
+            order_ref = db.collection('orders').document(order_id)
+            batch.set(order_ref, {
+                'buyer_id': user_id,
+                'buyer_name': buyer_name,
+                'item_name': product.get('item_name'),
+                'price': item['current_price'],
+                'hidden_data': product.get('hidden_data'),
+                'details': product.get('details', ''),
+                'category': product.get('category', ''),
+                'delivery_type': product.get('delivery_type', 'instant'),
+                'status': 'completed',
+                'from_cart': True,
+                'created_at': firestore.SERVER_TIMESTAMP
+            })
+            
+            order_ids.append(order_id)
+            purchased_items.append({
+                'name': product.get('item_name'),
+                'price': item['current_price'],
+                'hidden_data': product.get('hidden_data'),
+                'order_id': order_id
+            })
+            
+            # تحديث إحصائيات
+            try:
+                stats_ref = db.collection('cart_stats').document(product_id)
+                batch.update(stats_ref, {'purchase_count': firestore.Increment(1)})
+            except:
+                pass
+        
+        # تحديث رصيد المستخدم
+        user_ref = db.collection('users').document(user_id)
+        batch.update(user_ref, {'balance': new_balance})
+        
+        # تنفيذ كل العمليات
+        batch.commit()
+        
+        # تحديث الذاكرة
+        users_wallets[user_id] = new_balance
+        
+        # حذف السلة
+        user_carts.pop(user_id, None)
+        db.collection('carts').document(user_id).delete()
+        
+        # إرسال البيانات للمشتري عبر البوت
+        try:
+            msg = "🎉 تم شراء سلتك بنجاح!\n\n"
+            for item in purchased_items:
+                msg += f"📦 {item['name']}\n"
+                msg += f"💰 {item['price']} ر.س\n"
+                msg += f"🆔 #{item['order_id']}\n"
+                if item['hidden_data']:
+                    msg += f"🔐 البيانات:\n{item['hidden_data']}\n"
+                msg += "─────────────\n"
+            msg += f"\n💳 رصيدك المتبقي: {new_balance:.2f} ر.س"
+            
+            bot.send_message(int(user_id), msg)
+        except Exception as e:
+            print(f"⚠️ فشل إرسال رسالة للمشتري: {e}")
+        
+        # إشعار الأدمن
+        try:
+            admin_msg = f"🛒 شراء سلة جديد!\n\n"
+            admin_msg += f"👤 المشتري: {buyer_name} ({user_id})\n"
+            admin_msg += f"📦 عدد المنتجات: {len(purchased_items)}\n"
+            admin_msg += f"💰 الإجمالي: {total:.2f} ر.س"
+            bot.send_message(ADMIN_ID, admin_msg)
+        except:
+            pass
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'تم الشراء بنجاح!',
+            'purchased_count': len(purchased_items),
+            'total': total,
+            'new_balance': new_balance,
+            'order_ids': order_ids
+        })
+        
+    except Exception as e:
+        print(f"❌ خطأ في إتمام الشراء: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': 'حدث خطأ في إتمام الشراء'})
+
+@app.route('/api/cart/count')
+def api_cart_count():
+    """جلب عدد منتجات السلة"""
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({'count': 0})
+    
+    cart = user_carts.get(str(user_id), {})
+    count = len(cart.get('items', []))
+    return jsonify({'count': count})
 
 # صفحة الشحن المنفصلة
 CHARGE_PAGE = """
@@ -8908,6 +10181,38 @@ def dashboard():
                 'invoice_id': pay_data.get('invoice_id', ''),
                 'created_at': pay_data.get('created_at', '')
             })
+        
+        # ===== إحصائيات السلة =====
+        active_carts = len(user_carts)
+        cart_stats_ref = db.collection('cart_stats')
+        cart_stats = list(cart_stats_ref.order_by('add_to_cart_count', direction=firestore.Query.DESCENDING).limit(10).stream())
+        top_cart_products = []
+        total_add_to_cart = 0
+        total_cart_purchases = 0
+        
+        for stat in cart_stats:
+            stat_data = stat.to_dict()
+            add_count = stat_data.get('add_to_cart_count', 0)
+            purchase_count = stat_data.get('purchase_count', 0)
+            total_add_to_cart += add_count
+            total_cart_purchases += purchase_count
+            
+            # جلب اسم المنتج
+            try:
+                prod_doc = db.collection('products').document(stat.id).get()
+                prod_name = prod_doc.to_dict().get('item_name', 'منتج') if prod_doc.exists else 'محذوف'
+            except:
+                prod_name = 'غير معروف'
+            
+            top_cart_products.append({
+                'product_id': stat.id,
+                'name': prod_name,
+                'add_count': add_count,
+                'purchase_count': purchase_count
+            })
+        
+        # معدل إتمام الشراء
+        conversion_rate = (total_cart_purchases / total_add_to_cart * 100) if total_add_to_cart > 0 else 0
 
     except Exception as e:
         print(f"Error loading stats from Firebase: {e}")
@@ -8931,6 +10236,9 @@ def dashboard():
         total_invoice_revenue = 0
         pending_invoices = 0
         completed_invoices = 0
+        active_carts = 0
+        top_cart_products = []
+        conversion_rate = 0
     
     return f"""
     <!DOCTYPE html>
@@ -9151,14 +10459,19 @@ def dashboard():
                     <div class="label">منتجات متاحة</div>
                 </div>
                 <div class="stat-card">
+                    <div class="icon">🛒</div>
+                    <div class="value">{active_carts}</div>
+                    <div class="label">سلات نشطة</div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon">📊</div>
+                    <div class="value">{conversion_rate:.1f}%</div>
+                    <div class="label">معدل الإتمام</div>
+                </div>
+                <div class="stat-card">
                     <div class="icon">🧾</div>
                     <div class="value">{completed_invoices}</div>
                     <div class="label">فواتير مكتملة</div>
-                </div>
-                <div class="stat-card">
-                    <div class="icon">⏳</div>
-                    <div class="value">{pending_invoices}</div>
-                    <div class="label">فواتير معلقة</div>
                 </div>
                 <div class="stat-card">
                     <div class="icon">💳</div>
@@ -9171,14 +10484,38 @@ def dashboard():
                     <div class="label">إجمالي الأرصدة</div>
                 </div>
                 <div class="stat-card">
-                    <div class="icon">🔑</div>
-                    <div class="value">{active_keys}</div>
-                    <div class="label">مفاتيح نشطة</div>
-                </div>
-                <div class="stat-card">
                     <div class="icon">✅</div>
                     <div class="value">{sold_products}</div>
                     <div class="label">مباعة</div>
+                </div>
+            </div>
+            
+            <!-- ===== قسم إحصائيات السلة ===== -->
+            <div class="section">
+                <h2>🛒 أكثر المنتجات إضافة للسلة <span class="count">{len(top_cart_products)}</span></h2>
+                <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>المنتج</th>
+                            <th>إضافات للسلة</th>
+                            <th>مشتريات</th>
+                            <th>معدل التحويل</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join([f'''
+                        <tr>
+                            <td>{i+1}</td>
+                            <td>{p['name']}</td>
+                            <td><span style="color:#a29bfe">{p['add_count']}</span></td>
+                            <td><span style="color:#00b894">{p['purchase_count']}</span></td>
+                            <td><span style="color:#f1c40f">{(p['purchase_count']/p['add_count']*100 if p['add_count'] > 0 else 0):.1f}%</span></td>
+                        </tr>
+                        ''' for i, p in enumerate(top_cart_products)]) if top_cart_products else '<tr><td colspan="5" style="text-align:center;color:#888">لا توجد بيانات بعد</td></tr>'}
+                    </tbody>
+                </table>
                 </div>
             </div>
             

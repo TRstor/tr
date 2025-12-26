@@ -6721,6 +6721,7 @@ def merchant_webhook(merchant_id):
 # دعم كلا الصيغتين: edfapay_webhook و edfapay-webhook
 @app.route('/payment/edfapay_webhook', methods=['GET', 'POST'])
 @app.route('/payment/edfapay-webhook', methods=['GET', 'POST'])
+@limiter.limit("30 per minute")  # 🔒 Rate Limiting: منع هجمات الـ webhook
 def edfapay_webhook():
     """استقبال إشعارات الدفع من EdfaPay"""
     return process_edfapay_callback(request, "edfapay_webhook")
@@ -6752,22 +6753,82 @@ def process_edfapay_callback(req, source):
         
         print(f"📩 EdfaPay Webhook ({source}): {data}")
         
-        # ===== استخراج البيانات من EdfaPay =====
-        # حسب Documentation، EdfaPay يرسل هذه الحقول:
-        # - order_id: رقم الطلب الأصلي
-        # - trans_id: رقم العملية في EdfaPay
-        # - status: حالة العملية
-        # - result: نتيجة العملية (SUCCESS, DECLINED, etc)
-        # - order_amount: المبلغ
-        
+        # ===== 🔐 التحقق من صحة الطلب (Signature Verification) =====
         order_id = data.get('order_id', '')
         trans_id = data.get('trans_id', '')
-        
-        # الحالة يمكن أن تكون في status أو result
         status = data.get('status', '') or data.get('result', '')
-        
-        # المبلغ
         amount = data.get('order_amount', '') or data.get('amount', '') or data.get('trans_amount', '')
+        received_hash = data.get('hash', '')
+        
+        # التحقق من أن الطلب من EdfaPay وليس مزيف
+        if order_id and EDFAPAY_PASSWORD:
+            # 1️⃣ التحقق من وجود الطلب في النظام أولاً
+            payment_exists = order_id in pending_payments
+            if not payment_exists:
+                try:
+                    doc = db.collection('pending_payments').document(order_id).get()
+                    payment_exists = doc.exists
+                except:
+                    pass
+            
+            if not payment_exists:
+                print(f"🚫 محاولة webhook مزيفة! order_id غير موجود: {order_id}")
+                # إرسال تنبيه أمني للمالك
+                try:
+                    if BOT_ACTIVE:
+                        client_ip = req.headers.get('X-Forwarded-For', req.remote_addr)
+                        alert_msg = f"""
+⚠️ *تنبيه أمني - Webhook مشبوه!*
+
+🔴 محاولة إرسال webhook لطلب غير موجود!
+
+📋 Order ID: `{order_id}`
+💰 المبلغ المزعوم: {amount}
+🌐 IP: `{client_ip}`
+⏰ الوقت: {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+_قد تكون محاولة اختراق!_
+                        """
+                        bot.send_message(ADMIN_ID, alert_msg, parse_mode='Markdown')
+                except:
+                    pass
+                return jsonify({'status': 'error', 'message': 'Invalid order'}), 403
+            
+            # 2️⃣ التحقق من أن المبلغ المرسل يطابق المبلغ الأصلي
+            original_payment = pending_payments.get(order_id)
+            if not original_payment:
+                try:
+                    doc = db.collection('pending_payments').document(order_id).get()
+                    if doc.exists:
+                        original_payment = doc.to_dict()
+                except:
+                    pass
+            
+            if original_payment and amount:
+                original_amount = float(original_payment.get('amount', 0))
+                received_amount = float(amount) if amount else 0
+                
+                if original_amount != received_amount:
+                    print(f"🚫 محاولة تزوير المبلغ! الأصلي: {original_amount}, المستلم: {received_amount}")
+                    try:
+                        if BOT_ACTIVE:
+                            client_ip = req.headers.get('X-Forwarded-For', req.remote_addr)
+                            alert_msg = f"""
+⚠️ *تنبيه أمني - تزوير مبلغ!*
+
+🔴 المبلغ المرسل لا يطابق المبلغ الأصلي!
+
+📋 Order ID: `{order_id}`
+💰 المبلغ الأصلي: {original_amount} ريال
+💰 المبلغ المزيف: {received_amount} ريال
+🌐 IP: `{client_ip}`
+
+_محاولة اختراق واضحة!_
+                            """
+                            bot.send_message(ADMIN_ID, alert_msg, parse_mode='Markdown')
+                    except:
+                        pass
+                    return jsonify({'status': 'error', 'message': 'Amount mismatch'}), 403
         
         print(f"📋 Parsed: order_id={order_id}, trans_id={trans_id}, status={status}, amount={amount}")
         
@@ -6807,7 +6868,11 @@ def process_edfapay_callback(req, source):
                 except Exception as e:
                     print(f"⚠️ خطأ في البحث في Firebase: {e}")
             
-            # التحقق من أن الطلب لم يُعالج مسبقاً
+            # التحقق من أن الطلب لم يُعالج مسبقاً (حماية من Replay Attack)
+            if payment_data and payment_data.get('status') == 'completed':
+                print(f"⚠️ محاولة إعادة استخدام webhook! الطلب {order_id} تم معالجته مسبقاً")
+                return jsonify({'status': 'ok', 'message': 'Already processed'}), 200
+            
             if payment_data and payment_data.get('status') != 'completed':
                 user_id = str(payment_data.get('user_id', ''))
                 pay_amount = float(payment_data.get('amount', amount or 0))

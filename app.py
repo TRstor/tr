@@ -7460,20 +7460,25 @@ def wallet_pay():
         
         # إنشاء طلب الدفع
         order_id = f"TR{user_id}{int(time.time())}"
-        order_description = f"شحن رصيد - {user_id}"
+        order_description = f"Recharge {int(amount)} SAR"
         
-        # حساب الـ hash
-        to_hash = f"{order_id}{amount}SAR{order_description}{EDFAPAY_PASSWORD}".upper()
+        # تنسيق المبلغ (بدون فواصل عشرية إذا كان رقم صحيح)
+        if amount == int(amount):
+            amount_str = str(int(amount))
+        else:
+            amount_str = f"{amount:.2f}"
+        
+        # حساب الـ hash - نفس طريقة التيليجرام
+        to_hash = f"{order_id}{amount_str}SAR{order_description}{EDFAPAY_PASSWORD}".upper()
         md5_hash = hashlib.md5(to_hash.encode()).hexdigest()
-        sha1_hash = hashlib.sha1(md5_hash.encode()).hexdigest()
-        final_hash = sha1_hash.upper()
+        final_hash = hashlib.sha1(md5_hash.encode()).hexdigest()
         
         # إنشاء طلب EdfaPay
         payload = {
             'action': 'SALE',
             'edfa_merchant_id': EDFAPAY_MERCHANT_ID,
             'order_id': order_id,
-            'order_amount': str(amount),
+            'order_amount': amount_str,
             'order_currency': 'SAR',
             'order_description': order_description,
             'req_token': 'N',

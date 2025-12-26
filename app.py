@@ -8746,15 +8746,15 @@ def dashboard():
                         </tr>
                     </thead>
                     <tbody>
-                        {''.join([f'''
+                        {''.join([f"""
                         <tr>
                             <td><code>{inv['id']}</code></td>
                             <td>{inv['merchant_name']} <small style="color:#888">({inv['merchant_id']})</small></td>
                             <td style="color:#00cec9; font-weight:bold;">{inv['amount']} ريال</td>
                             <td dir="ltr">{inv['customer_phone']}</td>
-                            <td><span class="badge {'badge-success' if inv['status'] == 'completed' else 'badge-pending'}">{{'مكتمل' if inv['status'] == 'completed' else 'معلق'}}</span></td>
+                            <td><span class="badge {'badge-success' if inv['status'] == 'completed' else 'badge-pending'}">{'مكتمل' if inv['status'] == 'completed' else 'معلق'}</span></td>
                         </tr>
-                        ''' for inv in invoices_list]) if invoices_list else '<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد فواتير</td></tr>'}
+                        """ for inv in invoices_list]) if invoices_list else '<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد فواتير</td></tr>'}
                     </tbody>
                 </table>
                 </div>
@@ -8775,15 +8775,15 @@ def dashboard():
                         </tr>
                     </thead>
                     <tbody>
-                        {''.join([f'''
+                        {''.join([f"""
                         <tr>
                             <td><code>{pay['order_id'][:15]}...</code></td>
                             <td>{pay['user_id']}</td>
                             <td style="color:#00cec9; font-weight:bold;">{pay['amount']} ريال</td>
-                            <td><span class="badge {'badge-info' if pay['is_invoice'] else 'badge-warning'}">{{'فاتورة' if pay['is_invoice'] else 'شحن'}}</span></td>
+                            <td><span class="badge {'badge-info' if pay['is_invoice'] else 'badge-warning'}">{'فاتورة' if pay['is_invoice'] else 'شحن'}</span></td>
                             <td><span class="badge {'badge-success' if pay['status'] == 'completed' else 'badge-danger' if pay['status'] == 'failed' else 'badge-pending'}">{pay['status']}</span></td>
                         </tr>
-                        ''' for pay in payments_list]) if payments_list else '<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد مدفوعات</td></tr>'}
+                        """ for pay in payments_list]) if payments_list else '<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد مدفوعات</td></tr>'}
                     </tbody>
                 </table>
                 </div>
@@ -8861,7 +8861,7 @@ def dashboard():
                         <tr>
                             <td><code>{key['code']}</code></td>
                             <td style="color:#00cec9;">{key['amount']} ريال</td>
-                            <td><span class="badge {'badge-success' if not key['used'] else 'badge-danger'}">{{'نشط' if not key['used'] else 'مستخدم'}}</span></td>
+                            <td><span class="badge {'badge-success' if not key['used'] else 'badge-danger'}">{'نشط' if not key['used'] else 'مستخدم'}</span></td>
                             <td>{key['used_by'] if key['used'] else '-'}</td>
                         </tr>
                         """ for key in charge_keys_display[:30]]) if charge_keys_display else '<tr><td colspan="4" style="text-align:center; color:#888;">لا توجد مفاتيح</td></tr>'}

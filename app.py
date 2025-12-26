@@ -4324,12 +4324,15 @@ def create_customer_invoice(merchant_id, merchant_name, amount, customer_phone, 
         md5_hash = hashlib.md5(to_hash.encode()).hexdigest()
         final_hash = hashlib.sha1(md5_hash.encode()).hexdigest()
         
-        # تحويل رقم الهاتف للصيغة الدولية
+        # تنظيف رقم الهاتف (الرقم يأتي كاملاً مع رمز الدولة من الصفحة)
         phone = customer_phone.strip()
+        # إزالة + إن وجدت
+        phone = phone.replace('+', '')
+        # إزالة المسافات
+        phone = phone.replace(' ', '')
+        # إذا بدأ بصفر، أضف 966 (للتوافق مع الأرقام القديمة)
         if phone.startswith('0'):
             phone = '966' + phone[1:]
-        elif not phone.startswith('966'):
-            phone = '966' + phone
         
         # بيانات الطلب
         payload = {
@@ -7646,6 +7649,37 @@ def show_invoice(invoice_id):
             .form-input::placeholder {
                 color: #636e72;
             }
+            .phone-wrapper {
+                display: flex;
+                gap: 10px;
+                direction: ltr;
+            }
+            .country-select {
+                width: 120px;
+                padding: 15px 10px;
+                border: 2px solid rgba(255,255,255,0.1);
+                border-radius: 12px;
+                background: rgba(255,255,255,0.05);
+                color: #fff;
+                font-size: 14px;
+                font-family: 'Tajawal', sans-serif;
+                cursor: pointer;
+                transition: border-color 0.3s;
+            }
+            .country-select:focus {
+                outline: none;
+                border-color: #667eea;
+            }
+            .country-select option {
+                background: #1a1a2e;
+                color: #fff;
+            }
+            .phone-input-wrapper {
+                flex: 1;
+            }
+            .phone-input-wrapper .form-input {
+                width: 100%;
+            }
             .pay-btn {
                 width: 100%;
                 padding: 16px;
@@ -7710,12 +7744,41 @@ def show_invoice(invoice_id):
             <form id="paymentForm" action="/invoice/{{ invoice_id }}/pay" method="POST">
                 <div class="form-group">
                     <label class="form-label">📱 رقم الجوال</label>
-                    <input type="tel" name="phone" class="form-input" 
-                           placeholder="05xxxxxxxx" 
-                           pattern="^(05|5|9665)[0-9]{8}$"
-                           maxlength="12"
-                           required
-                           id="phoneInput">
+                    <div class="phone-wrapper">
+                        <select name="country_code" id="countrySelect" class="country-select">
+                            <option value="966" data-length="9">🇸🇦 +966</option>
+                            <option value="971" data-length="9">🇦🇪 +971</option>
+                            <option value="965" data-length="8">🇰🇼 +965</option>
+                            <option value="973" data-length="8">🇧🇭 +973</option>
+                            <option value="974" data-length="8">🇶🇦 +974</option>
+                            <option value="968" data-length="8">🇴🇲 +968</option>
+                            <option value="962" data-length="9">🇯🇴 +962</option>
+                            <option value="20" data-length="10">🇪🇬 +20</option>
+                            <option value="212" data-length="9">🇲🇦 +212</option>
+                            <option value="216" data-length="8">🇹🇳 +216</option>
+                            <option value="213" data-length="9">🇩🇿 +213</option>
+                            <option value="218" data-length="9">🇱🇾 +218</option>
+                            <option value="249" data-length="9">🇸🇩 +249</option>
+                            <option value="964" data-length="10">🇮🇶 +964</option>
+                            <option value="963" data-length="9">🇸🇾 +963</option>
+                            <option value="961" data-length="8">🇱🇧 +961</option>
+                            <option value="970" data-length="9">🇵🇸 +970</option>
+                            <option value="967" data-length="9">🇾🇪 +967</option>
+                            <option value="90" data-length="10">🇹🇷 +90</option>
+                            <option value="44" data-length="10">🇬🇧 +44</option>
+                            <option value="1" data-length="10">🇺🇸 +1</option>
+                            <option value="33" data-length="9">🇫🇷 +33</option>
+                            <option value="49" data-length="11">🇩🇪 +49</option>
+                        </select>
+                        <div class="phone-input-wrapper">
+                            <input type="tel" name="phone" class="form-input" 
+                                   placeholder="5xxxxxxxx" 
+                                   maxlength="10"
+                                   required
+                                   id="phoneInput">
+                        </div>
+                    </div>
+                    <input type="hidden" name="full_phone" id="fullPhone">
                     <div class="error-msg" id="phoneError">الرجاء إدخال رقم جوال صحيح</div>
                 </div>
                 
@@ -7733,23 +7796,47 @@ def show_invoice(invoice_id):
         <script>
             const form = document.getElementById('paymentForm');
             const phoneInput = document.getElementById('phoneInput');
+            const countrySelect = document.getElementById('countrySelect');
+            const fullPhoneInput = document.getElementById('fullPhone');
             const phoneError = document.getElementById('phoneError');
             const payBtn = document.getElementById('payBtn');
             const loading = document.getElementById('loading');
             
             phoneInput.addEventListener('input', function() {
                 phoneError.style.display = 'none';
+                // إزالة الصفر من البداية تلقائياً
+                if (this.value.startsWith('0')) {
+                    this.value = this.value.substring(1);
+                }
             });
             
             form.addEventListener('submit', function(e) {
-                const phone = phoneInput.value.trim();
-                const pattern = /^(05|5|9665|966)[0-9]{8,9}$/;
+                let phone = phoneInput.value.trim();
+                const countryCode = countrySelect.value;
                 
-                if (!pattern.test(phone)) {
+                // إزالة الصفر من البداية
+                if (phone.startsWith('0')) {
+                    phone = phone.substring(1);
+                }
+                
+                // التحقق من أن الرقم أرقام فقط
+                if (!/^[0-9]+$/.test(phone)) {
                     e.preventDefault();
+                    phoneError.textContent = 'الرجاء إدخال أرقام فقط';
                     phoneError.style.display = 'block';
                     return;
                 }
+                
+                // التحقق من طول الرقم
+                if (phone.length < 7 || phone.length > 11) {
+                    e.preventDefault();
+                    phoneError.textContent = 'الرجاء إدخال رقم جوال صحيح';
+                    phoneError.style.display = 'block';
+                    return;
+                }
+                
+                // دمج رمز الدولة مع الرقم
+                fullPhoneInput.value = countryCode + phone;
                 
                 payBtn.disabled = true;
                 loading.classList.add('show');
@@ -7763,8 +7850,11 @@ def show_invoice(invoice_id):
 def process_invoice_payment(invoice_id):
     """معالجة دفع الفاتورة"""
     
-    # جلب رقم الهاتف
-    phone = request.form.get('phone', '').strip()
+    # جلب رقم الهاتف الكامل (مع رمز الدولة)
+    phone = request.form.get('full_phone', '').strip()
+    # إذا لم يوجد، استخدم الرقم العادي
+    if not phone:
+        phone = request.form.get('phone', '').strip()
     
     # البحث عن الفاتورة
     invoice_data = merchant_invoices.get(invoice_id)

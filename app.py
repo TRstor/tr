@@ -6623,67 +6623,230 @@ def adfaly_webhook():
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/payment/success')
+@app.route('/payment/success', methods=['GET', 'POST'])
 def payment_success():
-    """صفحة نجاح الدفع"""
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html dir="rtl" lang="ar">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>تم الدفع بنجاح</title>
-        <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { 
-                font-family: 'Tajawal', sans-serif; 
-                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
-                min-height: 100vh;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                padding: 20px;
-            }
-            .container {
-                background: rgba(255,255,255,0.1);
-                backdrop-filter: blur(10px);
-                border-radius: 20px;
-                padding: 40px;
-                text-align: center;
-                max-width: 400px;
-                border: 1px solid rgba(255,255,255,0.2);
-            }
-            .icon { font-size: 80px; margin-bottom: 20px; animation: bounce 1s ease infinite; }
-            @keyframes bounce {
-                0%, 100% { transform: translateY(0); }
-                50% { transform: translateY(-10px); }
-            }
-            h1 { color: #55efc4; margin-bottom: 15px; font-size: 24px; }
-            p { color: #dfe6e9; margin-bottom: 25px; line-height: 1.6; }
-            .btn {
-                display: inline-block;
-                background: linear-gradient(135deg, #00b894, #55efc4);
-                color: white;
-                padding: 15px 40px;
-                border-radius: 30px;
-                text-decoration: none;
-                font-weight: bold;
-                transition: transform 0.3s;
-            }
-            .btn:hover { transform: scale(1.05); }
-        </style>
-        <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
-    </head>
-    <body>
-        <div class="container">
-            <div class="icon">✅</div>
-            <h1>تم الدفع بنجاح!</h1>
-            <p>تم شحن رصيدك بنجاح.<br>يمكنك الآن العودة للبوت والتسوق.</p>
-            <a href="https://t.me/{{ bot_username }}" class="btn">العودة للبوت</a>
-        </div>
-    </body>
-    </html>
-    ''', bot_username=BOT_USERNAME)
+    """صفحة نتيجة الدفع - تتحقق من الحالة الفعلية"""
+    
+    # جلب بيانات النتيجة من EdfaPay
+    data = {}
+    if request.method == 'POST':
+        data = request.form.to_dict() or request.json or {}
+    else:
+        data = request.args.to_dict() or {}
+    
+    print(f"📄 Payment Result Page: {data}")
+    
+    # استخراج الحالة
+    status = data.get('status', '') or data.get('result', '')
+    order_id = data.get('order_id', '')
+    decline_reason = data.get('decline_reason', '')
+    
+    status_upper = str(status).upper().strip()
+    
+    # تحديد إذا كانت العملية ناجحة أم لا
+    SUCCESS_STATUSES = ['SUCCESS', 'SETTLED', 'CAPTURED', 'APPROVED', '3DS_SUCCESS']
+    FAILED_STATUSES = ['DECLINED', 'FAILURE', 'FAILED', 'TXN_FAILURE', 'REJECTED', 'CANCELLED', 'ERROR', '3DS_FAILURE']
+    
+    is_success = status_upper in SUCCESS_STATUSES
+    is_failed = status_upper in FAILED_STATUSES
+    
+    # إذا كان هناك result=DECLINED مع status مختلف
+    result = data.get('result', '').upper()
+    if result == 'DECLINED' or result == 'FAILURE':
+        is_success = False
+        is_failed = True
+    
+    if is_success:
+        # ✅ صفحة النجاح
+        return render_template_string('''
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>تم الدفع بنجاح</title>
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { 
+                    font-family: 'Tajawal', sans-serif; 
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }
+                .container {
+                    background: rgba(255,255,255,0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 40px;
+                    text-align: center;
+                    max-width: 400px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                .icon { font-size: 80px; margin-bottom: 20px; animation: bounce 1s ease infinite; }
+                @keyframes bounce {
+                    0%, 100% { transform: translateY(0); }
+                    50% { transform: translateY(-10px); }
+                }
+                h1 { color: #55efc4; margin-bottom: 15px; font-size: 24px; }
+                p { color: #dfe6e9; margin-bottom: 25px; line-height: 1.6; }
+                .btn {
+                    display: inline-block;
+                    background: linear-gradient(135deg, #00b894, #55efc4);
+                    color: white;
+                    padding: 15px 40px;
+                    border-radius: 30px;
+                    text-decoration: none;
+                    font-weight: bold;
+                    transition: transform 0.3s;
+                }
+                .btn:hover { transform: scale(1.05); }
+            </style>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+        </head>
+        <body>
+            <div class="container">
+                <div class="icon">✅</div>
+                <h1>تم الدفع بنجاح!</h1>
+                <p>تم شحن رصيدك بنجاح.<br>يمكنك الآن العودة للبوت والتسوق.</p>
+                <a href="https://t.me/{{ bot_username }}" class="btn">العودة للبوت</a>
+            </div>
+        </body>
+        </html>
+        ''', bot_username=BOT_USERNAME)
+    
+    elif is_failed:
+        # ❌ صفحة الفشل
+        error_msg = decline_reason or status or "فشلت عملية الدفع"
+        return render_template_string('''
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>فشل الدفع</title>
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { 
+                    font-family: 'Tajawal', sans-serif; 
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }
+                .container {
+                    background: rgba(255,255,255,0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 40px;
+                    text-align: center;
+                    max-width: 400px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                .icon { font-size: 80px; margin-bottom: 20px; }
+                h1 { color: #ff7675; margin-bottom: 15px; font-size: 24px; }
+                p { color: #dfe6e9; margin-bottom: 15px; line-height: 1.6; }
+                .error-box {
+                    background: rgba(255, 118, 117, 0.2);
+                    border: 1px solid rgba(255, 118, 117, 0.5);
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin-bottom: 25px;
+                }
+                .error-text { color: #ff7675; font-size: 14px; }
+                .btn {
+                    display: inline-block;
+                    background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+                    color: white;
+                    padding: 15px 40px;
+                    border-radius: 30px;
+                    text-decoration: none;
+                    font-weight: bold;
+                    transition: transform 0.3s;
+                }
+                .btn:hover { transform: scale(1.05); }
+            </style>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+        </head>
+        <body>
+            <div class="container">
+                <div class="icon">❌</div>
+                <h1>فشل الدفع!</h1>
+                <p>لم تتم عملية الدفع.</p>
+                <div class="error-box">
+                    <p class="error-text">{{ error_msg }}</p>
+                </div>
+                <p>يمكنك المحاولة مرة أخرى.</p>
+                <a href="https://t.me/{{ bot_username }}" class="btn">العودة للبوت</a>
+            </div>
+        </body>
+        </html>
+        ''', bot_username=BOT_USERNAME, error_msg=error_msg)
+    
+    else:
+        # ⏳ حالة غير معروفة - معلقة
+        return render_template_string('''
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>جاري المعالجة</title>
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body { 
+                    font-family: 'Tajawal', sans-serif; 
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 20px;
+                }
+                .container {
+                    background: rgba(255,255,255,0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 40px;
+                    text-align: center;
+                    max-width: 400px;
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                .icon { font-size: 80px; margin-bottom: 20px; animation: spin 2s linear infinite; }
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                h1 { color: #fdcb6e; margin-bottom: 15px; font-size: 24px; }
+                p { color: #dfe6e9; margin-bottom: 25px; line-height: 1.6; }
+                .btn {
+                    display: inline-block;
+                    background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+                    color: white;
+                    padding: 15px 40px;
+                    border-radius: 30px;
+                    text-decoration: none;
+                    font-weight: bold;
+                    transition: transform 0.3s;
+                }
+                .btn:hover { transform: scale(1.05); }
+            </style>
+            <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+        </head>
+        <body>
+            <div class="container">
+                <div class="icon">⏳</div>
+                <h1>جاري المعالجة</h1>
+                <p>يتم معالجة طلبك.<br>سيصلك إشعار في البوت عند اكتمال العملية.</p>
+                <a href="https://t.me/{{ bot_username }}" class="btn">العودة للبوت</a>
+            </div>
+        </body>
+        </html>
+        ''', bot_username=BOT_USERNAME)
 
 @app.route('/payment/cancel')
 def payment_cancel():

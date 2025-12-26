@@ -2847,7 +2847,7 @@ HTML_PAGE = """
                                         (!isMyProduct ? 
                                             `<div class="product-btns">
                                                 <button class="product-buy-btn" onclick='buyItem("${item.id}", ${item.price}, "${(item.item_name || '').replace(/"/g, '\\"')}", "${(item.category || '').replace(/"/g, '\\"')}", ${JSON.stringify(item.details || '')}, "${deliveryType}", ${JSON.stringify(item.buyer_instructions || '')})'>شراء 🛒</button>
-                                                <button class="product-cart-btn" onclick='addToCart("${item.id}", "${(item.item_name || '').replace(/"/g, '\\"')}")' title="أضف للسلة">➕</button>
+                                                <button class="product-cart-btn" onclick='addToCart("${item.id}", "${(item.item_name || '').replace(/"/g, '\\"')}", "${deliveryType}", ${JSON.stringify(item.buyer_instructions || '')})' title="أضف للسلة">➕</button>
                                             </div>` : 
                                             `<div class="my-product-badge">منتجك ⭐</div>`)
                                     }
@@ -3209,19 +3209,87 @@ HTML_PAGE = """
         }
         
         // إضافة للسلة
-        async function addToCart(productId, productName) {
+        let pendingCartItem = null;
+        
+        function addToCart(productId, productName, deliveryType, buyerInstructions) {
             if(!isTelegramWebApp && (!currentUserId || currentUserId == 0)) {
                 showLoginModal();
                 return;
             }
             
+            // إذا كان المنتج يدوي، نطلب المعلومات أولاً
+            if(deliveryType === 'manual') {
+                pendingCartItem = {
+                    productId: productId,
+                    productName: productName,
+                    buyerInstructions: buyerInstructions
+                };
+                showCartInputModal(productName, buyerInstructions);
+                return;
+            }
+            
+            // منتج فوري - إضافة مباشرة
+            submitAddToCart(productId, productName, '');
+        }
+        
+        function showCartInputModal(productName, instructions) {
+            // إنشاء نافذة الإدخال
+            let modal = document.getElementById('cartInputModal');
+            if(!modal) {
+                modal = document.createElement('div');
+                modal.id = 'cartInputModal';
+                modal.innerHTML = `
+                    <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;">
+                        <div style="background:#1a1a2e;border-radius:20px;padding:25px;max-width:400px;width:100%;text-align:center;">
+                            <div style="font-size:40px;margin-bottom:15px;">📝</div>
+                            <div style="font-size:18px;font-weight:bold;margin-bottom:10px;">معلومات مطلوبة</div>
+                            <div style="color:#888;margin-bottom:15px;" id="cartProductName"></div>
+                            <div style="background:rgba(241,196,15,0.1);border:1px solid rgba(241,196,15,0.3);border-radius:10px;padding:12px;margin-bottom:15px;color:#f1c40f;font-size:14px;" id="cartInstructionsLabel"></div>
+                            <textarea id="cartBuyerDetails" placeholder="أدخل المعلومات المطلوبة..." style="width:100%;padding:15px;border:2px solid rgba(255,255,255,0.1);border-radius:12px;background:rgba(255,255,255,0.05);color:#fff;font-size:16px;font-family:'Tajawal',sans-serif;resize:none;height:100px;margin-bottom:15px;"></textarea>
+                            <div style="display:flex;gap:10px;">
+                                <button onclick="submitCartWithDetails()" style="flex:1;padding:14px;background:linear-gradient(135deg,#00b894,#00cec9);border:none;border-radius:12px;color:#fff;font-size:16px;font-weight:bold;cursor:pointer;font-family:'Tajawal',sans-serif;">✅ إضافة للسلة</button>
+                                <button onclick="closeCartInputModal()" style="flex:1;padding:14px;background:rgba(255,255,255,0.1);border:none;border-radius:12px;color:#fff;font-size:16px;font-weight:bold;cursor:pointer;font-family:'Tajawal',sans-serif;">❌ إلغاء</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }
+            
+            document.getElementById('cartProductName').textContent = productName;
+            document.getElementById('cartInstructionsLabel').textContent = instructions || 'أدخل المعلومات المطلوبة للتنفيذ:';
+            document.getElementById('cartBuyerDetails').value = '';
+            modal.style.display = 'block';
+        }
+        
+        function closeCartInputModal() {
+            const modal = document.getElementById('cartInputModal');
+            if(modal) modal.style.display = 'none';
+            pendingCartItem = null;
+        }
+        
+        function submitCartWithDetails() {
+            const details = document.getElementById('cartBuyerDetails').value.trim();
+            if(!details) {
+                alert('❌ الرجاء إدخال المعلومات المطلوبة');
+                return;
+            }
+            
+            if(pendingCartItem) {
+                submitAddToCart(pendingCartItem.productId, pendingCartItem.productName, details);
+                closeCartInputModal();
+            }
+        }
+        
+        async function submitAddToCart(productId, productName, buyerDetails) {
             try {
                 const response = await fetch('/api/cart/add', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         user_id: currentUserId,
-                        product_id: productId
+                        product_id: productId,
+                        buyer_details: buyerDetails
                     })
                 });
                 const data = await response.json();
@@ -5854,9 +5922,14 @@ CART_PAGE = """
                         </div>
                         <div class="item-info">
                             <div class="item-name">${item.name}</div>
-                            <div class="item-category">${item.category || 'عام'}</div>
+                            <div class="item-category">${item.category || 'عام'} ${item.delivery_type === 'manual' ? '<span style="color:#f39c12;font-size:11px;">👨‍💼 يدوي</span>' : ''}</div>
                             <div class="item-price">${item.current_price || item.price} ر.س</div>
                             ${statusBadge}
+                            ${item.delivery_type === 'manual' && item.buyer_details ? `
+                                <div style="margin-top:8px;padding:8px;background:rgba(241,196,15,0.1);border-radius:8px;font-size:12px;color:#f39c12;">
+                                    📝 ${item.buyer_details}
+                                </div>
+                            ` : ''}
                         </div>
                         <button class="delete-btn" onclick="removeItem('${item.product_id}')">🗑️</button>
                     </div>
@@ -6063,6 +6136,7 @@ def api_cart_add():
         data = request.json
         user_id = str(data.get('user_id'))
         product_id = data.get('product_id')
+        buyer_details = data.get('buyer_details', '')  # معلومات المشتري للتسليم اليدوي
         
         if not user_id or not product_id:
             return jsonify({'status': 'error', 'message': 'بيانات ناقصة'})
@@ -6113,6 +6187,9 @@ def api_cart_add():
             'price': float(product.get('price', 0)),
             'category': product.get('category', ''),
             'image_url': product.get('image_url', ''),
+            'delivery_type': product.get('delivery_type', 'instant'),
+            'buyer_instructions': product.get('buyer_instructions', ''),
+            'buyer_details': buyer_details,  # معلومات المشتري المدخلة
             'added_at': now.isoformat()
         }
         cart['items'].append(cart_item)
@@ -6292,6 +6369,8 @@ def api_cart_checkout():
         for item in available_items:
             product = item['product_data']
             product_id = item['product_id']
+            delivery_type = item.get('delivery_type', product.get('delivery_type', 'instant'))
+            order_status = 'completed' if delivery_type == 'instant' else 'pending'
             
             # تحديث المنتج كمباع
             product_ref = db.collection('products').document(product_id)
@@ -6314,8 +6393,10 @@ def api_cart_checkout():
                 'hidden_data': product.get('hidden_data'),
                 'details': product.get('details', ''),
                 'category': product.get('category', ''),
-                'delivery_type': product.get('delivery_type', 'instant'),
-                'status': 'completed',
+                'delivery_type': delivery_type,
+                'buyer_details': item.get('buyer_details', ''),  # معلومات المشتري للتسليم اليدوي
+                'buyer_instructions': item.get('buyer_instructions', ''),
+                'status': order_status,
                 'from_cart': True,
                 'created_at': firestore.SERVER_TIMESTAMP
             })
@@ -6325,7 +6406,9 @@ def api_cart_checkout():
                 'name': product.get('item_name'),
                 'price': item['current_price'],
                 'hidden_data': product.get('hidden_data'),
-                'order_id': order_id
+                'order_id': order_id,
+                'delivery_type': delivery_type,
+                'buyer_details': item.get('buyer_details', '')
             })
             
             # تحديث إحصائيات
@@ -6349,27 +6432,70 @@ def api_cart_checkout():
         user_carts.pop(user_id, None)
         db.collection('carts').document(user_id).delete()
         
+        # فصل المنتجات الفورية عن اليدوية
+        instant_items = [i for i in purchased_items if i.get('delivery_type') == 'instant']
+        manual_items = [i for i in purchased_items if i.get('delivery_type') == 'manual']
+        
         # إرسال البيانات للمشتري عبر البوت
         try:
             msg = "🎉 تم شراء سلتك بنجاح!\n\n"
-            for item in purchased_items:
-                msg += f"📦 {item['name']}\n"
-                msg += f"💰 {item['price']} ر.س\n"
-                msg += f"🆔 #{item['order_id']}\n"
-                if item['hidden_data']:
-                    msg += f"🔐 البيانات:\n{item['hidden_data']}\n"
-                msg += "─────────────\n"
+            
+            # المنتجات الفورية
+            if instant_items:
+                msg += "⚡ منتجات تسليم فوري:\n"
+                for item in instant_items:
+                    msg += f"📦 {item['name']}\n"
+                    msg += f"💰 {item['price']} ر.س\n"
+                    msg += f"🆔 #{item['order_id']}\n"
+                    if item.get('hidden_data'):
+                        msg += f"🔐 البيانات:\n{item['hidden_data']}\n"
+                    msg += "─────────────\n"
+            
+            # المنتجات اليدوية
+            if manual_items:
+                msg += "\n👨‍💼 منتجات تسليم يدوي (بانتظار التنفيذ):\n"
+                for item in manual_items:
+                    msg += f"📦 {item['name']}\n"
+                    msg += f"💰 {item['price']} ر.س\n"
+                    msg += f"🆔 #{item['order_id']}\n"
+                    msg += "⏳ سيتم تنفيذه قريباً\n"
+                    msg += "─────────────\n"
+            
             msg += f"\n💳 رصيدك المتبقي: {new_balance:.2f} ر.س"
             
             bot.send_message(int(user_id), msg)
         except Exception as e:
             print(f"⚠️ فشل إرسال رسالة للمشتري: {e}")
         
-        # إشعار الأدمن
+        # إشعار الأدمن للطلبات اليدوية
+        if manual_items:
+            try:
+                for item in manual_items:
+                    claim_markup = telebot.types.InlineKeyboardMarkup()
+                    claim_markup.add(telebot.types.InlineKeyboardButton(
+                        "📋 استلام الطلب", 
+                        callback_data=f"claim_order_{item['order_id']}"
+                    ))
+                    
+                    admin_msg = f"🆕 طلب يدوي جديد من السلة!\n\n"
+                    admin_msg += f"🆔 رقم الطلب: #{item['order_id']}\n"
+                    admin_msg += f"📦 المنتج: {item['name']}\n"
+                    admin_msg += f"👤 المشتري: {buyer_name} ({user_id})\n"
+                    admin_msg += f"💰 السعر: {item['price']} ر.س\n"
+                    if item.get('buyer_details'):
+                        admin_msg += f"\n📝 معلومات المشتري:\n{item['buyer_details']}\n"
+                    admin_msg += f"\n👇 اضغط لاستلام الطلب"
+                    
+                    bot.send_message(ADMIN_ID, admin_msg, reply_markup=claim_markup)
+            except Exception as e:
+                print(f"⚠️ فشل إشعار الأدمن: {e}")
+        
+        # إشعار عام للأدمن
         try:
             admin_msg = f"🛒 شراء سلة جديد!\n\n"
             admin_msg += f"👤 المشتري: {buyer_name} ({user_id})\n"
             admin_msg += f"📦 عدد المنتجات: {len(purchased_items)}\n"
+            admin_msg += f"⚡ فوري: {len(instant_items)} | 👨‍💼 يدوي: {len(manual_items)}\n"
             admin_msg += f"💰 الإجمالي: {total:.2f} ر.س"
             bot.send_message(ADMIN_ID, admin_msg)
         except:

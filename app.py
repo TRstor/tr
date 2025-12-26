@@ -7684,7 +7684,23 @@ def show_invoice(invoice_id):
     # عرض صفحة الفاتورة
     merchant_name = invoice_data.get('merchant_name', 'التاجر')
     amount = invoice_data.get('amount', 0)
-    expires_at_ts = invoice_data.get('expires_at', time.time() + 3600)
+    
+    # جلب وقت الانتهاء المحفوظ (إذا لم يوجد = الفاتورة قديمة، نحسب من created_at)
+    expires_at_ts = invoice_data.get('expires_at')
+    if not expires_at_ts:
+        # فاتورة قديمة بدون expires_at - نحسب من وقت الإنشاء + ساعة
+        created_at = invoice_data.get('created_at')
+        if created_at:
+            # إذا كان timestamp من Firebase
+            if hasattr(created_at, 'timestamp'):
+                expires_at_ts = created_at.timestamp() + 3600
+            elif isinstance(created_at, (int, float)):
+                expires_at_ts = created_at + 3600
+            else:
+                expires_at_ts = time.time()  # افتراضي = منتهية
+        else:
+            expires_at_ts = time.time()  # افتراضي = منتهية
+    
     remaining_seconds = int(expires_at_ts - time.time())
     if remaining_seconds < 0:
         remaining_seconds = 0

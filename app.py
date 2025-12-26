@@ -6812,6 +6812,28 @@ def payment_success():
         is_success = False
         is_failed = True
     
+    # إذا لم توجد بيانات، تحقق من Firebase باستخدام order_id
+    if not status and order_id:
+        try:
+            doc = db.collection('pending_payments').document(order_id).get()
+            if doc.exists:
+                payment_data = doc.to_dict()
+                payment_status = payment_data.get('status', '')
+                if payment_status == 'completed':
+                    is_success = True
+                    is_failed = False
+                elif payment_status == 'failed':
+                    is_success = False
+                    is_failed = True
+                    decline_reason = payment_data.get('failure_reason', 'فشلت العملية')
+        except Exception as e:
+            print(f"⚠️ خطأ في التحقق من Firebase: {e}")
+    
+    # إذا لم توجد بيانات ولا order_id، ابحث عن آخر طلب للمستخدم
+    if not status and not order_id:
+        # نعرض صفحة عامة مع زر العودة
+        pass
+    
     if is_success:
         # ✅ صفحة النجاح
         return render_template_string('''

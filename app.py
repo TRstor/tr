@@ -6851,13 +6851,11 @@ def process_edfapay_callback(req, source):
                     # إشعار التاجر
                     try:
                         new_balance = get_balance(user_id)
-                        # جلب رقم العميل من عدة مصادر
+                        # جلب رقم العميل للمالك فقط
                         customer_phone = ''
                         if invoice_id:
-                            # أولاً: من الذاكرة
                             if invoice_id in merchant_invoices:
                                 customer_phone = merchant_invoices[invoice_id].get('customer_phone', '')
-                            # ثانياً: من Firebase
                             if not customer_phone:
                                 try:
                                     inv_doc = db.collection('merchant_invoices').document(invoice_id).get()
@@ -6868,12 +6866,12 @@ def process_edfapay_callback(req, source):
                         if not customer_phone:
                             customer_phone = 'غير محدد'
                         
+                        # رسالة للتاجر (بدون رقم العميل)
                         bot.send_message(
                             int(user_id),
                             f"💰 *تم استلام دفعة جديدة!*\n\n"
                             f"🧾 رقم الفاتورة: `{invoice_id}`\n"
-                            f"💵 المبلغ: {pay_amount} ريال\n"
-                            f"📱 رقم العميل: `{customer_phone}`\n\n"
+                            f"💵 المبلغ: {pay_amount} ريال\n\n"
                             f"💳 رصيدك الحالي: {new_balance} ريال\n\n"
                             f"✅ تم إضافة المبلغ لرصيدك",
                             parse_mode="Markdown"

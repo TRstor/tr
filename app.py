@@ -6439,7 +6439,9 @@ def merchant_webhook(merchant_id):
             return jsonify({'status': 'ok', 'message': 'Telegram message ignored'}), 200
     return process_edfapay_callback(request, f"merchant_webhook/{merchant_id}")
 
+# دعم كلا الصيغتين: edfapay_webhook و edfapay-webhook
 @app.route('/payment/edfapay_webhook', methods=['GET', 'POST'])
+@app.route('/payment/edfapay-webhook', methods=['GET', 'POST'])
 def edfapay_webhook():
     """استقبال إشعارات الدفع من EdfaPay"""
     return process_edfapay_callback(request, "edfapay_webhook")

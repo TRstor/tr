@@ -6334,20 +6334,49 @@ def process_edfapay_callback(req, source):
         data = req.json or req.form.to_dict()
         print(f"📩 EdfaPay Webhook ({source}): {data}")
         
-        # استخراج البيانات المهمة
+        # استخراج البيانات المهمة من EdfaPay
         order_id = data.get('order_id') or data.get('trans_id') or data.get('id')
         status = data.get('status') or data.get('result') or data.get('trans_status')
-        amount = data.get('amount') or data.get('trans_amount')
+        amount = data.get('amount') or data.get('trans_amount') or data.get('order_amount')
+        
+        # EdfaPay يرسل حقول مختلفة
+        # trans_id = رقم العملية في EdfaPay
+        # order_id = رقم الطلب الأصلي
+        trans_id = data.get('trans_id', '')
         
         if not order_id:
             print("❌ EdfaPay Webhook: لا يوجد order_id")
             return jsonify({'status': 'error', 'message': 'Missing order_id'}), 400
         
-        print(f"📋 Order ID: {order_id}, Status: {status}, Amount: {amount}")
+        print(f"📋 Order ID: {order_id}, Trans ID: {trans_id}, Status: {status}, Amount: {amount}")
         
-        # التحقق من حالة الدفع الناجح
-        success_statuses = ['success', 'successful', 'completed', 'paid', 'approved', 'captured', 'SALE']
-        if status and str(status).upper() in [s.upper() for s in success_statuses]:
+        # ✅ التحقق من حالة الدفع الناجح فقط
+        # الحالات الناجحة في EdfaPay: SUCCESS, SETTLED, SALE (completed)
+        # الحالات المرفوضة: DECLINED, FAILURE, TXN_FAILURE, REJECT
+        success_statuses = ['success', 'settled', 'sale']
+        failed_statuses = ['declined', 'failure', 'txn_failure', 'reject', 'fail', 'error', 'cancelled']
+        
+        status_upper = str(status).upper() if status else ''
+        
+        # التحقق إذا كانت العملية مرفوضة
+        if status_upper.lower() in failed_statuses or 'FAIL' in status_upper or 'DECLINE' in status_upper or 'REJECT' in status_upper:
+            print(f"❌ EdfaPay: العملية مرفوضة - Status: {status}")
+            
+            # تحديث حالة الطلب إلى failed
+            try:
+                db.collection('pending_payments').document(order_id).update({
+                    'status': 'failed',
+                    'failed_at': firestore.SERVER_TIMESTAMP,
+                    'failure_reason': status,
+                    'payment_data': data
+                })
+            except:
+                pass
+            
+            return jsonify({'status': 'success', 'message': f'Payment failed: {status}'})
+        
+        # التحقق من النجاح
+        if status_upper.lower() in success_statuses or status_upper == 'SUCCESS':
             # البحث عن الطلب
             payment_data = pending_payments.get(order_id)
             
@@ -6364,8 +6393,9 @@ def process_edfapay_callback(req, source):
                 user_id = payment_data['user_id']
                 pay_amount = float(payment_data.get('amount', amount or 0))
                 
-                # إضافة الرصيد
+                # ✅ إضافة الرصيد فقط عند النجاح المؤكد
                 add_balance(user_id, pay_amount)
+                print(f"✅ تم إضافة {pay_amount} ريال للمستخدم {user_id}")
                 
                 # تحديث حالة الطلب
                 if order_id in pending_payments:
@@ -6376,6 +6406,7 @@ def process_edfapay_callback(req, source):
                     db.collection('pending_payments').document(order_id).update({
                         'status': 'completed',
                         'completed_at': firestore.SERVER_TIMESTAMP,
+                        'trans_id': trans_id,
                         'payment_data': data
                     })
                 except Exception as e:

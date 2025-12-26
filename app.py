@@ -6642,24 +6642,52 @@ def process_edfapay_callback(req, source):
         elif status_upper in FAILED_STATUSES:
             print(f"❌ EdfaPay: عملية مرفوضة - {status}")
             
+            # البحث عن بيانات الطلب لإرسال إشعار للعميل
+            payment_data = pending_payments.get(order_id)
+            if not payment_data:
+                try:
+                    doc = db.collection('pending_payments').document(order_id).get()
+                    if doc.exists:
+                        payment_data = doc.to_dict()
+                except:
+                    pass
+            
             # تحديث حالة الطلب
             try:
                 db.collection('pending_payments').document(order_id).update({
                     'status': 'failed',
                     'failed_at': firestore.SERVER_TIMESTAMP,
-                    'failure_reason': status,
+                    'failure_reason': data.get('decline_reason', status),
                     'payment_data': data
                 })
             except:
                 pass
             
-            # إشعار المالك بالفشل (اختياري)
+            # ✅ إشعار العميل بالفشل
+            if payment_data:
+                try:
+                    user_id = payment_data.get('user_id')
+                    pay_amount = payment_data.get('amount', 0)
+                    decline_reason = data.get('decline_reason', 'فشلت العملية')
+                    
+                    bot.send_message(
+                        int(user_id),
+                        f"❌ *فشلت عملية الشحن*\n\n"
+                        f"💰 المبلغ: {pay_amount} ريال\n"
+                        f"❗ السبب: {decline_reason}\n\n"
+                        f"💡 تأكد من رصيد البطاقة أو جرب بطاقة أخرى",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    print(f"⚠️ خطأ في إرسال إشعار للعميل: {e}")
+            
+            # إشعار المالك بالفشل
             try:
                 bot.send_message(
                     ADMIN_ID,
                     f"❌ *عملية دفع مرفوضة*\n\n"
                     f"📋 الطلب: `{order_id}`\n"
-                    f"❗ السبب: {status}",
+                    f"❗ السبب: {data.get('decline_reason', status)}",
                     parse_mode="Markdown"
                 )
             except:
@@ -6982,14 +7010,15 @@ def payment_success():
         ''', bot_username=BOT_USERNAME, error_msg=error_msg)
     
     else:
-        # ⏳ حالة غير معروفة - معلقة
+        # ⏳ إذا لم توجد بيانات - نعرض صفحة تنتظر وتتحقق من Firebase
+        # ثم تحول تلقائياً بعد ثانيتين
         return render_template_string('''
         <!DOCTYPE html>
         <html dir="rtl" lang="ar">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>جاري المعالجة</title>
+            <title>جاري التحقق...</title>
             <style>
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 body { 
@@ -7010,12 +7039,20 @@ def payment_success():
                     max-width: 400px;
                     border: 1px solid rgba(255,255,255,0.2);
                 }
-                .icon { font-size: 80px; margin-bottom: 20px; animation: spin 2s linear infinite; }
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
+                .icon { font-size: 80px; margin-bottom: 20px; }
+                .spinner {
+                    width: 60px;
+                    height: 60px;
+                    border: 4px solid rgba(255,255,255,0.1);
+                    border-top-color: #6c5ce7;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 0 auto 20px;
                 }
-                h1 { color: #fdcb6e; margin-bottom: 15px; font-size: 24px; }
+                @keyframes spin {
+                    to { transform: rotate(360deg); }
+                }
+                h1 { color: #a29bfe; margin-bottom: 15px; font-size: 24px; }
                 p { color: #dfe6e9; margin-bottom: 25px; line-height: 1.6; }
                 .btn {
                     display: inline-block;
@@ -7028,19 +7065,43 @@ def payment_success():
                     transition: transform 0.3s;
                 }
                 .btn:hover { transform: scale(1.05); }
+                #status-msg { 
+                    background: rgba(255,255,255,0.1);
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin-bottom: 20px;
+                }
             </style>
             <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
         </head>
         <body>
             <div class="container">
-                <div class="icon">⏳</div>
-                <h1>جاري المعالجة</h1>
-                <p>يتم معالجة طلبك.<br>سيصلك إشعار في البوت عند اكتمال العملية.</p>
+                <div class="spinner"></div>
+                <h1>جاري التحقق من الدفع...</h1>
+                <div id="status-msg">
+                    <p>⏳ يتم التحقق من حالة العملية</p>
+                </div>
+                <p>سيصلك إشعار في البوت بالنتيجة</p>
                 <a href="https://t.me/{{ bot_username }}" class="btn">العودة للبوت</a>
             </div>
+            <script>
+                // التحقق من الحالة بعد 3 ثواني
+                setTimeout(function() {
+                    var orderId = '{{ order_id }}';
+                    if (orderId) {
+                        // إعادة تحميل الصفحة للتحقق من Firebase
+                        window.location.reload();
+                    }
+                }, 3000);
+                
+                // بعد 10 ثواني، توجيه للبوت
+                setTimeout(function() {
+                    document.getElementById('status-msg').innerHTML = '<p>✅ تم إرسال طلبك - تحقق من البوت</p>';
+                }, 10000);
+            </script>
         </body>
         </html>
-        ''', bot_username=BOT_USERNAME)
+        ''', bot_username=BOT_USERNAME, order_id=order_id)
 
 @app.route('/payment/cancel')
 def payment_cancel():

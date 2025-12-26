@@ -63,7 +63,63 @@ SITE_URL = os.environ.get("SITE_URL", "http://localhost:5000")
 # --- إعدادات بوابة الدفع EdfaPay ---
 EDFAPAY_MERCHANT_ID = os.environ.get("ADFALY_MERCHANT_ID", "")
 EDFAPAY_PASSWORD = os.environ.get("ADFALY_PASSWORD", "")
-EDFAPAY_API_URL = "https://pay.edfapay.com/api/v1/session"
+EDFAPAY_API_URL = "https://api.edfapay.com/payment/initiate"
+
+# دالة تسجيل Callback URL في EdfaPay
+def register_edfapay_callback():
+    """تسجيل رابط الـ webhook في EdfaPay"""
+    if not EDFAPAY_MERCHANT_ID:
+        print("⚠️ لا يوجد MERCHANT_ID لتسجيل الـ callback")
+        return False
+    
+    try:
+        callback_url = f"{SITE_URL}/payment/edfapay_webhook"
+        
+        response = requests.post(
+            "https://api.edfapay.com/payment/merchants/callback-url",
+            json={
+                "action": "post",
+                "id": EDFAPAY_MERCHANT_ID,
+                "url": callback_url
+            },
+            timeout=30
+        )
+        
+        print(f"📡 تسجيل Callback URL: {response.status_code}")
+        print(f"📡 Response: {response.text}")
+        
+        if response.status_code == 200:
+            print(f"✅ تم تسجيل Callback URL: {callback_url}")
+            return True
+        else:
+            print(f"❌ فشل تسجيل Callback URL")
+            return False
+    except Exception as e:
+        print(f"❌ خطأ في تسجيل Callback: {e}")
+        return False
+
+# دالة التحقق من Callback URL المسجل
+def check_edfapay_callback():
+    """التحقق من رابط الـ webhook المسجل في EdfaPay"""
+    if not EDFAPAY_MERCHANT_ID:
+        return None
+    
+    try:
+        response = requests.post(
+            "https://api.edfapay.com/payment/merchants/callback-url",
+            json={
+                "action": "get",
+                "id": EDFAPAY_MERCHANT_ID
+            },
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        print(f"❌ خطأ في التحقق من Callback: {e}")
+        return None
 
 # التحقق من أن التوكن صحيح (ليس القيمة الافتراضية)
 if TOKEN.startswith("default_token"):
@@ -3583,6 +3639,76 @@ def add_funds(message):
         bot.send_message(target_id, f"🎉 تم شحن رصيدك بمبلغ {amount} ريال!")
     except:
         bot.reply_to(message, "خطأ! الاستخدام: /add ID AMOUNT")
+
+# أمر تسجيل/التحقق من Callback URL في EdfaPay
+# الاستخدام: /edfapay (للتحقق) أو /edfapay register (للتسجيل)
+@bot.message_handler(commands=['edfapay'])
+def edfapay_settings(message):
+    """إدارة إعدادات EdfaPay"""
+    if message.from_user.id != ADMIN_ID:
+        return bot.reply_to(message, "⛔ هذا الأمر للمالك فقط!")
+    
+    try:
+        parts = message.text.split()
+        action = parts[1] if len(parts) > 1 else "check"
+        
+        if action == "register":
+            # تسجيل الـ callback URL
+            bot.reply_to(message, "⏳ جاري تسجيل Callback URL في EdfaPay...")
+            
+            callback_url = f"{SITE_URL}/payment/edfapay_webhook"
+            
+            response = requests.post(
+                "https://api.edfapay.com/payment/merchants/callback-url",
+                json={
+                    "action": "post",
+                    "id": EDFAPAY_MERCHANT_ID,
+                    "url": callback_url
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                bot.send_message(
+                    message.chat.id,
+                    f"✅ *تم تسجيل Callback URL بنجاح!*\n\n"
+                    f"🔗 URL: `{callback_url}`\n\n"
+                    f"📡 Response: `{response.text[:200]}`",
+                    parse_mode="Markdown"
+                )
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    f"❌ *فشل تسجيل Callback URL*\n\n"
+                    f"📡 Status: {response.status_code}\n"
+                    f"📡 Response: `{response.text[:200]}`",
+                    parse_mode="Markdown"
+                )
+        else:
+            # التحقق من الـ callback URL المسجل
+            bot.reply_to(message, "⏳ جاري التحقق من Callback URL...")
+            
+            response = requests.post(
+                "https://api.edfapay.com/payment/merchants/callback-url",
+                json={
+                    "action": "get",
+                    "id": EDFAPAY_MERCHANT_ID
+                },
+                timeout=30
+            )
+            
+            bot.send_message(
+                message.chat.id,
+                f"📡 *حالة EdfaPay Callback*\n\n"
+                f"🔑 Merchant ID: `{EDFAPAY_MERCHANT_ID}`\n"
+                f"🌐 SITE_URL: `{SITE_URL}`\n\n"
+                f"📡 Response ({response.status_code}):\n`{response.text[:300]}`\n\n"
+                f"💡 للتسجيل أرسل: `/edfapay register`",
+                parse_mode="Markdown"
+            )
+            
+    except Exception as e:
+        bot.reply_to(message, f"❌ خطأ: {e}")
 
 # أمر توليد مفاتيح الشحن
 # الاستخدام: /توليد AMOUNT [COUNT]

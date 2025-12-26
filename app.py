@@ -8331,7 +8331,7 @@ def dashboard():
         return render_template_string(LOGIN_HTML)
     
     # المستخدم مسجل دخول -> عرض لوحة التحكم
-    
+
     # --- جلب الإحصائيات الحقيقية من Firebase ---
     try:
         # عدد المستخدمين
@@ -8340,8 +8340,17 @@ def dashboard():
         
         # مجموع الأرصدة (يحتاج لعمل Loop)
         total_balance = 0
+        users_list = []
         for user in users_ref.stream():
-            total_balance += user.to_dict().get('balance', 0)
+            user_data = user.to_dict()
+            balance = user_data.get('balance', 0)
+            total_balance += balance
+            users_list.append({
+                'id': user.id,
+                'name': user_data.get('name', user_data.get('telegram_name', 'مستخدم')),
+                'balance': balance,
+                'username': user_data.get('username', '')
+            })
 
         # المنتجات
         products_ref = db.collection('products')
@@ -8360,53 +8369,96 @@ def dashboard():
                 
         # الطلبات (Orders)
         orders_ref = db.collection('orders')
-        # نجلب آخر 10 طلبات فقط للعرض
-        recent_orders_docs = orders_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(10).stream()
+        recent_orders_docs = orders_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(20).stream()
         recent_orders = []
+        total_revenue = 0
         for doc in recent_orders_docs:
             data = doc.to_dict()
-            # تنسيق البيانات للعرض في الجدول
-            recent_orders.append((
-                doc.id[:8], # رقم طلب قصير
-                {
-                    'item_name': data.get('item_name', 'منتج'),
-                    'price': data.get('price', 0),
-                    'buyer_name': data.get('buyer_name', 'مشتري')
-                }
-            ))
+            price = data.get('price', 0)
+            total_revenue += price
+            recent_orders.append({
+                'id': doc.id[:8],
+                'item_name': data.get('item_name', 'منتج'),
+                'price': price,
+                'buyer_name': data.get('buyer_name', 'مشتري'),
+                'buyer_id': data.get('buyer_id', ''),
+                'created_at': data.get('created_at', '')
+            })
+        
+        # إجمالي الطلبات
+        total_orders = len(list(orders_ref.stream()))
 
-        # المفاتيح - جلبها من Firebase مباشرة
+        # المفاتيح
         keys_ref = db.collection('charge_keys')
         all_keys_docs = list(keys_ref.stream())
-        
-        # تحضير قائمة المفاتيح للعرض
-        charge_keys_display = {}
+        charge_keys_display = []
         active_keys = 0
         used_keys = 0
         
         for k in all_keys_docs:
             data = k.to_dict()
-            key_code = k.id
             is_used = data.get('used', False)
-            
             if is_used:
                 used_keys += 1
             else:
                 active_keys += 1
+            charge_keys_display.append({
+                'code': k.id,
+                'amount': data.get('amount', 0),
+                'used': is_used,
+                'used_by': data.get('used_by', '')
+            })
+        
+        # ===== الفواتير (الجديد) =====
+        invoices_ref = db.collection('merchant_invoices')
+        all_invoices = list(invoices_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(50).stream())
+        invoices_list = []
+        total_invoice_revenue = 0
+        pending_invoices = 0
+        completed_invoices = 0
+        
+        for inv in all_invoices:
+            inv_data = inv.to_dict()
+            status = inv_data.get('status', 'pending')
+            amount = inv_data.get('amount', 0)
             
-            charge_keys_display[key_code] = data
+            if status == 'completed':
+                completed_invoices += 1
+                total_invoice_revenue += amount
+            else:
+                pending_invoices += 1
+            
+            invoices_list.append({
+                'id': inv.id,
+                'merchant_id': inv_data.get('merchant_id', ''),
+                'merchant_name': inv_data.get('merchant_name', 'تاجر'),
+                'amount': amount,
+                'customer_phone': inv_data.get('customer_phone', 'غير محدد'),
+                'status': status,
+                'created_at': inv_data.get('created_at', '')
+            })
         
-        # إجمالي الطلبات
-        total_orders = len(list(orders_ref.stream()))
+        # ===== المدفوعات (pending_payments) =====
+        payments_ref = db.collection('pending_payments')
+        all_payments = list(payments_ref.order_by('created_at', direction=firestore.Query.DESCENDING).limit(50).stream())
+        payments_list = []
         
-        # جلب آخر 20 مستخدم للعرض في الجدول
-        users_list = []
-        for user_doc in users_ref.limit(20).stream():
-            user_data = user_doc.to_dict()
-            users_list.append((user_doc.id, user_data.get('balance', 0)))
+        for pay in all_payments:
+            pay_data = pay.to_dict()
+            payments_list.append({
+                'order_id': pay.id,
+                'user_id': pay_data.get('user_id', ''),
+                'amount': pay_data.get('amount', 0),
+                'status': pay_data.get('status', 'pending'),
+                'is_invoice': pay_data.get('is_merchant_invoice', False),
+                'invoice_id': pay_data.get('invoice_id', ''),
+                'created_at': pay_data.get('created_at', '')
+            })
 
     except Exception as e:
         print(f"Error loading stats from Firebase: {e}")
+        import traceback
+        traceback.print_exc()
         # قيم افتراضية عند الخطأ
         total_users = 0
         total_balance = 0
@@ -8414,11 +8466,17 @@ def dashboard():
         available_products = 0
         sold_products = 0
         total_orders = 0
+        total_revenue = 0
         recent_orders = []
         users_list = []
-        active_keys = len([k for k, v in charge_keys.items() if not v.get('used', False)])
-        used_keys = len([k for k, v in charge_keys.items() if v.get('used', False)])
-        charge_keys_display = charge_keys
+        active_keys = 0
+        used_keys = 0
+        charge_keys_display = []
+        invoices_list = []
+        payments_list = []
+        total_invoice_revenue = 0
+        pending_invoices = 0
+        completed_invoices = 0
     
     return f"""
     <!DOCTYPE html>
@@ -8427,63 +8485,113 @@ def dashboard():
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>لوحة التحكم - المالك</title>
+        <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
             body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+                font-family: 'Tajawal', 'Segoe UI', sans-serif;
+                background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
                 min-height: 100vh;
                 padding: 20px;
-                color: #333;
+                color: #fff;
             }}
             .container {{
-                max-width: 1400px;
+                max-width: 1600px;
                 margin: 0 auto;
             }}
             .header {{
-                background: white;
+                background: rgba(255,255,255,0.1);
+                backdrop-filter: blur(10px);
                 padding: 20px 30px;
                 border-radius: 15px;
                 margin-bottom: 20px;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                flex-wrap: wrap;
+                gap: 15px;
+                border: 1px solid rgba(255,255,255,0.1);
             }}
-            .header h1 {{ color: #667eea; font-size: 28px; }}
-            .logout-btn {{
-                background: #e74c3c;
-                color: white;
+            .header h1 {{ color: #fff; font-size: 26px; }}
+            .header-btns {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+            .btn {{
                 padding: 10px 20px;
                 border: none;
                 border-radius: 8px;
                 cursor: pointer;
                 font-weight: bold;
+                font-family: inherit;
+                text-decoration: none;
+                display: inline-block;
+                font-size: 14px;
             }}
+            .btn-success {{ background: linear-gradient(135deg, #00b894, #55efc4); color: #000; }}
+            .btn-danger {{ background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; }}
+            .btn-primary {{ background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; }}
+            .btn-info {{ background: linear-gradient(135deg, #00cec9, #81ecec); color: #000; }}
+            
             .stats-grid {{
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
                 gap: 15px;
-                margin-bottom: 20px;
+                margin-bottom: 25px;
             }}
             .stat-card {{
-                background: white;
+                background: rgba(255,255,255,0.1);
+                backdrop-filter: blur(10px);
                 padding: 20px;
                 border-radius: 15px;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
                 text-align: center;
+                border: 1px solid rgba(255,255,255,0.1);
+                transition: transform 0.3s;
             }}
-            .stat-card .icon {{ font-size: 40px; margin-bottom: 10px; }}
-            .stat-card .value {{ font-size: 32px; font-weight: bold; color: #667eea; }}
+            .stat-card:hover {{ transform: translateY(-5px); }}
+            .stat-card .icon {{ font-size: 36px; margin-bottom: 10px; }}
+            .stat-card .value {{ font-size: 28px; font-weight: bold; color: #00cec9; }}
+            .stat-card .label {{ color: #b2bec3; margin-top: 5px; font-size: 14px; }}
             .stat-card .label {{ color: #888; margin-top: 5px; }}
             .section {{
-                background: white;
+                background: rgba(255,255,255,0.1);
+                backdrop-filter: blur(10px);
                 padding: 25px;
                 border-radius: 15px;
                 margin-bottom: 20px;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                border: 1px solid rgba(255,255,255,0.1);
             }}
-            .section h2 {{ color: #667eea; margin-bottom: 20px; border-bottom: 3px solid #667eea; padding-bottom: 10px; }}
+            .section h2 {{ 
+                color: #fff; 
+                margin-bottom: 20px; 
+                border-bottom: 2px solid rgba(255,255,255,0.2); 
+                padding-bottom: 10px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }}
+            .section h2 .count {{
+                background: #667eea;
+                padding: 5px 15px;
+                border-radius: 20px;
+                font-size: 14px;
+            }}
+            .tabs {{
+                display: flex;
+                gap: 10px;
+                margin-bottom: 20px;
+                flex-wrap: wrap;
+            }}
+            .tab {{
+                padding: 10px 20px;
+                background: rgba(255,255,255,0.1);
+                border: none;
+                border-radius: 8px;
+                color: #fff;
+                cursor: pointer;
+                font-family: inherit;
+                transition: all 0.3s;
+            }}
+            .tab:hover, .tab.active {{
+                background: linear-gradient(135deg, #667eea, #764ba2);
+            }}
             table {{
                 width: 100%;
                 border-collapse: collapse;
@@ -8491,14 +8599,14 @@ def dashboard():
             th, td {{
                 padding: 12px;
                 text-align: right;
-                border-bottom: 1px solid #ddd;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
             }}
             th {{
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                color: white;
+                background: rgba(102, 126, 234, 0.3);
+                color: #fff;
                 font-weight: bold;
             }}
-            tr:hover {{ background: #f5f5f5; }}
+            tr:hover {{ background: rgba(255,255,255,0.05); }}
             .badge {{
                 display: inline-block;
                 padding: 5px 12px;
@@ -8510,44 +8618,34 @@ def dashboard():
             .badge-danger {{ background: #e74c3c; color: white; }}
             .badge-warning {{ background: #fdcb6e; color: #333; }}
             .badge-info {{ background: #74b9ff; color: white; }}
-            .tools {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                gap: 15px;
+            .badge-pending {{ background: #f39c12; color: white; }}
+            
+            .search-box {{
+                display: flex;
+                gap: 10px;
+                margin-bottom: 15px;
             }}
-            .tool-box {{
-                background: #f8f9fa;
-                padding: 20px;
-                border-radius: 10px;
-                border-left: 4px solid #667eea;
-            }}
-            .tool-box h3 {{ color: #667eea; margin-bottom: 15px; }}
-            .tool-box input, .tool-box select {{
-                width: 100%;
-                padding: 10px;
-                border: 2px solid #ddd;
+            .search-box input {{
+                flex: 1;
+                padding: 12px 15px;
+                border: 2px solid rgba(255,255,255,0.2);
                 border-radius: 8px;
-                margin-bottom: 10px;
+                background: rgba(255,255,255,0.1);
+                color: #fff;
+                font-family: inherit;
             }}
-            .tool-box button {{
-                width: 100%;
-                padding: 12px;
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-weight: bold;
-                cursor: pointer;
-            }}
+            .search-box input::placeholder {{ color: #888; }}
+            .search-box input:focus {{ outline: none; border-color: #667eea; }}
+            
             .bot-commands {{
-                background: linear-gradient(135deg, #667eea20, #764ba220);
-                border: 2px solid #667eea;
+                background: rgba(102, 126, 234, 0.2);
+                border: 1px solid rgba(102, 126, 234, 0.3);
                 border-radius: 12px;
                 padding: 20px;
             }}
-            .bot-commands h3 {{ color: #667eea; margin-bottom: 15px; }}
+            .bot-commands h3 {{ color: #fff; margin-bottom: 15px; }}
             .command-item {{
-                background: white;
+                background: rgba(255,255,255,0.1);
                 padding: 12px 15px;
                 border-radius: 8px;
                 margin-bottom: 10px;
@@ -8557,23 +8655,33 @@ def dashboard():
                 border-right: 4px solid #667eea;
             }}
             .command-item code {{
-                background: #f0f0f0;
+                background: rgba(102, 126, 234, 0.3);
                 padding: 5px 10px;
                 border-radius: 5px;
                 font-family: monospace;
-                color: #667eea;
+                color: #81ecec;
             }}
-            .command-item span {{ color: #666; font-size: 14px; }}
+            .command-item span {{ color: #b2bec3; font-size: 14px; }}
+            
+            .hidden {{ display: none; }}
+            
+            @media (max-width: 768px) {{
+                .stats-grid {{ grid-template-columns: repeat(2, 1fr); }}
+                .stat-card .value {{ font-size: 22px; }}
+                table {{ font-size: 13px; }}
+                th, td {{ padding: 8px 5px; }}
+            }}
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
-                <h1>🎛️ لوحة التحكم - المالك</h1>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button class="logout-btn" onclick="window.location.href='/admin/products'" style="background: linear-gradient(135deg, #00b894, #55efc4);">🏪 إدارة المنتجات</button>
-                    <button class="logout-btn" onclick="window.location.href='/logout_admin'" style="background: #e74c3c;">🚪 تسجيل خروج</button>
-                    <button class="logout-btn" onclick="window.location.href='/'" style="background: #3498db;">⬅️ الموقع</button>
+                <h1>🎛️ لوحة التحكم</h1>
+                <div class="header-btns">
+                    <a href="/admin/products" class="btn btn-success">🏪 المنتجات</a>
+                    <a href="/admin/categories" class="btn btn-info">🏷️ الأقسام</a>
+                    <button class="btn btn-primary" onclick="location.reload()">🔄 تحديث</button>
+                    <a href="/logout_admin" class="btn btn-danger">🚪 خروج</a>
                 </div>
             </div>
             
@@ -8589,9 +8697,24 @@ def dashboard():
                     <div class="label">منتجات متاحة</div>
                 </div>
                 <div class="stat-card">
-                    <div class="icon">✅</div>
-                    <div class="value">{sold_products}</div>
-                    <div class="label">منتجات مباعة</div>
+                    <div class="icon">🧾</div>
+                    <div class="value">{completed_invoices}</div>
+                    <div class="label">فواتير مكتملة</div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon">⏳</div>
+                    <div class="value">{pending_invoices}</div>
+                    <div class="label">فواتير معلقة</div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon">💳</div>
+                    <div class="value">{total_invoice_revenue:.0f}</div>
+                    <div class="label">إيرادات الفواتير</div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon">💰</div>
+                    <div class="value">{total_balance:.0f}</div>
+                    <div class="label">إجمالي الأرصدة</div>
                 </div>
                 <div class="stat-card">
                     <div class="icon">🔑</div>
@@ -8599,21 +8722,109 @@ def dashboard():
                     <div class="label">مفاتيح نشطة</div>
                 </div>
                 <div class="stat-card">
-                    <div class="icon">🎫</div>
-                    <div class="value">{used_keys}</div>
-                    <div class="label">مفاتيح مستخدمة</div>
-                </div>
-                <div class="stat-card">
-                    <div class="icon">💰</div>
-                    <div class="value">{total_balance:.0f}</div>
-                    <div class="label">إجمالي الأرصدة</div>
+                    <div class="icon">✅</div>
+                    <div class="value">{sold_products}</div>
+                    <div class="label">مباعة</div>
                 </div>
             </div>
             
+            <!-- ===== قسم الفواتير ===== -->
+            <div class="section">
+                <h2>🧾 الفواتير <span class="count">{len(invoices_list)}</span></h2>
+                <div class="search-box">
+                    <input type="text" id="invoiceSearch" placeholder="🔍 بحث برقم الفاتورة أو رقم العميل..." onkeyup="searchTable('invoiceSearch', 'invoicesTable')">
+                </div>
+                <div style="overflow-x: auto;">
+                <table id="invoicesTable">
+                    <thead>
+                        <tr>
+                            <th>رقم الفاتورة</th>
+                            <th>التاجر</th>
+                            <th>المبلغ</th>
+                            <th>رقم العميل</th>
+                            <th>الحالة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join([f'''
+                        <tr>
+                            <td><code>{inv['id']}</code></td>
+                            <td>{inv['merchant_name']} <small style="color:#888">({inv['merchant_id']})</small></td>
+                            <td style="color:#00cec9; font-weight:bold;">{inv['amount']} ريال</td>
+                            <td dir="ltr">{inv['customer_phone']}</td>
+                            <td><span class="badge {'badge-success' if inv['status'] == 'completed' else 'badge-pending'}">{{'مكتمل' if inv['status'] == 'completed' else 'معلق'}}</span></td>
+                        </tr>
+                        ''' for inv in invoices_list]) if invoices_list else '<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد فواتير</td></tr>'}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            
+            <!-- ===== قسم المدفوعات ===== -->
+            <div class="section">
+                <h2>💳 المدفوعات <span class="count">{len(payments_list)}</span></h2>
+                <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>رقم الطلب</th>
+                            <th>المستخدم</th>
+                            <th>المبلغ</th>
+                            <th>النوع</th>
+                            <th>الحالة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join([f'''
+                        <tr>
+                            <td><code>{pay['order_id'][:15]}...</code></td>
+                            <td>{pay['user_id']}</td>
+                            <td style="color:#00cec9; font-weight:bold;">{pay['amount']} ريال</td>
+                            <td><span class="badge {'badge-info' if pay['is_invoice'] else 'badge-warning'}">{{'فاتورة' if pay['is_invoice'] else 'شحن'}}</span></td>
+                            <td><span class="badge {'badge-success' if pay['status'] == 'completed' else 'badge-danger' if pay['status'] == 'failed' else 'badge-pending'}">{pay['status']}</span></td>
+                        </tr>
+                        ''' for pay in payments_list]) if payments_list else '<tr><td colspan="5" style="text-align:center; color:#888;">لا توجد مدفوعات</td></tr>'}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            
+            <!-- ===== قسم المستخدمين ===== -->
+            <div class="section">
+                <h2>👥 المستخدمين <span class="count">{len(users_list)}</span></h2>
+                <div class="search-box">
+                    <input type="text" id="userSearch" placeholder="🔍 بحث بالآيدي..." onkeyup="searchTable('userSearch', 'usersTable')">
+                </div>
+                <div style="overflow-x: auto;">
+                <table id="usersTable">
+                    <thead>
+                        <tr>
+                            <th>آيدي المستخدم</th>
+                            <th>الاسم</th>
+                            <th>الرصيد</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join([f'''
+                        <tr>
+                            <td><code>{user['id']}</code></td>
+                            <td>{user['name']}</td>
+                            <td style="color:#00cec9; font-weight:bold;">{user['balance']:.2f} ريال</td>
+                        </tr>
+                        ''' for user in users_list]) if users_list else '<tr><td colspan="3" style="text-align:center; color:#888;">لا يوجد مستخدمين</td></tr>'}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            
+            <!-- ===== أوامر البوت ===== -->
             <div class="section">
                 <h2>🤖 أوامر البوت</h2>
                 <div class="bot-commands">
-                    <h3>💡 استخدم البوت لإدارة المتجر:</h3>
+                    <div class="command-item">
+                        <code>/فاتورة</code>
+                        <span>إنشاء فاتورة جديدة</span>
+                    </div>
                     <div class="command-item">
                         <code>/add ID AMOUNT</code>
                         <span>شحن رصيد مستخدم</span>
@@ -8630,61 +8841,12 @@ def dashboard():
                         <code>/add_product</code>
                         <span>إضافة منتج جديد</span>
                     </div>
-                    <div class="command-item">
-                        <code>/list_admins</code>
-                        <span>عرض قائمة المشرفين</span>
-                    </div>
                 </div>
             </div>
             
             <div class="section">
-                <h2>📋 آخر الطلبات</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>رقم الطلب</th>
-                            <th>المنتج</th>
-                            <th>السعر</th>
-                            <th>المشتري</th>
-                            <th>الحالة</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {''.join([f'''
-                        <tr>
-                            <td>#{order_id}</td>
-                            <td>{order['item_name']}</td>
-                            <td>{order['price']} ريال</td>
-                            <td>{order['buyer_name']}</td>
-                            <td><span class="badge badge-success">مكتمل</span></td>
-                        </tr>
-                        ''' for order_id, order in recent_orders]) if recent_orders else '<tr><td colspan="5" style="text-align: center;">لا توجد طلبات</td></tr>'}
-                    </tbody>
-                </table>
-            </div>
-            
-            <div class="section">
-                <h2>👥 المستخدمين والأرصدة</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>آيدي المستخدم</th>
-                            <th>الرصيد</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {''.join([f'''
-                        <tr>
-                            <td>{user_id}</td>
-                            <td>{balance:.2f} ريال</td>
-                        </tr>
-                        ''' for user_id, balance in users_list]) if users_list else '<tr><td colspan="2" style="text-align: center;">لا يوجد مستخدمين</td></tr>'}
-                    </tbody>
-                </table>
-            </div>
-            
-            <div class="section">
-                <h2>🔑 المفاتيح النشطة</h2>
+                <h2>� المفاتيح <span class="count">{len(charge_keys_display)}</span></h2>
+                <div style="overflow-x: auto;">
                 <table>
                     <thead>
                         <tr>
@@ -8697,19 +8859,41 @@ def dashboard():
                     <tbody>
                         {''.join([f"""
                         <tr>
-                            <td><code>{key_code}</code></td>
-                            <td>{key_data.get('amount', 0)} ريال</td>
-                            <td><span class="badge {'badge-success' if not key_data.get('used', False) else 'badge-danger'}">{'نشط' if not key_data.get('used', False) else 'مستخدم'}</span></td>
-                            <td>{key_data.get('used_by', '-') if key_data.get('used', False) else '-'}</td>
+                            <td><code>{key['code']}</code></td>
+                            <td style="color:#00cec9;">{key['amount']} ريال</td>
+                            <td><span class="badge {'badge-success' if not key['used'] else 'badge-danger'}">{{'نشط' if not key['used'] else 'مستخدم'}}</span></td>
+                            <td>{key['used_by'] if key['used'] else '-'}</td>
                         </tr>
-                        """ for key_code, key_data in list(charge_keys_display.items())[:20]]) if charge_keys_display else '<tr><td colspan="4" style="text-align: center;">لا توجد مفاتيح</td></tr>'}
+                        """ for key in charge_keys_display[:30]]) if charge_keys_display else '<tr><td colspan="4" style="text-align:center; color:#888;">لا توجد مفاتيح</td></tr>'}
                     </tbody>
                 </table>
+                </div>
             </div>
         </div>
         
         <script>
-            // لوحة التحكم للعرض فقط - الأدوات متوفرة عبر البوت
+            // دالة البحث في الجداول
+            function searchTable(inputId, tableId) {{
+                const input = document.getElementById(inputId);
+                const filter = input.value.toLowerCase();
+                const table = document.getElementById(tableId);
+                const rows = table.getElementsByTagName('tr');
+                
+                for (let i = 1; i < rows.length; i++) {{
+                    const cells = rows[i].getElementsByTagName('td');
+                    let found = false;
+                    for (let j = 0; j < cells.length; j++) {{
+                        if (cells[j].textContent.toLowerCase().includes(filter)) {{
+                            found = true;
+                            break;
+                        }}
+                    }}
+                    rows[i].style.display = found ? '' : 'none';
+                }}
+            }}
+            
+            // تحديث تلقائي كل 60 ثانية
+            setTimeout(() => location.reload(), 60000);
         </script>
     </body>
     </html>

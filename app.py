@@ -2845,10 +2845,7 @@ HTML_PAGE = """
                                     ${isSold ? 
                                         `<button class="product-buy-btn" disabled style="opacity: 0.5; cursor: not-allowed;">مباع 🚫</button>` :
                                         (!isMyProduct ? 
-                                            `<div class="product-btns">
-                                                <button class="product-buy-btn" onclick='buyItem("${item.id}", ${item.price}, "${(item.item_name || '').replace(/"/g, '\\"')}", "${(item.category || '').replace(/"/g, '\\"')}", ${JSON.stringify(item.details || '')}, "${deliveryType}", ${JSON.stringify(item.buyer_instructions || '')})'>شراء 🛒</button>
-                                                <button class="product-cart-btn" onclick='addToCart("${item.id}", "${(item.item_name || '').replace(/"/g, '\\"')}", "${deliveryType}", ${JSON.stringify(item.buyer_instructions || '')})' title="أضف للسلة">➕</button>
-                                            </div>` : 
+                                            `<button class="product-buy-btn" onclick='addToCart("${item.id}", "${(item.item_name || '').replace(/"/g, '\\"')}", "${deliveryType}", ${JSON.stringify(item.buyer_instructions || '')})'>أضف للسلة 🛒</button>` : 
                                             `<div class="my-product-badge">منتجك ⭐</div>`)
                                     }
                                 </div>

@@ -69,14 +69,14 @@ SECRET_KEY = os.getenv('SECRET_KEY', '')
 EDFAPAY_MERCHANT_ID = os.getenv('EDFAPAY_MERCHANT_ID', '')
 EDFAPAY_PASSWORD = os.getenv('EDFAPAY_PASSWORD', '')
 
-# --- البيانات المشتركة (في الذاكرة) ---
-users_wallets = {}          # أرصدة المستخدمين
-marketplace_items = []       # المنتجات
-categories_list = []         # الأقسام
-verification_codes = {}      # أكواد التحقق
+# --- البيانات المؤقتة (لا تُخزن في Firebase) ---
+# هذه البيانات مؤقتة فقط ولا تحتاج حفظ دائم
+verification_codes = {}      # أكواد التحقق المؤقتة
 user_states = {}            # حالات المستخدمين (للبوت)
-user_carts = {}             # سلات المستخدمين
-display_settings = {'categories_columns': 3}
+display_settings = {'categories_columns': 3}  # إعدادات العرض
+
+# ملاحظة: تم إزالة users_wallets, marketplace_items, categories_list, user_carts
+# كل البيانات الآن تُجلب مباشرة من Firebase
 
 # --- تهيئة Firebase عند الاستيراد ---
 init_firebase()

@@ -22,14 +22,22 @@ from extensions import (
     db, FIREBASE_AVAILABLE, logger,
     ADMIN_ID, TOKEN, SITE_URL, SECRET_KEY,
     EDFAPAY_MERCHANT_ID, EDFAPAY_PASSWORD,
-    users_wallets, marketplace_items, categories_list,
-    verification_codes, user_states, user_carts, display_settings
+    verification_codes, user_states, display_settings
 )
 from config import (
     EDFAPAY_API_URL, SESSION_CONFIG, IS_PRODUCTION,
     RATE_LIMIT_DEFAULT, DEFAULT_CATEGORIES, CART_EXPIRY_HOURS
 )
-from firebase_utils import query_where, get_balance, add_balance
+from firebase_utils import (
+    query_where, get_balance, add_balance, deduct_balance,
+    get_products, get_product_by_id, add_product, update_product, mark_product_sold, delete_product,
+    get_categories, add_category, update_category, delete_category, get_category_by_id,
+    get_charge_key, use_charge_key, create_charge_key,
+    get_user_cart, save_user_cart, clear_user_cart,
+    get_all_products_for_store, get_sold_products, get_all_users, get_all_charge_keys,
+    get_active_orders, get_products_by_category, count_products_in_category,
+    save_pending_payment, get_pending_payment, update_pending_payment, add_purchase_history
+)
 from payment import (
     calculate_hash, create_payment_payload,
     create_edfapay_invoice as create_edfapay_invoice_util,
@@ -100,58 +108,28 @@ def add_security_headers(response):
     session.modified = True
 
 # --- قواعد البيانات ---
-# جميع البيانات تُحفظ في Firebase (الإنتاج) وتُحمل في الذاكرة للعرض السريع
+# جميع البيانات تُجلب مباشرة من Firebase (لا توجد نسخ محلية)
 
-# قائمة المنتجات/الخدمات
-# الشكل: { item_name, price, seller_id, seller_name, hidden_data, image_url, category }
-marketplace_items = []
-
-# الطلبات النشطة (قيد التنفيذ بواسطة المشرفين)
-# الشكل: { order_id: {buyer_info, item_info, admin_id, status, message_id} }
+# الطلبات النشطة (مؤقتة - تُحمل من Firebase عند الحاجة)
 active_orders = {}
 
-# بيانات المستخدمين (الرصيد)
-# الشكل: { user_id: balance }
-users_wallets = {}
-
-# العمليات المعلقة (المبالغ المحجوزة)
+# العمليات المعلقة (المبالغ المحجوزة) - مؤقتة
 transactions = {}
 
-# رموز التحقق للمستخدمين
-# الشكل: { user_id: {code, name, created_at} }
-verification_codes = {}
-
 # أكواد دخول لوحة التحكم المؤقتة
-# الشكل: { 'code': code, 'created_at': time, 'used': False, 'ip': ip }
 admin_login_codes = {}
 
 # محاولات الدخول الفاشلة (للحماية من brute force)
-# الشكل: { ip: {'count': n, 'blocked_until': time} }
 failed_login_attempts = {}
 
-# مفاتيح الشحن المولدة
-# الشكل: { key_code: {amount, used, used_by, created_at} }
-charge_keys = {}
-
-# حالات المستخدمين (لمتابعة المحادثة - مثل انتظار إدخال مبلغ الشحن)
-# الشكل: { user_id: {'state': 'waiting_amount', 'data': {}} }
-user_states = {}
-
-# سلة التسوق (تُحمل من Firebase)
-# الشكل: { user_id: { items: [...], created_at, expires_at } }
-user_carts = {}
-
-# طلبات الدفع المعلقة (تنتظر الدفع من Adfaly Pay)
-# الشكل: { invoice_id: {user_id, amount, status, created_at} }
+# طلبات الدفع المعلقة (مؤقتة - تُحمل من Firebase)
 pending_payments = {}
 
 # الفواتير المنشأة من التجار (للعملاء)
-# الشكل: { invoice_id: {merchant_id, merchant_name, amount, customer_phone, status, created_at} }
 merchant_invoices = {}
 
-# قائمة الأقسام الديناميكية
-# الشكل: { id: {name, image_url, order, delivery_type, created_at} }
-categories_list = [
+# الأقسام الافتراضية (تُستخدم إذا لم تكن هناك أقسام في Firebase)
+DEFAULT_CATEGORIES_FALLBACK = [
     {'id': '1', 'name': 'نتفلكس', 'image_url': 'https://i.imgur.com/netflix.png', 'order': 1, 'delivery_type': 'instant'},
     {'id': '2', 'name': 'شاهد', 'image_url': 'https://i.imgur.com/shahid.png', 'order': 2, 'delivery_type': 'instant'},
     {'id': '3', 'name': 'ديزني بلس', 'image_url': 'https://i.imgur.com/disney.png', 'order': 3, 'delivery_type': 'instant'},
@@ -160,132 +138,52 @@ categories_list = [
     {'id': '6', 'name': 'اشتراكات أخرى', 'image_url': 'https://i.imgur.com/other.png', 'order': 6, 'delivery_type': 'manual'}
 ]
 
-# إعدادات العرض (ترتيب الأقسام)
-display_settings = {
-    'categories_columns': 3  # عدد الأعمدة: 2 أو 3 أو 4
-}
-
 # دالة تحميل جميع البيانات من Firebase عند بدء التطبيق
 def load_all_data_from_firebase():
-    """تحميل جميع البيانات من Firebase عند بدء التطبيق"""
-    global marketplace_items, users_wallets, charge_keys, active_orders, categories_list, display_settings
+    """التحقق من اتصال Firebase عند بدء التطبيق"""
+    global active_orders, display_settings
     
     if not db:
-        print("⚠️ Firebase غير متاح - سيتم استخدام البيانات الفارغة")
+        print("⚠️ Firebase غير متاح - البيانات ستُجلب مباشرة عند الحاجة")
         return
     
     try:
-        print("📥 جاري تحميل البيانات من Firebase...")
+        print("📥 التحقق من اتصال Firebase...")
         
-        # 1️⃣ تحميل المنتجات (المتاحة فقط)
-        try:
-            products_ref = query_where(db.collection('products'), 'sold', '==', False)
-            marketplace_items = []
-            count = 0
-            for doc in products_ref.stream():
-                data = doc.to_dict()
-                data['id'] = doc.id
-                marketplace_items.append(data)
-                count += 1
-            print(f"✅ تم تحميل {count} منتج متاح")
-        except Exception as e:
-            print(f"⚠️ خطأ في تحميل المنتجات: {e}")
+        # التحقق من الاتصال بجلب عدد المنتجات
+        products = get_all_products_for_store()
+        print(f"✅ Firebase متصل - {len(products)} منتج متاح")
         
-        # 2️⃣ تحميل أرصدة المستخدمين
-        try:
-            users_ref = db.collection('users')
-            users_wallets = {}
-            count = 0
-            for doc in users_ref.stream():
-                data = doc.to_dict()
-                users_wallets[doc.id] = data.get('balance', 0.0)
-                count += 1
-            print(f"✅ تم تحميل أرصدة {count} مستخدم")
-        except Exception as e:
-            print(f"⚠️ خطأ في تحميل أرصدة المستخدمين: {e}")
+        # تحميل الأقسام للتحقق
+        categories = get_categories()
+        if categories:
+            print(f"✅ تم جلب {len(categories)} قسم")
+        else:
+            print(f"ℹ️ لا توجد أقسام - سيتم استخدام الأقسام الافتراضية")
         
-        # 3️⃣ تحميل مفاتيح الشحن (غير المستخدمة)
-        try:
-            keys_ref = query_where(db.collection('charge_keys'), 'used', '==', False)
-            charge_keys = {}
-            count = 0
-            for doc in keys_ref.stream():
-                data = doc.to_dict()
-                charge_keys[doc.id] = {
-                    'amount': data.get('amount', 0),
-                    'used': data.get('used', False),
-                    'used_by': data.get('used_by'),
-                    'created_at': data.get('created_at', time.time())
-                }
-                count += 1
-            print(f"✅ تم تحميل {count} مفتاح شحن نشط")
-        except Exception as e:
-            print(f"⚠️ خطأ في تحميل مفاتيح الشحن: {e}")
-        
-        # 4️⃣ تحميل الطلبات النشطة (pending أو claimed)
-        try:
-            active_orders = {}
-            # تحميل الطلبات النشطة
-            orders_ref = db.collection('orders')
-            orders_query = orders_ref.where('status', 'in', ['pending', 'claimed'])
-            for doc in orders_query.stream():
-                data = doc.to_dict()
-                active_orders[doc.id] = data
-            print(f"✅ تم تحميل {len(active_orders)} طلب نشط")
-        except Exception as e:
-            print(f"⚠️ خطأ في تحميل الطلبات: {e}")
-        
-        # 5️⃣ تحميل الأقسام
-        try:
-            cats_ref = db.collection('categories').order_by('order')
-            loaded_cats = []
-            for doc in cats_ref.stream():
-                data = doc.to_dict()
-                data['id'] = doc.id
-                loaded_cats.append(data)
-            if loaded_cats:
-                categories_list = loaded_cats
-                print(f"✅ تم تحميل {len(categories_list)} قسم")
-            else:
-                print(f"ℹ️ لا توجد أقسام في Firebase - استخدام الأقسام الافتراضية ({len(categories_list)})")
-        except Exception as e:
-            print(f"⚠️ خطأ في تحميل الأقسام: {e}")
-        
-        # 6️⃣ تحميل إعدادات العرض
+        # تحميل إعدادات العرض
         try:
             settings_doc = db.collection('settings').document('display').get()
             if settings_doc.exists:
                 settings_data = settings_doc.to_dict()
                 display_settings['categories_columns'] = settings_data.get('categories_columns', 3)
-                print(f"✅ تم تحميل إعدادات العرض (أعمدة: {display_settings['categories_columns']})")
+                print(f"✅ إعدادات العرض (أعمدة: {display_settings['categories_columns']})")
         except Exception as e:
             print(f"⚠️ خطأ في تحميل إعدادات العرض: {e}")
         
-        # 7️⃣ تحميل سلات التسوق النشطة
-        try:
-            global user_carts
-            carts_ref = db.collection('carts')
-            for doc in carts_ref.stream():
-                data = doc.to_dict()
-                # التحقق من صلاحية السلة (3 ساعات)
-                expires_at = data.get('expires_at')
-                if expires_at:
-                    from datetime import datetime
-                    if isinstance(expires_at, datetime):
-                        if expires_at.replace(tzinfo=None) > datetime.utcnow():
-                            user_carts[doc.id] = data
-                else:
-                    user_carts[doc.id] = data
-            print(f"✅ تم تحميل {len(user_carts)} سلة تسوق نشطة")
-        except Exception as e:
-            print(f"⚠️ خطأ في تحميل سلات التسوق: {e}")
-        
-        print("🎉 اكتمل تحميل البيانات من Firebase!")
+        print("🎉 Firebase جاهز للعمل!")
         
     except Exception as e:
-        print(f"❌ خطأ عام في تحميل البيانات: {e}")
+        print(f"❌ خطأ في الاتصال بـ Firebase: {e}")
 
 # --- دوال مساعدة ---
+
+def get_categories_list():
+    """جلب الأقسام من Firebase أو استخدام الافتراضية"""
+    categories = get_categories()
+    if categories:
+        return categories
+    return DEFAULT_CATEGORIES_FALLBACK
 
 def get_user_profile_photo(user_id):
     """جلب صورة البروفايل من تيليجرام"""
@@ -301,140 +199,22 @@ def get_user_profile_photo(user_id):
         print(f"⚠️ خطأ في جلب صورة البروفايل: {e}")
         return None
 
-# إضافة UUID للمنتجات الموجودة (إذا لم يكن لديها ID)
+# دالة ensure_product_ids لم تعد مطلوبة - Firebase يولد IDs تلقائياً
 def ensure_product_ids():
-    for item in marketplace_items:
-        if 'id' not in item:
-            item['id'] = str(uuid.uuid4())
+    """هذه الدالة لم تعد مطلوبة - تم الانتقال لـ Firebase"""
+    pass  # المنتجات في Firebase لديها IDs تلقائياً
 
-# دالة لرفع البيانات من الذاكرة إلى Firebase
+# دالة migrate_data_to_firebase لم تعد مطلوبة - كل البيانات في Firebase مباشرة
 def migrate_data_to_firebase():
-    """نقل البيانات من المتغيرات في الذاكرة إلى Firebase"""
-    try:
-        print("🔄 بدء نقل البيانات إلى Firebase...")
-        
-        # 1. رفع المنتجات
-        if marketplace_items:
-            products_ref = db.collection('products')
-            for item in marketplace_items:
-                product_id = item.get('id', str(uuid.uuid4()))
-                products_ref.document(product_id).set({
-                    'item_name': item.get('item_name', ''),
-                    'price': float(item.get('price', 0)),
-                    'seller_id': str(item.get('seller_id', '')),
-                    'seller_name': item.get('seller_name', ''),
-                    'hidden_data': item.get('hidden_data', ''),
-                    'image_url': item.get('image_url', ''),
-                    'category': item.get('category', 'أخرى'),
-                    'details': item.get('details', ''),
-                    'sold': item.get('sold', False),
-                    'created_at': firestore.SERVER_TIMESTAMP
-                })
-            print(f"✅ تم رفع {len(marketplace_items)} منتج")
-        
-        # 2. رفع أرصدة المستخدمين
-        if users_wallets:
-            users_ref = db.collection('users')
-            for user_id, balance in users_wallets.items():
-                users_ref.document(str(user_id)).set({
-                    'balance': float(balance),
-                    'telegram_id': str(user_id),
-                    'updated_at': firestore.SERVER_TIMESTAMP
-                }, merge=True)
-            print(f"✅ تم رفع {len(users_wallets)} مستخدم")
-        
-        # 3. رفع الطلبات النشطة
-        if active_orders:
-            orders_ref = db.collection('orders')
-            for order_id, order_data in active_orders.items():
-                orders_ref.document(str(order_id)).set({
-                    'item_name': order_data.get('item_name', ''),
-                    'price': float(order_data.get('price', 0)),
-                    'buyer_id': str(order_data.get('buyer_id', '')),
-                    'buyer_name': order_data.get('buyer_name', ''),
-                    'seller_id': str(order_data.get('seller_id', '')),
-                    'status': order_data.get('status', 'pending'),
-                    'admin_id': str(order_data.get('admin_id', '')) if order_data.get('admin_id') else '',
-                    'created_at': firestore.SERVER_TIMESTAMP
-                })
-            print(f"✅ تم رفع {len(active_orders)} طلب")
-        
-        # 4. رفع مفاتيح الشحن
-        if charge_keys:
-            keys_ref = db.collection('charge_keys')
-            for key_code, key_data in charge_keys.items():
-                keys_ref.document(key_code).set({
-                    'amount': float(key_data.get('amount', 0)),
-                    'used': key_data.get('used', False),
-                    'used_by': str(key_data.get('used_by', '')) if key_data.get('used_by') else '',
-                    'created_at': key_data.get('created_at', time.time())
-                })
-            print(f"✅ تم رفع {len(charge_keys)} مفتاح شحن")
-        
-        print("🎉 تم رفع جميع البيانات إلى Firebase بنجاح!")
-        return True
-        
-    except Exception as e:
-        print(f"❌ خطأ في رفع البيانات: {e}")
-        return False
+    """هذه الدالة لم تعد مطلوبة - تم الانتقال الكامل لـ Firebase"""
+    print("ℹ️ دالة migrate_data_to_firebase لم تعد مطلوبة - كل البيانات في Firebase")
+    pass
 
-# دالة لتحميل البيانات من Firebase إلى الذاكرة (عند بدء التشغيل)
+# دالة load_data_from_firebase لم تعد مطلوبة - كل البيانات تُجلب مباشرة
 def load_data_from_firebase():
-    """تحميل البيانات من Firebase إلى المتغيرات في الذاكرة للاستخدام السريع"""
-    global marketplace_items, users_wallets, charge_keys, active_orders
-    
-    try:
-        print("📥 بدء تحميل البيانات من Firebase...")
-        
-        # 1. تحميل المنتجات (غير المباعة فقط)
-        print("🔄 جاري تحميل المنتجات من Firestore...")
-        products_ref = query_where(db.collection('products'), 'sold', '==', False)
-        marketplace_items = []
-        for doc in products_ref.stream():
-            data = doc.to_dict()
-            data['id'] = doc.id
-            marketplace_items.append(data)
-            print(f"  📦 منتج: {data.get('item_name', 'بدون اسم')} - {data.get('price', 0)} ريال")
-        print(f"✅ تم تحميل {len(marketplace_items)} منتج من Firestore")
-        
-        # 2. تحميل أرصدة المستخدمين
-        print("🔄 جاري تحميل المستخدمين من Firestore...")
-        users_ref = db.collection('users')
-        users_wallets = {}
-        for doc in users_ref.stream():
-            data = doc.to_dict()
-            users_wallets[doc.id] = data.get('balance', 0.0)
-            print(f"  👤 مستخدم {doc.id}: {data.get('balance', 0)} ريال")
-        print(f"✅ تم تحميل {len(users_wallets)} مستخدم من Firestore")
-        
-        # 3. تحميل مفاتيح الشحن (غير المستخدمة فقط)
-        keys_ref = query_where(db.collection('charge_keys'), 'used', '==', False)
-        charge_keys = {}
-        for doc in keys_ref.stream():
-            data = doc.to_dict()
-            charge_keys[doc.id] = {
-                'amount': data.get('amount', 0),
-                'used': data.get('used', False),
-                'used_by': data.get('used_by'),
-                'created_at': data.get('created_at', time.time())
-            }
-        print(f"✅ تم تحميل {len(charge_keys)} مفتاح شحن")
-        
-        # 4. تحميل الطلبات النشطة (pending فقط)
-        orders_ref = query_where(db.collection('orders'), 'status', '==', 'pending')
-        active_orders = {}
-        for doc in orders_ref.stream():
-            data = doc.to_dict()
-            active_orders[doc.id] = data
-        print(f"✅ تم تحميل {len(active_orders)} طلب نشط")
-        
-        print("🎉 تم تحميل جميع البيانات من Firebase بنجاح!")
-        return True
-        
-    except Exception as e:
-        print(f"⚠️ تحذير: لم يتم تحميل البيانات من Firebase: {e}")
-        print("سيتم البدء ببيانات فارغة")
-        return False
+    """هذه الدالة لم تعد مطلوبة - البيانات تُجلب مباشرة من Firebase"""
+    print("ℹ️ البيانات تُجلب مباشرة من Firebase عند الحاجة")
+    pass
 
 # دالة لتوليد كود تحقق عشوائي
 def generate_verification_code(user_id, user_name):
@@ -514,7 +294,6 @@ def send_welcome(message):
                     if profile_photo:
                         user_data['profile_photo'] = profile_photo
                     user_ref.set(user_data)
-                    users_wallets[user_id] = 0.0
                     print(f"✅ مستخدم جديد تم إنشاؤه")
                 else:
                     update_data = {
@@ -851,8 +630,8 @@ def confirm_add_product(message):
             except Exception as e:
                 print(f"❌ خطأ في حفظ المنتج في Firebase: {e}")
             
-            # حفظ في الذاكرة
-            marketplace_items.append(item)
+            # جلب عدد المنتجات من Firebase
+            products_count = len(get_all_products_for_store())
             
             delivery_display = "⚡ فوري" if delivery_type == 'instant' else "👨‍💼 يدوي"
             bot.reply_to(message,
@@ -861,7 +640,7 @@ def confirm_add_product(message):
                          f"💰 السعر: {product['price']} ريال\n"
                          f"🏷️ الفئة: {product['category']}\n"
                          f"📦 التسليم: {delivery_display}\n"
-                         f"📊 إجمالي المنتجات: {len(marketplace_items)}",
+                         f"📊 إجمالي المنتجات: {products_count}",
                          parse_mode="Markdown",
                          reply_markup=types.ReplyKeyboardRemove())
         
@@ -1009,22 +788,9 @@ def generate_keys(message):
             # توليد مفتاح عشوائي
             key_code = f"KEY-{random.randint(10000, 99999)}-{random.randint(1000, 9999)}"
             
-            # حفظ المفتاح في الذاكرة
-            charge_keys[key_code] = {
-                'amount': amount,
-                'used': False,
-                'used_by': None,
-                'created_at': time.time()
-            }
-            
-            # حفظ في Firebase
+            # حفظ في Firebase مباشرة
             try:
-                db.collection('charge_keys').document(key_code).set({
-                    'amount': float(amount),
-                    'used': False,
-                    'used_by': '',
-                    'created_at': time.time()
-                })
+                create_charge_key(key_code, amount)
             except Exception as e:
                 print(f"⚠️ خطأ في حفظ المفتاح في Firebase: {e}")
             
@@ -1381,35 +1147,24 @@ def handle_user_state_message(message):
             del user_states[user_id]
             
             # التحقق من وجود المفتاح
-            if key_code not in charge_keys:
+            # جلب بيانات المفتاح من Firebase
+            key_data = get_charge_key(key_code)
+            
+            if not key_data:
                 return bot.reply_to(message, "❌ المفتاح غير صحيح أو منتهي الصلاحية!")
             
-            key_data = charge_keys[key_code]
-            
             # التحقق من استخدام المفتاح
-            if key_data['used']:
+            if key_data.get('used', False):
                 return bot.reply_to(message, 
                     f"❌ هذا المفتاح تم استخدامه بالفعل!\n\n"
                     f"👤 استخدمه: {key_data.get('used_by', 'مستخدم')}")
             
             # شحن الرصيد
-            amount = key_data['amount']
+            amount = key_data.get('amount', 0)
             add_balance(user_id, amount)
             
-            # تحديث حالة المفتاح
-            charge_keys[key_code]['used'] = True
-            charge_keys[key_code]['used_by'] = user_name
-            charge_keys[key_code]['used_at'] = time.time()
-            
-            # تحديث في Firebase
-            try:
-                db.collection('charge_keys').document(key_code).update({
-                    'used': True,
-                    'used_by': user_name,
-                    'used_at': time.time()
-                })
-            except Exception as e:
-                print(f"⚠️ خطأ في تحديث المفتاح في Firebase: {e}")
+            # تحديث حالة المفتاح في Firebase
+            use_charge_key(key_code, user_name)
             
             # إرسال رسالة نجاح
             bot.reply_to(message,
@@ -1502,19 +1257,21 @@ def list_keys(message):
     if message.from_user.id != ADMIN_ID:
         return bot.reply_to(message, "⛔ هذا الأمر للمالك فقط!")
     
-    active_keys = [k for k, v in charge_keys.items() if not v['used']]
-    used_keys = [k for k, v in charge_keys.items() if v['used']]
+    # جلب المفاتيح من Firebase
+    all_keys = get_all_charge_keys()
+    active_keys = {k: v for k, v in all_keys.items() if not v.get('used', False)}
+    used_count = len(all_keys) - len(active_keys)
     
-    if not charge_keys:
+    if not all_keys:
         return bot.reply_to(message, "📭 لا توجد مفاتيح محفوظة!")
     
     response = f"📊 **إحصائيات المفاتيح**\n\n"
     response += f"✅ مفاتيح نشطة: {len(active_keys)}\n"
-    response += f"🚫 مفاتيح مستخدمة: {len(used_keys)}\n"
-    response += f"📈 الإجمالي: {len(charge_keys)}\n\n"
+    response += f"🚫 مفاتيح مستخدمة: {used_count}\n"
+    response += f"📈 الإجمالي: {len(all_keys)}\n\n"
     
     if active_keys:
-        total_value = sum([charge_keys[k]['amount'] for k in active_keys])
+        total_value = sum([v.get('amount', 0) for v in active_keys.values()])
         response += f"💰 القيمة الإجمالية للمفاتيح النشطة: {total_value} ريال"
     
     bot.reply_to(message, response, parse_mode="Markdown")
@@ -2355,8 +2112,7 @@ def index():
             
     except Exception as e:
         print(f"❌ خطأ في جلب المنتجات للمتجر: {e}")
-        # في حال الفشل، نعود لاستخدام الذاكرة كاحتياط
-        items = [i for i in marketplace_items if not i.get('sold')]
+        items = []
 
     # 3. جلب المنتجات المباعة (لعرضها في قسم منفصل)
     sold_items = []
@@ -2369,7 +2125,7 @@ def index():
         print(f"✅ تم جلب {len(sold_items)} منتج مباع من Firebase")
     except Exception as e:
         print(f"❌ خطأ في جلب المنتجات المباعة: {e}")
-        sold_items = [i for i in marketplace_items if i.get('sold')]
+        sold_items = []
 
     # 4. جلب مشتريات المستخدم الحالي
     my_purchases = []
@@ -2387,7 +2143,7 @@ def index():
     # جلب عدد منتجات السلة
     cart_count = 0
     if user_id:
-        cart = user_carts.get(str(user_id), {})
+        cart = get_user_cart(str(user_id)) or {}
         cart_count = len(cart.get('items', []))
 
     # عرض الصفحة
@@ -2446,7 +2202,7 @@ def api_cart_add():
         # جلب أو إنشاء السلة
         from datetime import datetime, timedelta
         
-        cart = user_carts.get(user_id, {})
+        cart = get_user_cart(user_id) or {}
         now = datetime.utcnow()
         
         # التحقق من انتهاء السلة
@@ -2486,11 +2242,8 @@ def api_cart_add():
         cart['items'].append(cart_item)
         cart['updated_at'] = now.isoformat()
         
-        # حفظ في الذاكرة و Firebase
-        user_carts[user_id] = cart
-        
-        if db:
-            db.collection('carts').document(user_id).set(cart)
+        # حفظ في Firebase
+        save_user_cart(user_id, cart)
         
         # تحديث إحصائيات المنتج
         try:
@@ -2523,7 +2276,7 @@ def api_cart_get():
         
         from datetime import datetime
         
-        cart = user_carts.get(str(user_id), {})
+        cart = get_user_cart(str(user_id)) or {}
         
         if not cart or not cart.get('items'):
             return jsonify({'status': 'empty', 'message': 'السلة فارغة'})
@@ -2538,9 +2291,7 @@ def api_cart_get():
                 expires = expires_at
             if expires < now:
                 # حذف السلة المنتهية
-                user_carts.pop(str(user_id), None)
-                if db:
-                    db.collection('carts').document(str(user_id)).delete()
+                clear_user_cart(str(user_id))
                 return jsonify({'status': 'expired', 'message': 'انتهت صلاحية السلة'})
         
         # تحديث حالة المنتجات
@@ -2579,7 +2330,7 @@ def api_cart_remove():
         if not user_id or not product_id:
             return jsonify({'status': 'error', 'message': 'بيانات ناقصة'})
         
-        cart = user_carts.get(user_id, {})
+        cart = get_user_cart(user_id) or {}
         if not cart or not cart.get('items'):
             return jsonify({'status': 'error', 'message': 'السلة فارغة'})
         
@@ -2589,10 +2340,8 @@ def api_cart_remove():
         from datetime import datetime
         cart['updated_at'] = datetime.utcnow().isoformat()
         
-        # حفظ
-        user_carts[user_id] = cart
-        if db:
-            db.collection('carts').document(user_id).set(cart)
+        # حفظ في Firebase
+        save_user_cart(user_id, cart)
         
         return jsonify({
             'status': 'success',
@@ -2615,8 +2364,8 @@ def api_cart_checkout():
         if not user_id:
             return jsonify({'status': 'error', 'message': 'معرف المستخدم مطلوب'})
         
-        # جلب السلة
-        cart = user_carts.get(user_id, {})
+        # جلب السلة من Firebase
+        cart = get_user_cart(user_id) or {}
         if not cart or not cart.get('items'):
             return jsonify({'status': 'error', 'message': 'السلة فارغة'})
         
@@ -2716,12 +2465,8 @@ def api_cart_checkout():
         # تنفيذ كل العمليات
         batch.commit()
         
-        # تحديث الذاكرة
-        users_wallets[user_id] = new_balance
-        
-        # حذف السلة
-        user_carts.pop(user_id, None)
-        db.collection('carts').document(user_id).delete()
+        # حذف السلة من Firebase
+        clear_user_cart(user_id)
         
         # فصل المنتجات الفورية عن اليدوية
         instant_items = [i for i in purchased_items if i.get('delivery_type') == 'instant']
@@ -2814,7 +2559,7 @@ def api_cart_count():
     if not user_id:
         return jsonify({'count': 0})
     
-    cart = user_carts.get(str(user_id), {})
+    cart = get_user_cart(str(user_id)) or {}
     count = len(cart.get('items', []))
     return jsonify({'count': count})
 
@@ -3104,22 +2849,7 @@ def charge_balance_api():
         return jsonify({'success': False, 'message': 'الرجاء إدخال كود الشحن'})
     
     # البحث عن الكود في Firebase مباشرة
-    key_data = None
-    
-    # أولاً: البحث في الذاكرة
-    if key_code in charge_keys:
-        key_data = charge_keys[key_code]
-    else:
-        # ثانياً: البحث في Firebase
-        try:
-            doc_ref = db.collection('charge_keys').document(key_code)
-            doc = doc_ref.get()
-            if doc.exists:
-                key_data = doc.to_dict()
-                # إضافته للذاكرة
-                charge_keys[key_code] = key_data
-        except Exception as e:
-            print(f"خطأ في البحث عن الكود في Firebase: {e}")
+    key_data = get_charge_key(key_code)
     
     # التحقق من وجود الكود
     if not key_data:
@@ -3130,37 +2860,15 @@ def charge_balance_api():
         return jsonify({'success': False, 'message': 'هذا الكود تم استخدامه مسبقاً'})
     
     # شحن الرصيد
-    amount = key_data['amount']
-    current_balance = get_balance(user_id)
-    new_balance = current_balance + amount
-    
-    # تحديث الرصيد في الذاكرة
-    users_wallets[user_id] = new_balance
+    amount = key_data.get('amount', 0)
+    new_balance = add_balance(user_id, amount)
     
     # تحديث الكود كمستخدم
-    charge_keys[key_code]['used'] = True
-    charge_keys[key_code]['used_by'] = user_id
-    charge_keys[key_code]['used_at'] = time.time()
+    use_charge_key(key_code, user_id)
     
-    # تحديث في Firebase
+    # حفظ سجل الشحنة
     if db:
         try:
-            # تحديث رصيد المستخدم
-            user_ref = db.collection('users').document(user_id)
-            user_doc = user_ref.get()
-            if user_doc.exists:
-                user_ref.update({'balance': new_balance})
-            else:
-                user_ref.set({'user_id': user_id, 'balance': new_balance})
-            
-            # تحديث حالة الكود
-            db.collection('charge_keys').document(key_code).update({
-                'used': True,
-                'used_by': user_id,
-                'used_at': time.time()
-            })
-            
-            # حفظ سجل الشحنة
             from datetime import datetime
             db.collection('charge_history').add({
                 'user_id': user_id,
@@ -3171,7 +2879,7 @@ def charge_balance_api():
                 'type': 'charge'
             })
         except Exception as e:
-            print(f"خطأ في تحديث Firebase: {e}")
+            print(f"خطأ في حفظ سجل الشحن: {e}")
     
     return jsonify({
         'success': True, 
@@ -3199,7 +2907,10 @@ def sell_item():
         'category': data.get('category', ''),  # الفئة
         'image_url': data.get('image_url', '')  # رابط الصورة
     }
-    marketplace_items.append(item)
+    
+    # حفظ في Firebase
+    add_product(item)
+    
     return {'status': 'success'}
 
 @app.route('/buy', methods=['POST'])
@@ -3235,16 +2946,7 @@ def buy_item():
 
         if not doc.exists:
             print(f"❌ المنتج {item_id} غير موجود في Firebase")
-            # محاولة البحث في الذاكرة كاحتياط
-            item = None
-            for prod in marketplace_items:
-                if prod.get('id') == item_id:
-                    item = prod
-                    print(f"✅ تم إيجاد المنتج في الذاكرة: {item.get('item_name')}")
-                    break
-            
-            if not item:
-                return {'status': 'error', 'message': 'المنتج غير موجود أو تم حذفه!'}
+            return {'status': 'error', 'message': 'المنتج غير موجود أو تم حذفه!'}
         else:
             item = doc.to_dict()
             item['id'] = doc.id
@@ -3347,15 +3049,7 @@ def buy_item():
             except Exception as verify_error:
                 print(f"⚠️ فشل التحقق من الطلب: {verify_error}")
 
-        # 5. تحديث الذاكرة المحلية (اختياري لكن جيد للسرعة)
-        users_wallets[buyer_id] = new_balance
-        # البحث عن المنتج في القائمة المحلية وتحديثه
-        for prod in marketplace_items:
-            if prod.get('id') == item_id:
-                prod['sold'] = True
-                break
-
-        # 6. إرسال المنتج للمشتري أو إشعار الأدمن
+        # 5. إرسال المنتج للمشتري أو إشعار الأدمن
         hidden_info = item.get('hidden_data', 'لا توجد بيانات')
         message_sent = False
         
@@ -5123,10 +4817,10 @@ def migrate_to_firebase_route():
             'status': 'success',
             'message': 'تم رفع البيانات بنجاح إلى Firebase',
             'data': {
-                'products': len(marketplace_items),
-                'users': len(users_wallets),
-                'orders': len(active_orders),
-                'keys': len(charge_keys)
+                'products': len(get_all_products_for_store()),
+                'users': len(get_all_users()),
+                'orders': len(get_active_orders()),
+                'keys': len(get_all_charge_keys())
             }
         }, 200
     else:
@@ -5272,7 +4966,13 @@ def dashboard():
             })
         
         # ===== إحصائيات السلة =====
-        active_carts = len(user_carts)
+        # عد السلات النشطة من Firebase
+        active_carts = 0
+        try:
+            carts_ref = db.collection('carts')
+            active_carts = len(list(carts_ref.stream()))
+        except:
+            pass
         cart_stats_ref = db.collection('cart_stats')
         cart_stats = list(cart_stats_ref.order_by('add_to_cart_count', direction=firestore.Query.DESCENDING).limit(10).stream())
         top_cart_products = []
@@ -5839,15 +5539,11 @@ def api_add_product():
             'created_at': firestore.SERVER_TIMESTAMP
         }
         
-        # 1. الحفظ في Firebase (المهم)
+        # الحفظ في Firebase
         db.collection('products').document(new_id).set(item)
         print(f"✅ تم حفظ المنتج {new_id} في Firestore: {name}")
         
-        # 2. تحديث الذاكرة المحلية (للعرض السريع)
-        marketplace_items.append(item)
-        print(f"✅ تم إضافة المنتج للذاكرة. إجمالي المنتجات: {len(marketplace_items)}")
-        
-        # 3. إشعار المالك (داخل try/except لضمان عدم توقف العملية)
+        # إشعار المالك (داخل try/except لضمان عدم توقف العملية)
         try:
             bot.send_message(
                 ADMIN_ID,
@@ -5896,8 +5592,6 @@ def api_generate_keys():
             doc_ref = db.collection('charge_keys').document(key_code)
             batch.set(doc_ref, key_data)
             
-            # تحديث الذاكرة
-            charge_keys[key_code] = key_data
             generated_keys.append(key_code)
             
         # تنفيذ الحفظ في Firebase دفعة واحدة
@@ -6143,13 +5837,6 @@ def api_get_products():
                 data = doc.to_dict()
                 data['id'] = doc.id
                 sold.append(data)
-        else:
-            # من الذاكرة
-            for item in marketplace_items:
-                if item.get('sold'):
-                    sold.append(item)
-                else:
-                    available.append(item)
         
         return jsonify({
             'status': 'success',
@@ -6217,9 +5904,6 @@ def api_add_product_new():
             db.collection('products').document(product_id).set(product_data)
             print(f"✅ تم حفظ المنتج في Firebase: {name} (التسليم: {delivery_type})")
         
-        # إضافة للذاكرة
-        marketplace_items.append(product_data)
-        
         return jsonify({'status': 'success', 'product_id': product_id})
         
     except Exception as e:
@@ -6241,13 +5925,7 @@ def api_delete_product():
             return jsonify({'status': 'error', 'message': 'معرف المنتج مطلوب'})
         
         # حذف من Firebase
-        if db:
-            db.collection('products').document(product_id).delete()
-            print(f"✅ تم حذف المنتج من Firebase: {product_id}")
-        
-        # حذف من الذاكرة
-        global marketplace_items
-        marketplace_items = [item for item in marketplace_items if item.get('id') != product_id]
+        delete_product(product_id)
         
         return jsonify({'status': 'success'})
         
@@ -6266,16 +5944,20 @@ def api_get_categories():
         return jsonify({'status': 'error', 'message': 'غير مصرح'})
     
     try:
-        # حساب عدد المنتجات لكل قسم
+        # جلب المنتجات من Firebase لحساب العدد
+        all_products = get_all_products_for_store()
         category_counts = {}
-        for item in marketplace_items:
+        for item in all_products:
             cat = item.get('category', '')
             if cat:
                 category_counts[cat] = category_counts.get(cat, 0) + 1
         
+        # جلب الأقسام من Firebase
+        categories = get_categories_list()
+        
         # إضافة عدد المنتجات لكل قسم
         result = []
-        for cat in categories_list:
+        for cat in categories:
             cat_data = cat.copy()
             cat_data['product_count'] = category_counts.get(cat['name'], 0)
             result.append(cat_data)
@@ -6304,15 +5986,18 @@ def api_add_category():
         if not name:
             return jsonify({'status': 'error', 'message': 'اسم القسم مطلوب'})
         
+        # جلب الأقسام الحالية من Firebase
+        current_categories = get_categories()
+        
         # التحقق من عدم تكرار الاسم
-        for cat in categories_list:
+        for cat in current_categories:
             if cat['name'] == name:
                 return jsonify({'status': 'error', 'message': 'هذا القسم موجود مسبقاً'})
         
         # إنشاء القسم الجديد
         import uuid
         cat_id = str(uuid.uuid4())[:8]
-        new_order = len(categories_list) + 1
+        new_order = len(current_categories) + 1
         
         new_category = {
             'id': cat_id,
@@ -6327,9 +6012,6 @@ def api_add_category():
         if db:
             db.collection('categories').document(cat_id).set(new_category)
             print(f"✅ تم حفظ القسم في Firebase: {name} ({delivery_type})")
-        
-        # إضافة للذاكرة
-        categories_list.append(new_category)
         
         return jsonify({'status': 'success', 'category': new_category})
         
@@ -6354,46 +6036,39 @@ def api_update_category():
         if not cat_id:
             return jsonify({'status': 'error', 'message': 'معرف القسم مطلوب'})
         
-        # البحث عن القسم
-        cat_found = None
-        old_name = None
-        for cat in categories_list:
-            if cat['id'] == cat_id:
-                cat_found = cat
-                old_name = cat['name']
-                break
+        # جلب القسم من Firebase
+        cat_found = get_category_by_id(cat_id)
         
         if not cat_found:
             return jsonify({'status': 'error', 'message': 'القسم غير موجود'})
         
-        # تحديث القسم
+        old_name = cat_found.get('name', '')
+        
+        # بناء بيانات التحديث
+        update_data = {}
         if new_name:
-            cat_found['name'] = new_name
+            update_data['name'] = new_name
         if new_image:
-            cat_found['image_url'] = new_image
+            update_data['image_url'] = new_image
         if new_delivery_type in ['instant', 'manual']:
-            cat_found['delivery_type'] = new_delivery_type
+            update_data['delivery_type'] = new_delivery_type
         
         # تحديث في Firebase
-        if db:
-            db.collection('categories').document(cat_id).update({
-                'name': cat_found['name'],
-                'image_url': cat_found['image_url'],
-                'delivery_type': cat_found.get('delivery_type', 'instant')
-            })
+        update_category(cat_id, update_data)
         
         # تحديث اسم القسم في المنتجات إذا تغير
         if old_name and new_name and old_name != new_name:
-            for item in marketplace_items:
+            all_products = get_all_products_for_store()
+            for item in all_products:
                 if item.get('category') == old_name:
-                    item['category'] = new_name
-                    # تحديث في Firebase أيضاً
-                    if db and item.get('id'):
+                    # تحديث في Firebase
+                    if item.get('id'):
                         try:
                             db.collection('products').document(item['id']).update({'category': new_name})
                         except:
                             pass
         
+        cat_found.update(update_data)
         return jsonify({'status': 'success', 'category': cat_found})
         
     except Exception as e:
@@ -6408,28 +6083,20 @@ def api_delete_category():
         return jsonify({'status': 'error', 'message': 'غير مصرح'})
     
     try:
-        global categories_list
         data = request.json
         cat_id = data.get('id')
         
         if not cat_id:
             return jsonify({'status': 'error', 'message': 'معرف القسم مطلوب'})
         
-        # البحث عن القسم
-        cat_found = None
-        for cat in categories_list:
-            if cat['id'] == cat_id:
-                cat_found = cat
-                break
+        # جلب القسم من Firebase
+        cat_found = get_category_by_id(cat_id)
         
         if not cat_found:
             return jsonify({'status': 'error', 'message': 'القسم غير موجود'})
         
-        # التحقق من عدم وجود منتجات في القسم
-        product_count = 0
-        for item in marketplace_items:
-            if item.get('category') == cat_found['name']:
-                product_count += 1
+        # التحقق من عدد المنتجات في القسم
+        product_count = count_products_in_category(cat_found.get('name', ''))
         
         if product_count > 0:
             return jsonify({
@@ -6438,12 +6105,7 @@ def api_delete_category():
             })
         
         # حذف من Firebase
-        if db:
-            db.collection('categories').document(cat_id).delete()
-            print(f"✅ تم حذف القسم من Firebase: {cat_found['name']}")
-        
-        # حذف من الذاكرة
-        categories_list = [c for c in categories_list if c['id'] != cat_id]
+        delete_category(cat_id)
         
         return jsonify({'status': 'success'})
         
@@ -6465,21 +6127,13 @@ def api_reorder_categories():
         if not new_order:
             return jsonify({'status': 'error', 'message': 'الترتيب مطلوب'})
         
-        # تحديث الترتيب
+        # تحديث الترتيب في Firebase
         for idx, cat_id in enumerate(new_order):
-            for cat in categories_list:
-                if cat['id'] == cat_id:
-                    cat['order'] = idx + 1
-                    # تحديث في Firebase
-                    if db:
-                        try:
-                            db.collection('categories').document(cat_id).update({'order': idx + 1})
-                        except:
-                            pass
-                    break
-        
-        # إعادة ترتيب القائمة
-        categories_list.sort(key=lambda x: x.get('order', 999))
+            if db:
+                try:
+                    db.collection('categories').document(cat_id).update({'order': idx + 1})
+                except:
+                    pass
         
         return jsonify({'status': 'success'})
         
@@ -6492,8 +6146,9 @@ def api_reorder_categories():
 def api_public_categories():
     """جلب الأقسام للعرض في الموقع"""
     try:
+        categories = get_categories_list()
         result = []
-        for cat in categories_list:
+        for cat in categories:
             result.append({
                 'name': cat['name'],
                 'image_url': cat.get('image_url', ''),

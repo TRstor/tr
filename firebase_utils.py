@@ -18,7 +18,7 @@ except ImportError:
     firestore = None
 
 # استيراد من extensions لتجنب circular imports
-from extensions import db, FIREBASE_AVAILABLE, users_wallets, marketplace_items, categories_list
+from extensions import db, FIREBASE_AVAILABLE
 
 # محاولة استيراد FieldFilter للنسخ الجديدة
 USE_FIELD_FILTER = False
@@ -425,4 +425,158 @@ def load_all_data():
         print(f"❌ خطأ في تحميل البيانات: {e}")
     
     return data
+
+# === دوال للحصول على البيانات مباشرة من Firebase ===
+
+def get_all_products_for_store():
+    """جلب جميع المنتجات غير المباعة للمتجر - مباشرة من Firebase"""
+    try:
+        if not db:
+            print("❌ خطأ في جلب المنتجات للمتجر: 'NoneType' object has no attribute 'collection'")
+            return []
+        products_ref = query_where(db.collection('products'), 'sold', '==', False)
+        products = []
+        for doc in products_ref.stream():
+            data = doc.to_dict()
+            data['id'] = doc.id
+            products.append(data)
+        print(f"✅ تم جلب {len(products)} منتج من Firebase للمتجر")
+        return products
+    except Exception as e:
+        print(f"❌ خطأ في جلب المنتجات للمتجر: {e}")
+        return []
+
+def get_sold_products():
+    """جلب المنتجات المباعة - مباشرة من Firebase"""
+    try:
+        if not db:
+            print("❌ خطأ في جلب المنتجات المباعة: 'NoneType' object has no attribute 'collection'")
+            return []
+        products_ref = query_where(db.collection('products'), 'sold', '==', True)
+        products = []
+        for doc in products_ref.stream():
+            data = doc.to_dict()
+            data['id'] = doc.id
+            products.append(data)
+        print(f"✅ تم جلب {len(products)} منتج مباع من Firebase")
+        return products
+    except Exception as e:
+        print(f"❌ خطأ في جلب المنتجات المباعة: {e}")
+        return []
+
+def get_all_users():
+    """جلب جميع المستخدمين وأرصدتهم - مباشرة من Firebase"""
+    try:
+        if not db:
+            return {}
+        users = {}
+        for doc in db.collection('users').stream():
+            data = doc.to_dict()
+            users[doc.id] = data.get('balance', 0.0)
+        return users
+    except Exception as e:
+        print(f"❌ خطأ في جلب المستخدمين: {e}")
+        return {}
+
+def get_all_charge_keys():
+    """جلب مفاتيح الشحن غير المستخدمة - مباشرة من Firebase"""
+    try:
+        if not db:
+            return {}
+        keys = {}
+        keys_ref = query_where(db.collection('charge_keys'), 'used', '==', False)
+        for doc in keys_ref.stream():
+            data = doc.to_dict()
+            keys[doc.id] = {
+                'amount': data.get('amount', 0),
+                'used': data.get('used', False),
+                'used_by': data.get('used_by'),
+                'created_at': data.get('created_at')
+            }
+        return keys
+    except Exception as e:
+        print(f"❌ خطأ في جلب مفاتيح الشحن: {e}")
+        return {}
+
+def get_active_orders():
+    """جلب الطلبات النشطة - مباشرة من Firebase"""
+    try:
+        if not db:
+            return {}
+        orders = {}
+        orders_ref = query_where(db.collection('orders'), 'status', '==', 'pending')
+        for doc in orders_ref.stream():
+            orders[doc.id] = doc.to_dict()
+        return orders
+    except Exception as e:
+        print(f"❌ خطأ في جلب الطلبات النشطة: {e}")
+        return {}
+
+def delete_product(product_id):
+    """حذف منتج من Firebase"""
+    try:
+        if not db:
+            return False
+        db.collection('products').document(product_id).delete()
+        print(f"✅ تم حذف المنتج {product_id} من Firebase")
+        return True
+    except Exception as e:
+        print(f"❌ خطأ في حذف المنتج: {e}")
+        return False
+
+def update_category(cat_id, data):
+    """تحديث قسم في Firebase"""
+    try:
+        if not db:
+            return False
+        db.collection('categories').document(cat_id).update(data)
+        return True
+    except Exception as e:
+        print(f"❌ خطأ في تحديث القسم: {e}")
+        return False
+
+def delete_category(cat_id):
+    """حذف قسم من Firebase"""
+    try:
+        if not db:
+            return False
+        db.collection('categories').document(cat_id).delete()
+        print(f"✅ تم حذف القسم {cat_id} من Firebase")
+        return True
+    except Exception as e:
+        print(f"❌ خطأ في حذف القسم: {e}")
+        return False
+
+def get_category_by_id(cat_id):
+    """جلب قسم بالـ ID"""
+    try:
+        if not db:
+            return None
+        doc = db.collection('categories').document(cat_id).get()
+        if doc.exists:
+            data = doc.to_dict()
+            data['id'] = doc.id
+            return data
+        return None
+    except Exception as e:
+        print(f"⚠️ خطأ في جلب القسم: {e}")
+        return None
+
+def get_products_by_category(category_name):
+    """جلب المنتجات حسب القسم"""
+    try:
+        if not db:
+            return []
+        # أولاً نجلب المنتجات غير المباعة
+        products = get_all_products_for_store()
+        # ثم نفلتر حسب القسم
+        return [p for p in products if p.get('category') == category_name]
+    except Exception as e:
+        print(f"❌ خطأ في جلب منتجات القسم: {e}")
+        return []
+
+def count_products_in_category(category_name):
+    """عد المنتجات في قسم معين"""
+    products = get_products_by_category(category_name)
+    return len(products)
 

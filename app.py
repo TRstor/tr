@@ -5809,6 +5809,188 @@ def admin_categories():
     
     return render_template('admin_categories.html')
 
+# ============ صفحة الفواتير والمعاملات ============
+@app.route('/admin/invoices')
+def admin_invoices():
+    """صفحة عرض جميع الفواتير والمعاملات المالية"""
+    if not session.get('is_admin'):
+        return redirect('/dashboard')
+    
+    return render_template('admin_invoices.html')
+
+# API لجلب جميع الفواتير والمعاملات
+@app.route('/api/admin/get_invoices')
+def api_get_invoices():
+    """جلب جميع الفواتير والمعاملات المالية"""
+    if not session.get('is_admin'):
+        return jsonify({'status': 'error', 'message': 'غير مصرح'})
+    
+    try:
+        # 1️⃣ طلبات الدفع (pending_payments) - شحن الرصيد
+        pending_payments_list = []
+        try:
+            pending_ref = db.collection('pending_payments').order_by('created_at', direction=firestore.Query.DESCENDING).limit(100)
+            for doc in pending_ref.stream():
+                data = doc.to_dict()
+                # جلب اسم المستخدم
+                user_name = 'غير معروف'
+                user_id = data.get('user_id', '')
+                try:
+                    user_doc = db.collection('users').document(str(user_id)).get()
+                    if user_doc.exists:
+                        user_data = user_doc.to_dict()
+                        user_name = user_data.get('name', user_data.get('telegram_name', f'مستخدم {user_id}'))
+                except:
+                    pass
+                
+                pending_payments_list.append({
+                    'id': doc.id,
+                    'order_id': data.get('order_id', doc.id),
+                    'user_id': user_id,
+                    'user_name': user_name,
+                    'amount': data.get('amount', 0),
+                    'status': data.get('status', 'pending'),
+                    'type': 'فاتورة تاجر' if data.get('is_merchant_invoice') else 'شحن رصيد',
+                    'is_merchant_invoice': data.get('is_merchant_invoice', False),
+                    'invoice_id': data.get('invoice_id', ''),
+                    'trans_id': data.get('trans_id', ''),
+                    'created_at': str(data.get('created_at', '')),
+                    'completed_at': str(data.get('completed_at', ''))
+                })
+        except Exception as e:
+            print(f"⚠️ خطأ في جلب pending_payments: {e}")
+        
+        # 2️⃣ فواتير التجار (merchant_invoices)
+        merchant_invoices_list = []
+        try:
+            invoices_ref = db.collection('merchant_invoices').order_by('created_at', direction=firestore.Query.DESCENDING).limit(100)
+            for doc in invoices_ref.stream():
+                data = doc.to_dict()
+                merchant_invoices_list.append({
+                    'id': doc.id,
+                    'merchant_id': data.get('merchant_id', ''),
+                    'merchant_name': data.get('merchant_name', 'تاجر'),
+                    'customer_phone': data.get('customer_phone', ''),
+                    'amount': data.get('amount', 0),
+                    'status': data.get('status', 'pending'),
+                    'type': 'فاتورة تاجر',
+                    'created_at': str(data.get('created_at', '')),
+                    'completed_at': str(data.get('completed_at', ''))
+                })
+        except Exception as e:
+            print(f"⚠️ خطأ في جلب merchant_invoices: {e}")
+        
+        # 3️⃣ سجل الشحن (charge_history)
+        charge_history_list = []
+        try:
+            charge_ref = db.collection('charge_history').order_by('created_at', direction=firestore.Query.DESCENDING).limit(100)
+            for doc in charge_ref.stream():
+                data = doc.to_dict()
+                # جلب اسم المستخدم
+                user_name = 'غير معروف'
+                user_id = data.get('user_id', '')
+                try:
+                    user_doc = db.collection('users').document(str(user_id)).get()
+                    if user_doc.exists:
+                        user_data = user_doc.to_dict()
+                        user_name = user_data.get('name', user_data.get('telegram_name', f'مستخدم {user_id}'))
+                except:
+                    pass
+                
+                charge_history_list.append({
+                    'id': doc.id,
+                    'user_id': user_id,
+                    'user_name': user_name,
+                    'amount': data.get('amount', 0),
+                    'method': data.get('method', 'key'),
+                    'key_code': data.get('key_code', ''),
+                    'type': 'شحن بمفتاح' if data.get('method') == 'key' else 'شحن إلكتروني',
+                    'created_at': str(data.get('created_at', ''))
+                })
+        except Exception as e:
+            print(f"⚠️ خطأ في جلب charge_history: {e}")
+        
+        # 4️⃣ الطلبات/المشتريات (orders)
+        orders_list = []
+        try:
+            orders_ref = db.collection('orders').order_by('created_at', direction=firestore.Query.DESCENDING).limit(100)
+            for doc in orders_ref.stream():
+                data = doc.to_dict()
+                orders_list.append({
+                    'id': doc.id,
+                    'order_id': doc.id[:8],
+                    'item_name': data.get('item_name', 'منتج'),
+                    'price': data.get('price', 0),
+                    'buyer_id': data.get('buyer_id', ''),
+                    'buyer_name': data.get('buyer_name', 'مشتري'),
+                    'seller_id': data.get('seller_id', ''),
+                    'seller_name': data.get('seller_name', 'بائع'),
+                    'status': data.get('status', 'completed'),
+                    'delivery_type': data.get('delivery_type', 'instant'),
+                    'type': 'شراء من الموقع',
+                    'created_at': str(data.get('created_at', ''))
+                })
+        except Exception as e:
+            print(f"⚠️ خطأ في جلب orders: {e}")
+        
+        # 5️⃣ المنتجات المباعة
+        sold_products_list = []
+        available_products_list = []
+        try:
+            products_ref = db.collection('products')
+            for doc in products_ref.stream():
+                data = doc.to_dict()
+                product_info = {
+                    'id': doc.id,
+                    'item_name': data.get('item_name', 'منتج'),
+                    'price': data.get('price', 0),
+                    'category': data.get('category', ''),
+                    'seller_name': data.get('seller_name', 'المتجر'),
+                    'delivery_type': data.get('delivery_type', 'instant'),
+                    'sold': data.get('sold', False),
+                    'buyer_id': data.get('buyer_id', ''),
+                    'buyer_name': data.get('buyer_name', ''),
+                    'sold_at': str(data.get('sold_at', '')),
+                    'created_at': str(data.get('created_at', ''))
+                }
+                if data.get('sold'):
+                    sold_products_list.append(product_info)
+                else:
+                    available_products_list.append(product_info)
+        except Exception as e:
+            print(f"⚠️ خطأ في جلب products: {e}")
+        
+        # 6️⃣ إحصائيات
+        stats = {
+            'total_payments': len(pending_payments_list),
+            'completed_payments': len([p for p in pending_payments_list if p['status'] == 'completed']),
+            'pending_payments': len([p for p in pending_payments_list if p['status'] == 'pending']),
+            'total_merchant_invoices': len(merchant_invoices_list),
+            'total_charges': len(charge_history_list),
+            'total_orders': len(orders_list),
+            'sold_products': len(sold_products_list),
+            'available_products': len(available_products_list),
+            'total_revenue': sum([o['price'] for o in orders_list]),
+            'total_charged': sum([c['amount'] for c in charge_history_list])
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'pending_payments': pending_payments_list,
+            'merchant_invoices': merchant_invoices_list,
+            'charge_history': charge_history_list,
+            'orders': orders_list,
+            'sold_products': sold_products_list,
+            'available_products': available_products_list,
+            'stats': stats
+        })
+        
+    except Exception as e:
+        print(f"❌ خطأ في جلب الفواتير: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)})
+
 # API لجلب جميع المنتجات (للمالك)
 @app.route('/api/admin/get_products')
 def api_get_products():

@@ -6,6 +6,7 @@ extensions.py - الكائنات المشتركة بين الملفات
 """
 
 import os
+import json
 import logging
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -23,19 +24,38 @@ def init_firebase():
     global db, FIREBASE_AVAILABLE
     
     try:
-        if not firebase_admin._apps:
-            cred_path = os.getenv('FIREBASE_CREDENTIALS', 'serviceAccountKey.json')
-            if os.path.exists(cred_path):
-                cred = credentials.Certificate(cred_path)
-                firebase_admin.initialize_app(cred)
-                db = firestore.client()
-                FIREBASE_AVAILABLE = True
-                print("✅ تم الاتصال بـ Firebase بنجاح")
-            else:
-                print(f"⚠️ ملف Firebase غير موجود: {cred_path}")
+        if firebase_admin._apps:
+            # Firebase مهيأ مسبقاً
+            db = firestore.client()
+            FIREBASE_AVAILABLE = True
+            return db
+            
+        # التحقق من المتغير البيئي أولاً (للإنتاج في Render)
+        firebase_credentials_json = os.environ.get("FIREBASE_CREDENTIALS")
+        
+        if firebase_credentials_json:
+            # استخدام المتغير البيئي (Render)
+            cred_dict = json.loads(firebase_credentials_json)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+            db = firestore.client()
+            FIREBASE_AVAILABLE = True
+            print("✅ Firebase: متصل (المتغير البيئي)")
+        elif os.path.exists('serviceAccountKey.json'):
+            # استخدام الملف المحلي (للتطوير)
+            cred = credentials.Certificate('serviceAccountKey.json')
+            firebase_admin.initialize_app(cred)
+            db = firestore.client()
+            FIREBASE_AVAILABLE = True
+            print("✅ Firebase: متصل (ملف محلي)")
+        else:
+            print("⚠️ Firebase: لا يوجد credentials")
+            FIREBASE_AVAILABLE = False
+            
     except Exception as e:
         print(f"⚠️ Firebase غير متاح: {e}")
         FIREBASE_AVAILABLE = False
+        db = None
     
     return db
 

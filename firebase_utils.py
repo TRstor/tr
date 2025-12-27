@@ -11,6 +11,12 @@ import json
 import time
 import uuid
 
+# استيراد firestore للـ SERVER_TIMESTAMP
+try:
+    from firebase_admin import firestore
+except ImportError:
+    firestore = None
+
 # استيراد من extensions لتجنب circular imports
 from extensions import db, FIREBASE_AVAILABLE, users_wallets, marketplace_items, categories_list
 

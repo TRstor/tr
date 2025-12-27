@@ -10,49 +10,17 @@ import os
 import json
 import time
 import uuid
-import firebase_admin
-from firebase_admin import credentials, firestore
 
-# === متغيرات عامة ===
-db = None
-USE_FIELD_FILTER = False
+# استيراد من extensions لتجنب circular imports
+from extensions import db, FIREBASE_AVAILABLE, users_wallets, marketplace_items, categories_list
 
 # محاولة استيراد FieldFilter للنسخ الجديدة
+USE_FIELD_FILTER = False
 try:
     from google.cloud.firestore_v1.base_query import FieldFilter
     USE_FIELD_FILTER = True
 except ImportError:
     USE_FIELD_FILTER = False
-
-# === تهيئة Firebase ===
-def init_firebase():
-    """تهيئة اتصال Firebase"""
-    global db
-    
-    firebase_credentials_json = os.environ.get("FIREBASE_CREDENTIALS")
-    
-    try:
-        if firebase_credentials_json:
-            # استخدام المتغير البيئي (Render)
-            cred_dict = json.loads(firebase_credentials_json)
-            cred = credentials.Certificate(cred_dict)
-            print("✅ Firebase: استخدام المتغير البيئي (Production)")
-        else:
-            # استخدام الملف المحلي (للتطوير)
-            if os.path.exists('serviceAccountKey.json'):
-                cred = credentials.Certificate('serviceAccountKey.json')
-                print("✅ Firebase: استخدام الملف المحلي (Development)")
-            else:
-                raise FileNotFoundError("Firebase credentials not found")
-
-        firebase_admin.initialize_app(cred)
-        db = firestore.client()
-        return db
-    except Exception as e:
-        print(f"⚠️ Firebase غير متاح: {e}")
-        print("⚠️ سيتم العمل بدون قاعدة بيانات Firebase (في الذاكرة فقط)")
-        db = None
-        return None
 
 # === دالة Query متوافقة ===
 def query_where(collection_ref, field, op, value):
@@ -452,5 +420,3 @@ def load_all_data():
     
     return data
 
-# تهيئة Firebase عند الاستيراد
-db = init_firebase()

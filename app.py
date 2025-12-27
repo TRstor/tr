@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+التطبيق الرئيسي - متجر رقمي مع بوت تيليجرام
+"""
 
 import os
 import html
@@ -13,113 +16,32 @@ import hashlib
 import time
 import uuid
 import requests
-import firebase_admin
-from firebase_admin import credentials, firestore
 
-# إعداد التسجيل للأخطاء (السيرفر فقط)
-logging.basicConfig(level=logging.ERROR)
-logger = logging.getLogger(__name__)
+# === استيراد الملفات المفصولة ===
+from extensions import (
+    db, FIREBASE_AVAILABLE, logger,
+    ADMIN_ID, TOKEN, SITE_URL, SECRET_KEY,
+    EDFAPAY_MERCHANT_ID, EDFAPAY_PASSWORD,
+    users_wallets, marketplace_items, categories_list,
+    verification_codes, user_states, user_carts, display_settings
+)
+from config import (
+    EDFAPAY_API_URL, SESSION_CONFIG, IS_PRODUCTION,
+    RATE_LIMIT_DEFAULT, DEFAULT_CATEGORIES, CART_EXPIRY_HOURS
+)
+from firebase_utils import query_where, get_balance, add_balance
+from payment import (
+    calculate_hash, create_payment_payload,
+    create_edfapay_invoice as create_edfapay_invoice_util,
+    register_callback_url, check_callback_url
+)
+from utils import sanitize, regenerate_session, generate_code, validate_phone
 
-# محاولة استيراد FieldFilter للنسخ الجديدة
+# استيراد Firestore للعمليات المتقدمة
 try:
-    from google.cloud.firestore_v1.base_query import FieldFilter
-    USE_FIELD_FILTER = True
+    from firebase_admin import firestore
 except ImportError:
-    USE_FIELD_FILTER = False
-
-# --- إعدادات Firebase ---
-# التحقق من وجود متغير البيئة أولاً (للإنتاج في Render)
-firebase_credentials_json = os.environ.get("FIREBASE_CREDENTIALS")
-db = None
-
-try:
-    if firebase_credentials_json:
-        # استخدام المتغير البيئي (Render)
-        cred_dict = json.loads(firebase_credentials_json)
-        cred = credentials.Certificate(cred_dict)
-        print("✅ Firebase: استخدام المتغير البيئي (Production)")
-    else:
-        # استخدام الملف المحلي (للتطوير)
-        if os.path.exists('serviceAccountKey.json'):
-            cred = credentials.Certificate('serviceAccountKey.json')
-            print("✅ Firebase: استخدام الملف المحلي (Development)")
-        else:
-            raise FileNotFoundError("Firebase credentials not found")
-
-    firebase_admin.initialize_app(cred)
-    db = firestore.client()
-except Exception as e:
-    print(f"⚠️ Firebase غير متاح: {e}")
-    print("⚠️ سيتم العمل بدون قاعدة بيانات Firebase (في الذاكرة فقط)")
-    db = None
-
-# --- إعدادات البوت ---
-# آيدي المالك - يجب تعيينه في متغيرات البيئة (ADMIN_ID) في Render
-# القيمة الافتراضية وهمية للأمان - لن تعمل بدون تعيين الآيدي الحقيقي
-ADMIN_ID = int(os.environ.get("ADMIN_ID", 123456789))
-TOKEN = os.environ.get("BOT_TOKEN", "default_token_123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh")
-SITE_URL = os.environ.get("SITE_URL", "http://localhost:5000")
-
-# --- إعدادات بوابة الدفع EdfaPay ---
-EDFAPAY_MERCHANT_ID = os.environ.get("ADFALY_MERCHANT_ID", "")
-EDFAPAY_PASSWORD = os.environ.get("ADFALY_PASSWORD", "")
-EDFAPAY_API_URL = "https://api.edfapay.com/payment/initiate"
-
-# دالة تسجيل Callback URL في EdfaPay
-def register_edfapay_callback():
-    """تسجيل رابط الـ webhook في EdfaPay"""
-    if not EDFAPAY_MERCHANT_ID:
-        print("⚠️ لا يوجد MERCHANT_ID لتسجيل الـ callback")
-        return False
-    
-    try:
-        callback_url = f"{SITE_URL}/payment/edfapay_webhook"
-        
-        response = requests.post(
-            "https://api.edfapay.com/payment/merchants/callback-url",
-            json={
-                "action": "post",
-                "id": EDFAPAY_MERCHANT_ID,
-                "url": callback_url
-            },
-            timeout=30
-        )
-        
-        print(f"📡 تسجيل Callback URL: {response.status_code}")
-        print(f"📡 Response: {response.text}")
-        
-        if response.status_code == 200:
-            print(f"✅ تم تسجيل Callback URL: {callback_url}")
-            return True
-        else:
-            print(f"❌ فشل تسجيل Callback URL")
-            return False
-    except Exception as e:
-        print(f"❌ خطأ في تسجيل Callback: {e}")
-        return False
-
-# دالة التحقق من Callback URL المسجل
-def check_edfapay_callback():
-    """التحقق من رابط الـ webhook المسجل في EdfaPay"""
-    if not EDFAPAY_MERCHANT_ID:
-        return None
-    
-    try:
-        response = requests.post(
-            "https://api.edfapay.com/payment/merchants/callback-url",
-            json={
-                "action": "get",
-                "id": EDFAPAY_MERCHANT_ID
-            },
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            return response.json()
-        return None
-    except Exception as e:
-        print(f"❌ خطأ في التحقق من Callback: {e}")
-        return None
+    firestore = None
 
 # التحقق من أن التوكن صحيح (ليس القيمة الافتراضية)
 if TOKEN.startswith("default_token"):
@@ -149,28 +71,9 @@ else:
 
 app = Flask(__name__)
 
-# --- إعدادات الأمان للجلسات ---
-import secrets
-from datetime import timedelta
-
-# توليد مفتاح سري قوي (أو استخدام المتغير البيئي)
-SECRET_KEY = os.environ.get("SECRET_KEY")
-if not SECRET_KEY or SECRET_KEY == "your-secret-key-here-change-it":
-    SECRET_KEY = secrets.token_hex(32)  # 64 حرف عشوائي
-    print("⚠️ تم توليد مفتاح سري جديد (يُفضل تعيين SECRET_KEY في متغيرات البيئة)")
-
+# --- إعدادات الأمان من config ---
 app.secret_key = SECRET_KEY
-
-# إعدادات الكوكيز الآمنة
-# SESSION_COOKIE_SECURE=False للتطوير المحلي، True للإنتاج
-IS_PRODUCTION = os.environ.get("RENDER", False) or os.environ.get("PRODUCTION", False)
-app.config.update(
-    SESSION_COOKIE_SECURE=IS_PRODUCTION,        
-    SESSION_COOKIE_HTTPONLY=True,     
-    SESSION_COOKIE_SAMESITE='Strict',  # ✅ تقوية من Lax إلى Strict
-    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),  
-    SESSION_COOKIE_NAME='tr_session',  
-)
+app.config.update(SESSION_CONFIG)
 
 # --- Rate Limiting (تحديد المحاولات) ---
 from flask_limiter import Limiter
@@ -179,18 +82,9 @@ from flask_limiter.util import get_remote_address
 limiter = Limiter(
     key_func=get_remote_address,
     app=app,
-    default_limits=["200 per day", "50 per hour"],
+    default_limits=RATE_LIMIT_DEFAULT,
     storage_uri="memory://",
 )
-
-# --- دالة تنظيف XSS ---
-def sanitize(text):
-    """تنظيف النص من أكواد HTML/JS الخبيثة"""
-    if text is None:
-        return None
-    if not isinstance(text, str):
-        return text
-    return html.escape(str(text))
 
 # --- Security Headers ---
 @app.after_request
@@ -201,11 +95,6 @@ def add_security_headers(response):
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     return response
-
-# دالة لتجديد الجلسة بعد تسجيل الدخول
-def regenerate_session():
-    """تجديد ID الجلسة لمنع Session Fixation"""
-    old_data = dict(session)
     session.clear()
     session.update(old_data)
     session.modified = True
@@ -396,14 +285,6 @@ def load_all_data_from_firebase():
     except Exception as e:
         print(f"❌ خطأ عام في تحميل البيانات: {e}")
 
-# دالة للتعامل مع where بالطريقة المتوافقة
-def query_where(collection_ref, field, op, value):
-    """استخدام where بطريقة متوافقة مع جميع النسخ"""
-    if USE_FIELD_FILTER:
-        return collection_ref.where(filter=FieldFilter(field, op, value))
-    else:
-        return collection_ref.where(field, op, value)
-
 # --- دوال مساعدة ---
 
 def get_user_profile_photo(user_id):
@@ -419,36 +300,6 @@ def get_user_profile_photo(user_id):
     except Exception as e:
         print(f"⚠️ خطأ في جلب صورة البروفايل: {e}")
         return None
-
-def get_balance(user_id):
-    """جلب الرصيد من Firebase"""
-    try:
-        uid = str(user_id)
-        doc = db.collection('users').document(uid).get()
-        if doc.exists:
-            return doc.to_dict().get('balance', 0.0)
-        return 0.0
-    except Exception as e:
-        print(f"⚠️ خطأ في جلب الرصيد: {e}")
-        return users_wallets.get(str(user_id), 0.0)
-
-def add_balance(user_id, amount):
-    """إضافة رصيد للمستخدم في Firebase والذاكرة"""
-    uid = str(user_id)
-    if uid not in users_wallets:
-        users_wallets[uid] = 0.0
-    users_wallets[uid] += float(amount)
-    
-    # حفظ في Firebase
-    try:
-        db.collection('users').document(uid).set({
-            'balance': users_wallets[uid],
-            'telegram_id': uid,
-            'updated_at': firestore.SERVER_TIMESTAMP
-        }, merge=True)
-        print(f"✅ تم حفظ رصيد المستخدم {uid}: {users_wallets[uid]} ريال في Firestore")
-    except Exception as e:
-        print(f"❌ خطأ في حفظ الرصيد إلى Firebase: {e}")
 
 # إضافة UUID للمنتجات الموجودة (إذا لم يكن لديها ID)
 def ensure_product_ids():

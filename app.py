@@ -124,7 +124,7 @@ def check_edfapay_callback():
 # التحقق من أن التوكن صحيح (ليس القيمة الافتراضية)
 if TOKEN.startswith("default_token"):
     print("⚠️ BOT_TOKEN غير محدد - استخدم متغير البيئة BOT_TOKEN")
-    bot = telebot.TeleBot("dummy_token")  # إنشاء بوت وهمي لتجنب الأخطاء
+    bot = telebot.TeleBot("123456789:dummy_token")  # إنشاء بوت وهمي لتجنب الأخطاء
     BOT_ACTIVE = False
     BOT_USERNAME = ""
 else:

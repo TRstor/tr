@@ -712,7 +712,7 @@
                     <td>${p.item_name}</td>
                     <td class="amount">${p.price.toLocaleString()} ر.ي</td>
                     <td>${p.category || '-'}</td>
-                    <td>${p.buyer_name || '-'}<br><small style="color:#b2bec3;">${p.buyer_id || ''}</small></td>
+                    <td>${p.buyer_name || 'غير معروف'}<br><small style="color:#b2bec3;">ID: ${p.buyer_id || '-'}</small></td>
                     <td>${formatDate(p.sold_at)}</td>
                 </tr>
             `).join('');

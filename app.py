@@ -5940,6 +5940,19 @@ def api_get_invoices():
             products_ref = db.collection('products')
             for doc in products_ref.stream():
                 data = doc.to_dict()
+                
+                # جلب اسم المشتري إذا لم يكن موجوداً
+                buyer_name = data.get('buyer_name', '')
+                buyer_id = data.get('buyer_id', '')
+                if data.get('sold') and buyer_id and not buyer_name:
+                    try:
+                        buyer_doc = db.collection('users').document(str(buyer_id)).get()
+                        if buyer_doc.exists:
+                            buyer_data = buyer_doc.to_dict()
+                            buyer_name = buyer_data.get('name', buyer_data.get('telegram_name', f'مستخدم {buyer_id}'))
+                    except:
+                        buyer_name = f'مستخدم {buyer_id}'
+                
                 product_info = {
                     'id': doc.id,
                     'item_name': data.get('item_name', 'منتج'),
@@ -5948,8 +5961,8 @@ def api_get_invoices():
                     'seller_name': data.get('seller_name', 'المتجر'),
                     'delivery_type': data.get('delivery_type', 'instant'),
                     'sold': data.get('sold', False),
-                    'buyer_id': data.get('buyer_id', ''),
-                    'buyer_name': data.get('buyer_name', ''),
+                    'buyer_id': buyer_id,
+                    'buyer_name': buyer_name,
                     'sold_at': str(data.get('sold_at', '')),
                     'created_at': str(data.get('created_at', ''))
                 }

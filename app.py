@@ -45,6 +45,9 @@ from payment import (
 )
 from utils import sanitize, regenerate_session, generate_code, validate_phone
 
+# استيراد نظام المسارات المفصولة (Blueprints)
+from routes import cart_bp, init_cart, wallet_bp, init_wallet, admin_bp, init_admin
+
 # استيراد Firestore للعمليات المتقدمة
 try:
     from firebase_admin import firestore
@@ -137,6 +140,28 @@ DEFAULT_CATEGORIES_FALLBACK = [
     {'id': '5', 'name': 'فديو بريميم', 'image_url': 'https://i.imgur.com/vedio.png', 'order': 5, 'delivery_type': 'instant'},
     {'id': '6', 'name': 'اشتراكات أخرى', 'image_url': 'https://i.imgur.com/other.png', 'order': 6, 'delivery_type': 'manual'}
 ]
+
+# ====== تسجيل Blueprints ======
+# تهيئة وتسجيل نظام السلة
+init_cart(bot, ADMIN_ID, limiter)
+app.register_blueprint(cart_bp)
+
+# تهيئة وتسجيل نظام المحفظة
+init_wallet(
+    merchant_id=EDFAPAY_MERCHANT_ID,
+    password=EDFAPAY_PASSWORD,
+    api_url=EDFAPAY_API_URL,
+    site_url=SITE_URL,
+    payments_dict=pending_payments,
+    app_limiter=limiter
+)
+app.register_blueprint(wallet_bp)
+
+# تهيئة وتسجيل لوحة التحكم
+init_admin(db, bot, ADMIN_ID, limiter, BOT_ACTIVE)
+app.register_blueprint(admin_bp)
+
+print("✅ تم تسجيل جميع Blueprints (السلة، المحفظة، لوحة التحكم)")
 
 # دالة تحميل جميع البيانات من Firebase عند بدء التطبيق
 def load_all_data_from_firebase():

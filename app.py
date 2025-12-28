@@ -2404,7 +2404,7 @@ def api_cart_checkout():
         order_ids = []
         
         # جلب اسم المشتري
-        buyer_name = user_data.get('first_name', 'مستخدم')
+        buyer_name = user_data.get('name') or user_data.get('username') or user_data.get('first_name') or 'مستخدم'
         
         for item in available_items:
             product = item['product_data']
@@ -5941,16 +5941,27 @@ def api_get_invoices():
             for doc in products_ref.stream():
                 data = doc.to_dict()
                 
-                # جلب اسم المشتري إذا لم يكن موجوداً
+                # جلب اسم المشتري
                 buyer_name = data.get('buyer_name', '')
                 buyer_id = data.get('buyer_id', '')
-                if data.get('sold') and buyer_id and not buyer_name:
-                    try:
-                        buyer_doc = db.collection('users').document(str(buyer_id)).get()
-                        if buyer_doc.exists:
-                            buyer_data = buyer_doc.to_dict()
-                            buyer_name = buyer_data.get('name', buyer_data.get('telegram_name', f'مستخدم {buyer_id}'))
-                    except:
+                
+                # إذا كان المنتج مباعاً ولا يوجد اسم للمشتري، نجلبه من مجموعة users
+                if data.get('sold') and buyer_id:
+                    if not buyer_name or buyer_name == '':
+                        try:
+                            buyer_doc = db.collection('users').document(str(buyer_id)).get()
+                            if buyer_doc.exists:
+                                buyer_data = buyer_doc.to_dict()
+                                # محاولة جلب الاسم من عدة حقول
+                                buyer_name = buyer_data.get('name') or buyer_data.get('username') or buyer_data.get('telegram_name') or ''
+                                print(f"📦 المشتري {buyer_id}: بيانات = {buyer_data}")
+                            else:
+                                print(f"⚠️ المستخدم {buyer_id} غير موجود في users")
+                        except Exception as e:
+                            print(f"⚠️ خطأ في جلب بيانات المشتري {buyer_id}: {e}")
+                    
+                    # إذا لا يزال فارغاً، نضع نص افتراضي
+                    if not buyer_name:
                         buyer_name = f'مستخدم {buyer_id}'
                 
                 product_info = {

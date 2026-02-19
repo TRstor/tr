@@ -24,6 +24,15 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # حالات المستخدمين (لتتبع المحادثة)
 user_states = {}
 
+# دالة مساعدة لتهريب رموز Markdown
+def escape_md(text):
+    """تهريب الرموز الخاصة لتجنب خطأ Markdown"""
+    if not text:
+        return text
+    for char in ['_', '*', '`', '[']:
+        text = str(text).replace(char, f'\\{char}')
+    return text
+
 # ============================
 # === القائمة الرئيسية ===
 # ============================
@@ -224,13 +233,13 @@ def _handle_callback_data(call, uid, mid, data):
             return
         
         clients = get_clients(email_id)
-        text = f"📧 *{email_data.get('email', '')}*\n"
+        text = f"📧 *{escape_md(email_data.get('email', ''))}*\n"
         text += f"👥 عدد العملاء: {len(clients)}\n\n"
 
         if clients:
             for i, c in enumerate(clients, 1):
-                text += f"*{i}. {c.get('name', 'بدون اسم')}*\n"
-                text += f"   📱 {c.get('phone', '-')}\n"
+                text += f"*{i}. {escape_md(c.get('name', 'بدون اسم'))}*\n"
+                text += f"   📱 {escape_md(c.get('phone', '-'))}\n"
                 text += f"   📅 من: {c.get('start_date', '-')}\n"
                 text += f"   📅 إلى: {c.get('end_date', '-')}\n\n"
 
@@ -302,12 +311,12 @@ def _handle_callback_data(call, uid, mid, data):
             email_data = get_email_by_id(email_id)
             if email_data:
                 clients = get_clients(email_id)
-                text = f"📧 *{email_data.get('email', '')}*\n"
+                text = f"📧 *{escape_md(email_data.get('email', ''))}*\n"
                 text += f"👥 عدد العملاء: {len(clients)}\n\n"
                 if clients:
                     for i, c in enumerate(clients, 1):
-                        text += f"*{i}. {c.get('name', 'بدون اسم')}*\n"
-                        text += f"   📱 {c.get('phone', '-')}\n"
+                        text += f"*{i}. {escape_md(c.get('name', 'بدون اسم'))}*\n"
+                        text += f"   📱 {escape_md(c.get('phone', '-'))}\n"
                         text += f"   📅 من: {c.get('start_date', '-')}\n"
                         text += f"   📅 إلى: {c.get('end_date', '-')}\n\n"
                 
@@ -378,7 +387,7 @@ def handle_text_input(message):
     elif action == "client_name":
         user_states[uid]["action"] = "client_phone"
         user_states[uid]["client_name"] = text
-        bot.send_message(uid, "📱 أرسل *رقم العميل*:", parse_mode="Markdown")
+        bot.send_message(uid, "📱 أرسل *رقم الجوال* أو *يوزرنيم التيليجرام*:", parse_mode="Markdown")
 
     # === إضافة عميل - الرقم ===
     elif action == "client_phone":
@@ -415,8 +424,8 @@ def handle_text_input(message):
             bot.send_message(
                 uid,
                 f"✅ تم إضافة العميل بنجاح!\n\n"
-                f"👤 *{name}*\n"
-                f"📱 {phone}\n"
+                f"👤 *{escape_md(name)}*\n"
+                f"📱 {escape_md(phone)}\n"
                 f"📅 من: {start_date}\n"
                 f"📅 إلى: {end_date}",
                 reply_markup=kb,

@@ -201,8 +201,8 @@ def _handle_callback_data(call, uid, mid, data):
     # === الاشتراكات (الإيميلات) ===
     # ============================
     elif data == "email_create":
-        user_states[uid] = {"action": "email_create"}
-        bot.edit_message_text("📧 أرسل *الإيميل الأساسي* الذي تريد إضافته:", uid, mid,
+        user_states[uid] = {"action": "email_type"}
+        bot.edit_message_text("📌 أرسل *نوع الاشتراك* (مثال: نتفلكس، شاهد، سبوتيفاي...):", uid, mid,
                               parse_mode="Markdown")
 
     elif data == "email_list":
@@ -215,12 +215,15 @@ def _handle_callback_data(call, uid, mid, data):
 
         kb = types.InlineKeyboardMarkup(row_width=1)
         for em in emails:
+            sub_type = em.get("subscription_type", "")
             email_text = em.get("email", "بدون إيميل")
             clients_count = count_clients(em["id"])
-            kb.add(types.InlineKeyboardButton(
-                f"📧 {email_text} ({clients_count} عملاء)",
-                callback_data=f"email_view_{em['id']}"
-            ))
+            # عرض نوع الاشتراك إن وجد
+            if sub_type:
+                btn_text = f"📌 {sub_type} ({clients_count} عملاء)"
+            else:
+                btn_text = f"📧 {email_text} ({clients_count} عملاء)"
+            kb.add(types.InlineKeyboardButton(btn_text, callback_data=f"email_view_{em['id']}"))
         kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="menu_subscriptions"))
         bot.edit_message_text("📧 *الإيميلات المسجلة:*\n\nاختر إيميل لإدارة عملائه:",
                               uid, mid, reply_markup=kb, parse_mode="Markdown")
@@ -233,7 +236,13 @@ def _handle_callback_data(call, uid, mid, data):
             return
         
         clients = get_clients(email_id)
-        text = f"📧 *{escape_md(email_data.get('email', ''))}*\n"
+        sub_type = email_data.get("subscription_type", "")
+        # عرض نوع الاشتراك إن وجد
+        if sub_type:
+            text = f"📌 *{escape_md(sub_type)}*\n"
+            text += f"📧 {escape_md(email_data.get('email', ''))}\n"
+        else:
+            text = f"📧 *{escape_md(email_data.get('email', ''))}*\n"
         text += f"👥 عدد العملاء: {len(clients)}\n\n"
 
         if clients:
@@ -311,7 +320,12 @@ def _handle_callback_data(call, uid, mid, data):
             email_data = get_email_by_id(email_id)
             if email_data:
                 clients = get_clients(email_id)
-                text = f"📧 *{escape_md(email_data.get('email', ''))}*\n"
+                sub_type = email_data.get("subscription_type", "")
+                if sub_type:
+                    text = f"📌 *{escape_md(sub_type)}*\n"
+                    text += f"📧 {escape_md(email_data.get('email', ''))}\n"
+                else:
+                    text = f"📧 *{escape_md(email_data.get('email', ''))}*\n"
                 text += f"👥 عدد العملاء: {len(clients)}\n\n"
                 if clients:
                     for i, c in enumerate(clients, 1):
@@ -369,9 +383,15 @@ def handle_text_input(message):
         bot.send_message(uid, f"✅ تم إنشاء العملية بنجاح!\n\n📌 *{title}*",
                          reply_markup=kb, parse_mode="Markdown")
 
-    # === إنشاء إيميل ===
+    # === إنشاء إيميل - نوع الاشتراك ===
+    elif action == "email_type":
+        user_states[uid] = {"action": "email_create", "subscription_type": text}
+        bot.send_message(uid, "📧 أرسل *الإيميل الأساسي*:", parse_mode="Markdown")
+
+    # === إنشاء إيميل - الإيميل ===
     elif action == "email_create":
-        email_id = add_email(uid, text)
+        subscription_type = state.get("subscription_type", "")
+        email_id = add_email(uid, text, subscription_type)
         user_states.pop(uid, None)
 
         kb = types.InlineKeyboardMarkup(row_width=1)
@@ -380,7 +400,7 @@ def handle_text_input(message):
             types.InlineKeyboardButton("➕ إيميل جديد", callback_data="email_create"),
             types.InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="back_main")
         )
-        bot.send_message(uid, f"✅ تم إضافة الإيميل بنجاح!\n\n📧 *{text}*",
+        bot.send_message(uid, f"✅ تم إضافة الإيميل بنجاح!\n\n📌 *{escape_md(subscription_type)}*\n📧 {escape_md(text)}",
                          reply_markup=kb, parse_mode="Markdown")
 
     # === إضافة عميل - الاسم ===

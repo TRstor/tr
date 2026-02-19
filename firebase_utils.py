@@ -70,12 +70,13 @@ def delete_operation(op_id):
 # === دوال الإيميلات ===
 # ============================
 
-def add_email(user_id, email, max_clients=5):
+def add_email(user_id, email, subscription_type="", max_clients=5):
     """إضافة إيميل أساسي"""
     doc_ref = db.collection("emails").document()
     doc_ref.set({
         "user_id": user_id,
         "email": email,
+        "subscription_type": subscription_type,
         "max_clients": max_clients,
         "created_at": firestore.SERVER_TIMESTAMP
     })

@@ -218,9 +218,9 @@ def _handle_callback_data(call, uid, mid, data):
             sub_type = em.get("subscription_type", "")
             email_text = em.get("email", "بدون إيميل")
             clients_count = count_clients(em["id"])
-            # عرض نوع الاشتراك إن وجد
+            # عرض نوع الاشتراك مع الإيميل
             if sub_type:
-                btn_text = f"📌 {sub_type} ({clients_count} عملاء)"
+                btn_text = f"📌 {sub_type} | {email_text} ({clients_count})"
             else:
                 btn_text = f"📧 {email_text} ({clients_count} عملاء)"
             kb.add(types.InlineKeyboardButton(btn_text, callback_data=f"email_view_{em['id']}"))

@@ -103,6 +103,18 @@ def handle_callback(call):
     mid = call.message.message_id
     data = call.data
 
+    try:
+        _handle_callback_data(call, uid, mid, data)
+    except Exception as e:
+        error_msg = str(e)
+        if "message is not modified" in error_msg:
+            pass  # تجاهل هذا الخطأ
+        else:
+            print(f"❌ خطأ: {error_msg}")
+            bot.answer_callback_query(call.id, "❌ حدث خطأ، حاول مرة أخرى")
+
+def _handle_callback_data(call, uid, mid, data):
+
     # === القوائم الرئيسية ===
     if data == "back_main":
         user_states.pop(uid, None)

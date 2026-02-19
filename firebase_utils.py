@@ -49,9 +49,9 @@ def add_operation(user_id, title, details=""):
 
 def get_operations(user_id):
     """جلب جميع عمليات المستخدم"""
+    from google.cloud.firestore_v1.base_query import FieldFilter
     ops = db.collection("operations") \
-        .where("user_id", "==", user_id) \
-        .order_by("created_at") \
+        .where(filter=FieldFilter("user_id", "==", user_id)) \
         .stream()
     return [{"id": doc.id, **doc.to_dict()} for doc in ops]
 
@@ -83,9 +83,9 @@ def add_email(user_id, email, max_clients=5):
 
 def get_emails(user_id):
     """جلب جميع الإيميلات"""
+    from google.cloud.firestore_v1.base_query import FieldFilter
     docs = db.collection("emails") \
-        .where("user_id", "==", user_id) \
-        .order_by("created_at") \
+        .where(filter=FieldFilter("user_id", "==", user_id)) \
         .stream()
     return [{"id": doc.id, **doc.to_dict()} for doc in docs]
 

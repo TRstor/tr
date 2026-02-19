@@ -402,25 +402,30 @@ def handle_text_input(message):
         start_date = state.get("start_date", "")
         end_date = text
 
-        add_client(email_id, name, phone, start_date, end_date)
-        user_states.pop(uid, None)
+        try:
+            add_client(email_id, name, phone, start_date, end_date)
+            user_states.pop(uid, None)
 
-        kb = types.InlineKeyboardMarkup(row_width=1)
-        kb.add(
-            types.InlineKeyboardButton("👁 عرض الإيميل", callback_data=f"email_view_{email_id}"),
-            types.InlineKeyboardButton("➕ إضافة عميل آخر", callback_data=f"client_add_{email_id}"),
-            types.InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="back_main")
-        )
-        bot.send_message(
-            uid,
-            f"✅ تم إضافة العميل بنجاح!\n\n"
-            f"👤 *{name}*\n"
-            f"📱 {phone}\n"
-            f"📅 من: {start_date}\n"
-            f"📅 إلى: {end_date}",
-            reply_markup=kb,
-            parse_mode="Markdown"
-        )
+            kb = types.InlineKeyboardMarkup(row_width=1)
+            kb.add(
+                types.InlineKeyboardButton("👁 عرض الإيميل", callback_data=f"email_view_{email_id}"),
+                types.InlineKeyboardButton("➕ إضافة عميل آخر", callback_data=f"client_add_{email_id}"),
+                types.InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="back_main")
+            )
+            bot.send_message(
+                uid,
+                f"✅ تم إضافة العميل بنجاح!\n\n"
+                f"👤 *{name}*\n"
+                f"📱 {phone}\n"
+                f"📅 من: {start_date}\n"
+                f"📅 إلى: {end_date}",
+                reply_markup=kb,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"❌ خطأ في إضافة العميل: {e}")
+            user_states.pop(uid, None)
+            bot.send_message(uid, "❌ حدث خطأ أثناء إضافة العميل. حاول مرة أخرى.", reply_markup=main_menu())
 
     else:
         user_states.pop(uid, None)

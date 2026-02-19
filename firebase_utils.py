@@ -107,6 +107,10 @@ def delete_email(email_id):
     # حذف الإيميل
     db.collection("emails").document(email_id).delete()
 
+def update_email(email_id, data):
+    """تحديث بيانات الإيميل"""
+    db.collection("emails").document(email_id).update(data)
+
 # ============================
 # === دوال العملاء ===
 # ============================
@@ -153,3 +157,55 @@ def count_clients(email_id):
     docs = db.collection("emails").document(email_id) \
         .collection("clients").stream()
     return sum(1 for _ in docs)
+
+def search_clients_by_name(user_id, search_term):
+    """البحث عن عملاء بالاسم"""
+    results = []
+    from google.cloud.firestore_v1.base_query import FieldFilter
+    emails = db.collection("emails") \
+        .where(filter=FieldFilter("user_id", "==", user_id)) \
+        .stream()
+    
+    for email_doc in emails:
+        email_data = email_doc.to_dict()
+        email_id = email_doc.id
+        clients = db.collection("emails").document(email_id) \
+            .collection("clients").stream()
+        
+        for client_doc in clients:
+            client_data = client_doc.to_dict()
+            client_name = client_data.get("name", "").lower()
+            if search_term.lower() in client_name:
+                results.append({
+                    "client_id": client_doc.id,
+                    "email_id": email_id,
+                    "email": email_data.get("email", ""),
+                    "subscription_type": email_data.get("subscription_type", ""),
+                    **client_data
+                })
+    return results
+
+def get_all_clients_with_emails(user_id):
+    """جلب جميع العملاء مع بيانات الإيميل للتنبيهات"""
+    results = []
+    from google.cloud.firestore_v1.base_query import FieldFilter
+    emails = db.collection("emails") \
+        .where(filter=FieldFilter("user_id", "==", user_id)) \
+        .stream()
+    
+    for email_doc in emails:
+        email_data = email_doc.to_dict()
+        email_id = email_doc.id
+        clients = db.collection("emails").document(email_id) \
+            .collection("clients").stream()
+        
+        for client_doc in clients:
+            client_data = client_doc.to_dict()
+            results.append({
+                "client_id": client_doc.id,
+                "email_id": email_id,
+                "email": email_data.get("email", ""),
+                "subscription_type": email_data.get("subscription_type", ""),
+                **client_data
+            })
+    return results

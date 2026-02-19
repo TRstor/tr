@@ -6,12 +6,15 @@
 
 import telebot
 from telebot import types
+import threading
+import time
+from datetime import datetime, timedelta
 from config import BOT_TOKEN, ADMIN_ID
 from firebase_utils import (
     add_operation, get_operations, get_operation_by_id, delete_operation,
-    add_email, get_emails, get_email_by_id, delete_email,
+    add_email, get_emails, get_email_by_id, delete_email, update_email,
     add_client, get_clients, get_client_by_id, delete_client,
-    update_client, count_clients
+    update_client, count_clients, search_clients_by_name, get_all_clients_with_emails
 )
 
 # === تهيئة البوت ===
@@ -62,7 +65,8 @@ def subscriptions_menu():
     kb.add(
         types.InlineKeyboardButton("➕ إضافة إيميل جديد", callback_data="email_create"),
         types.InlineKeyboardButton("📋 عرض الإيميلات", callback_data="email_list"),
-        types.InlineKeyboardButton("🔙 رجوع", callback_data="back_main")
+        types.InlineKeyboardButton("� البحث عن عميل", callback_data="client_search"),
+        types.InlineKeyboardButton("�🔙 رجوع", callback_data="back_main")
     )
     return kb
 
@@ -256,6 +260,11 @@ def _handle_callback_data(call, uid, mid, data):
         kb.add(
             types.InlineKeyboardButton("➕ إضافة عميل", callback_data=f"client_add_{email_id}"),
         )
+        # أزرار التعديل
+        kb.add(
+            types.InlineKeyboardButton("✏️ تعديل نوع الاشتراك", callback_data=f"email_edit_type_{email_id}"),
+            types.InlineKeyboardButton("✏️ تعديل الإيميل", callback_data=f"email_edit_addr_{email_id}"),
+        )
         # أزرار حذف العملاء
         if clients:
             for c in clients:
@@ -347,6 +356,23 @@ def _handle_callback_data(call, uid, mid, data):
                     types.InlineKeyboardButton("🔙 رجوع", callback_data="email_list")
                 )
                 bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+
+    # === تعديل نوع الاشتراك ===
+    elif data.startswith("email_edit_type_"):
+        email_id = data.replace("email_edit_type_", "")
+        user_states[uid] = {"action": "edit_email_type", "email_id": email_id}
+        bot.edit_message_text("✏️ أرسل *نوع الاشتراك الجديد*:", uid, mid, parse_mode="Markdown")
+
+    # === تعديل الإيميل ===
+    elif data.startswith("email_edit_addr_"):
+        email_id = data.replace("email_edit_addr_", "")
+        user_states[uid] = {"action": "edit_email_addr", "email_id": email_id}
+        bot.edit_message_text("✏️ أرسل *الإيميل الجديد*:", uid, mid, parse_mode="Markdown")
+
+    # === البحث عن عميل ===
+    elif data == "client_search":
+        user_states[uid] = {"action": "client_search"}
+        bot.edit_message_text("🔍 أرسل *اسم العميل* للبحث عنه:", uid, mid, parse_mode="Markdown")
 
     bot.answer_callback_query(call.id)
 
@@ -456,6 +482,85 @@ def handle_text_input(message):
             user_states.pop(uid, None)
             bot.send_message(uid, "❌ حدث خطأ أثناء إضافة العميل. حاول مرة أخرى.", reply_markup=main_menu())
 
+    # === تعديل نوع الاشتراك ===
+    elif action == "edit_email_type":
+        email_id = state.get("email_id")
+        try:
+            update_email(email_id, {"subscription_type": text})
+            user_states.pop(uid, None)
+            
+            kb = types.InlineKeyboardMarkup(row_width=1)
+            kb.add(
+                types.InlineKeyboardButton("👁 عرض الإيميل", callback_data=f"email_view_{email_id}"),
+                types.InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="back_main")
+            )
+            bot.send_message(uid, f"✅ تم تعديل نوع الاشتراك إلى:\n📌 *{escape_md(text)}*",
+                             reply_markup=kb, parse_mode="Markdown")
+        except Exception as e:
+            print(f"❌ خطأ في تعديل نوع الاشتراك: {e}")
+            user_states.pop(uid, None)
+            bot.send_message(uid, "❌ حدث خطأ. حاول مرة أخرى.", reply_markup=main_menu())
+
+    # === تعديل الإيميل ===
+    elif action == "edit_email_addr":
+        email_id = state.get("email_id")
+        try:
+            update_email(email_id, {"email": text})
+            user_states.pop(uid, None)
+            
+            kb = types.InlineKeyboardMarkup(row_width=1)
+            kb.add(
+                types.InlineKeyboardButton("👁 عرض الإيميل", callback_data=f"email_view_{email_id}"),
+                types.InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="back_main")
+            )
+            bot.send_message(uid, f"✅ تم تعديل الإيميل إلى:\n📧 *{escape_md(text)}*",
+                             reply_markup=kb, parse_mode="Markdown")
+        except Exception as e:
+            print(f"❌ خطأ في تعديل الإيميل: {e}")
+            user_states.pop(uid, None)
+            bot.send_message(uid, "❌ حدث خطأ. حاول مرة أخرى.", reply_markup=main_menu())
+
+    # === البحث عن عميل ===
+    elif action == "client_search":
+        user_states.pop(uid, None)
+        results = search_clients_by_name(uid, text)
+        
+        if not results:
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="menu_subscriptions"))
+            bot.send_message(uid, f"❌ لم يتم العثور على عملاء بالاسم *{escape_md(text)}*",
+                             reply_markup=kb, parse_mode="Markdown")
+            return
+        
+        response = f"🔍 *نتائج البحث عن:* {escape_md(text)}\n\n"
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        
+        for i, r in enumerate(results, 1):
+            sub_type = r.get("subscription_type", "")
+            email = r.get("email", "")
+            name = r.get("name", "")
+            phone = r.get("phone", "-")
+            start_date = r.get("start_date", "-")
+            end_date = r.get("end_date", "-")
+            
+            response += f"*{i}. {escape_md(name)}*\n"
+            if sub_type:
+                response += f"   📌 {escape_md(sub_type)}\n"
+            response += f"   📧 {escape_md(email)}\n"
+            response += f"   📱 {escape_md(phone)}\n"
+            response += f"   📅 من: {start_date} إلى: {end_date}\n\n"
+            
+            # زر للانتقال للإيميل
+            kb.add(types.InlineKeyboardButton(
+                f"👁 عرض {escape_md(sub_type) if sub_type else escape_md(email)}",
+                callback_data=f"email_view_{r['email_id']}"
+            ))
+        
+        kb.add(types.InlineKeyboardButton("🔍 بحث جديد", callback_data="client_search"))
+        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="menu_subscriptions"))
+        
+        bot.send_message(uid, response, reply_markup=kb, parse_mode="Markdown")
+
     else:
         user_states.pop(uid, None)
         bot.send_message(uid, "اختر أمراً من القائمة 👇", reply_markup=main_menu())
@@ -466,9 +571,63 @@ def handle_other(message):
     bot.send_message(message.chat.id, "اختر أمراً من القائمة 👇", reply_markup=main_menu())
 
 # ============================
+# === نظام التنبيهات ===
+# ============================
+
+def check_expiring_subscriptions():
+    """التحقق من الاشتراكات المنتهية وإرسال تنبيهات"""
+    while True:
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            
+            # جلب جميع العملاء للأدمن
+            if ADMIN_ID:
+                all_clients = get_all_clients_with_emails(int(ADMIN_ID))
+                
+                expiring_today = []
+                for client in all_clients:
+                    end_date = client.get("end_date", "")
+                    if end_date == today:
+                        expiring_today.append(client)
+                
+                # إرسال تنبيه إذا وجدت اشتراكات منتهية اليوم
+                if expiring_today:
+                    text = "⚠️ *تنبيه: اشتراكات تنتهي اليوم!*\n\n"
+                    for c in expiring_today:
+                        sub_type = c.get("subscription_type", "")
+                        email = c.get("email", "")
+                        name = c.get("name", "")
+                        phone = c.get("phone", "-")
+                        
+                        text += f"👤 *{escape_md(name)}*\n"
+                        if sub_type:
+                            text += f"📌 {escape_md(sub_type)}\n"
+                        text += f"📧 {escape_md(email)}\n"
+                        text += f"📱 {escape_md(phone)}\n"
+                        text += f"📅 ينتهي: {c.get('end_date', '-')}\n\n"
+                    
+                    try:
+                        bot.send_message(int(ADMIN_ID), text, parse_mode="Markdown")
+                        print(f"✅ تم إرسال تنبيه بـ {len(expiring_today)} اشتراكات منتهية")
+                    except Exception as e:
+                        print(f"❌ خطأ في إرسال التنبيه: {e}")
+        
+        except Exception as e:
+            print(f"❌ خطأ في فحص الاشتراكات: {e}")
+        
+        # الانتظار 6 ساعات قبل الفحص التالي (يمكن تعديله)
+        time.sleep(6 * 60 * 60)
+
+# ============================
 # === تشغيل البوت ===
 # ============================
 
 if __name__ == "__main__":
     print("🤖 البوت يعمل الآن...")
+    
+    # تشغيل نظام التنبيهات في thread منفصل
+    notification_thread = threading.Thread(target=check_expiring_subscriptions, daemon=True)
+    notification_thread.start()
+    print("🔔 نظام التنبيهات يعمل...")
+    
     bot.infinity_polling()

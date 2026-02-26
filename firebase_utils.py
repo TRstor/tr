@@ -33,6 +33,41 @@ def init_firebase():
 db = init_firebase()
 
 # ============================
+# === دوال المستخدمين ===
+# ============================
+
+def get_user(user_id):
+    """جلب بيانات المستخدم"""
+    doc = db.collection("users").document(str(user_id)).get()
+    if doc.exists:
+        return {"id": doc.id, **doc.to_dict()}
+    return None
+
+def create_user(user_id, name=""):
+    """إنشاء حساب مستخدم جديد"""
+    doc_ref = db.collection("users").document(str(user_id))
+    doc_ref.set({
+        "user_id": user_id,
+        "name": name,
+        "password": "",
+        "created_at": firestore.SERVER_TIMESTAMP
+    })
+    return str(user_id)
+
+def set_user_password(user_id, password):
+    """تعيين كلمة مرور للمستخدم"""
+    db.collection("users").document(str(user_id)).update({
+        "password": password
+    })
+
+def verify_user_password(user_id, password):
+    """التحقق من كلمة مرور المستخدم"""
+    user = get_user(user_id)
+    if user and user.get("password") == password:
+        return True
+    return False
+
+# ============================
 # === دوال العمليات ===
 # ============================
 

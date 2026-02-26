@@ -14,7 +14,8 @@ from firebase_utils import (
     add_operation, get_operations, get_operation_by_id, delete_operation,
     add_email, get_emails, get_email_by_id, delete_email, update_email,
     add_client, get_clients, get_client_by_id, delete_client,
-    update_client, count_clients, search_clients_by_name, get_all_clients_with_emails
+    update_client, count_clients, search_clients_by_name, get_all_clients_with_emails,
+    get_user, create_user, set_user_password, verify_user_password
 )
 
 # === تهيئة البوت ===
@@ -26,6 +27,9 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 # حالات المستخدمين (لتتبع المحادثة)
 user_states = {}
+
+# المستخدمون المسجلون دخول (في الذاكرة)
+authenticated_users = set()
 
 # دالة مساعدة لتهريب رموز Markdown
 def escape_md(text):
@@ -45,7 +49,8 @@ def main_menu():
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(
         types.InlineKeyboardButton("📋 إدارة العمليات", callback_data="menu_operations"),
-        types.InlineKeyboardButton("📧 إدارة الاشتراكات", callback_data="menu_subscriptions")
+        types.InlineKeyboardButton("📧 إدارة الاشتراكات", callback_data="menu_subscriptions"),
+        types.InlineKeyboardButton("⚙️ الإعدادات", callback_data="menu_settings")
     )
     return kb
 
@@ -76,14 +81,49 @@ def subscriptions_menu():
 
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
-    """رسالة البداية"""
-    user_states.pop(message.chat.id, None)
-    text = (
-        "مرحباً بك! 👋\n\n"
-        "أنا مساعدك الذكي لتنظيم العمليات وإدارة اشتراكات العملاء.\n\n"
-        "اختر القسم المطلوب:"
-    )
-    bot.send_message(message.chat.id, text, reply_markup=main_menu())
+    """رسالة البداية مع نظام تسجيل الدخول"""
+    uid = message.chat.id
+    user_states.pop(uid, None)
+    
+    user = get_user(uid)
+    
+    if user is None:
+        # مستخدم جديد - إنشاء حساب
+        name = message.from_user.first_name or ""
+        create_user(uid, name)
+        authenticated_users.add(uid)
+        
+        text = (
+            f"أهلاً وسهلاً {escape_md(name)}! 👋\n\n"
+            "تم إنشاء حسابك بنجاح ✅\n\n"
+            "🔐 يمكنك تعيين كلمة مرور لحماية حسابك من الإعدادات.\n\n"
+            "اختر القسم المطلوب:"
+        )
+        bot.send_message(uid, text, reply_markup=main_menu(), parse_mode="Markdown")
+    
+    elif user.get("password"):
+        # لديه كلمة مرور - طلب إدخالها
+        if uid in authenticated_users:
+            # مسجل دخول بالفعل
+            text = (
+                f"مرحباً بك مجدداً! 👋\n\n"
+                "اختر القسم المطلوب:"
+            )
+            bot.send_message(uid, text, reply_markup=main_menu())
+        else:
+            # يحتاج تسجيل دخول
+            user_states[uid] = {"action": "login_password"}
+            bot.send_message(uid, "🔒 أدخل *كلمة المرور* للدخول:", parse_mode="Markdown")
+    
+    else:
+        # لديه حساب بدون كلمة مرور - دخول مباشر
+        authenticated_users.add(uid)
+        name = user.get("name", "")
+        text = (
+            f"أهلاً وسهلاً {escape_md(name)}! 👋\n\n"
+            "اختر القسم المطلوب:"
+        )
+        bot.send_message(uid, text, reply_markup=main_menu(), parse_mode="Markdown")
 
 @bot.message_handler(commands=['help'])
 def cmd_help(message):
@@ -133,13 +173,59 @@ def _handle_callback_data(call, uid, mid, data):
         user_states.pop(uid, None)
         bot.edit_message_text("اختر القسم المطلوب:", uid, mid, reply_markup=main_menu())
 
+    elif data == "menu_subscriptions":
+        if uid not in authenticated_users:
+            bot.answer_callback_query(call.id, "🔒 يرجى تسجيل الدخول أولاً /start")
+            return
+        bot.edit_message_text("📧 *إدارة الاشتراكات*\n\nاختر الإجراء:", uid, mid,
+                              reply_markup=subscriptions_menu(), parse_mode="Markdown")
+
     elif data == "menu_operations":
+        if uid not in authenticated_users:
+            bot.answer_callback_query(call.id, "🔒 يرجى تسجيل الدخول أولاً /start")
+            return
         bot.edit_message_text("📋 *إدارة العمليات*\n\nاختر الإجراء:", uid, mid,
                               reply_markup=operations_menu(), parse_mode="Markdown")
 
-    elif data == "menu_subscriptions":
-        bot.edit_message_text("📧 *إدارة الاشتراكات*\n\nاختر الإجراء:", uid, mid,
-                              reply_markup=subscriptions_menu(), parse_mode="Markdown")
+    # === الإعدادات ===
+    elif data == "menu_settings":
+        if uid not in authenticated_users:
+            bot.answer_callback_query(call.id, "🔒 يرجى تسجيل الدخول أولاً /start")
+            return
+        user = get_user(uid)
+        has_password = bool(user and user.get("password"))
+        
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        if has_password:
+            kb.add(
+                types.InlineKeyboardButton("🔑 تغيير كلمة المرور", callback_data="settings_change_pass"),
+                types.InlineKeyboardButton("🗑 حذف كلمة المرور", callback_data="settings_remove_pass"),
+            )
+        else:
+            kb.add(
+                types.InlineKeyboardButton("🔐 تعيين كلمة مرور", callback_data="settings_set_pass"),
+            )
+        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_main"))
+        
+        status = "✅ محمي بكلمة مرور" if has_password else "⚠️ بدون كلمة مرور"
+        bot.edit_message_text(f"⚙️ *الإعدادات*\n\n🔒 حالة الحساب: {status}", uid, mid,
+                              reply_markup=kb, parse_mode="Markdown")
+
+    elif data == "settings_set_pass":
+        user_states[uid] = {"action": "set_password"}
+        bot.edit_message_text("🔐 أرسل *كلمة المرور* الجديدة:", uid, mid, parse_mode="Markdown")
+
+    elif data == "settings_change_pass":
+        user_states[uid] = {"action": "change_password_old"}
+        bot.edit_message_text("🔑 أرسل *كلمة المرور الحالية* أولاً:", uid, mid, parse_mode="Markdown")
+
+    elif data == "settings_remove_pass":
+        set_user_password(uid, "")
+        bot.answer_callback_query(call.id, "✅ تم حذف كلمة المرور")
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="menu_settings"))
+        bot.edit_message_text("✅ تم حذف كلمة المرور بنجاح.\n\nالآن يمكن الدخول بدون كلمة مرور.",
+                              uid, mid, reply_markup=kb)
 
     # ============================
     # === العمليات ===
@@ -387,8 +473,45 @@ def handle_text_input(message):
     action = state.get("action", "")
     text = message.text.strip()
 
+    # === تسجيل الدخول بكلمة المرور ===
+    if action == "login_password":
+        if verify_user_password(uid, text):
+            authenticated_users.add(uid)
+            user_states.pop(uid, None)
+            bot.send_message(uid, "✅ تم تسجيل الدخول بنجاح!\n\nاختر القسم المطلوب:",
+                             reply_markup=main_menu())
+        else:
+            bot.send_message(uid, "❌ كلمة المرور غير صحيحة. حاول مرة أخرى.\n\n🔑 أرسل كلمة المرور:")
+
+    # === تعيين كلمة مرور جديدة ===
+    elif action == "set_password":
+        set_user_password(uid, text)
+        user_states.pop(uid, None)
+        
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="menu_settings"))
+        bot.send_message(uid, "✅ تم تعيين كلمة المرور بنجاح!\n\n🔐 سيتم طلبها عند كل دخول جديد.",
+                         reply_markup=kb)
+
+    # === تغيير كلمة المرور - إدخال القديمة ===
+    elif action == "change_password_old":
+        if verify_user_password(uid, text):
+            user_states[uid] = {"action": "change_password_new"}
+            bot.send_message(uid, "✅ صحيح!\n\n🔑 أرسل *كلمة المرور الجديدة*:", parse_mode="Markdown")
+        else:
+            bot.send_message(uid, "❌ كلمة المرور غير صحيحة. حاول مرة أخرى.\n\n🔑 أرسل كلمة المرور الحالية:")
+
+    # === تغيير كلمة المرور - إدخال الجديدة ===
+    elif action == "change_password_new":
+        set_user_password(uid, text)
+        user_states.pop(uid, None)
+        
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="menu_settings"))
+        bot.send_message(uid, "✅ تم تغيير كلمة المرور بنجاح!", reply_markup=kb)
+
     # === إنشاء عملية - العنوان ===
-    if action == "op_create_title":
+    elif action == "op_create_title":
         user_states[uid] = {"action": "op_create_details", "title": text}
         bot.send_message(uid, "📝 أرسل *تفاصيل العملية* (أو أرسل - للتخطي):",
                          parse_mode="Markdown")

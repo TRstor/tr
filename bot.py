@@ -217,7 +217,6 @@ def _handle_callback_data(call, uid, mid, data):
         if has_password:
             kb.add(
                 types.InlineKeyboardButton("🔑 تغيير كلمة المرور", callback_data="settings_change_pass"),
-                types.InlineKeyboardButton("🗑 حذف كلمة المرور", callback_data="settings_remove_pass"),
             )
         else:
             kb.add(
@@ -236,14 +235,6 @@ def _handle_callback_data(call, uid, mid, data):
     elif data == "settings_change_pass":
         user_states[uid] = {"action": "change_password_old"}
         bot.edit_message_text("🔑 أرسل *كلمة المرور الحالية* أولاً:", uid, mid, parse_mode="Markdown")
-
-    elif data == "settings_remove_pass":
-        set_user_password(uid, "")
-        bot.answer_callback_query(call.id, "✅ تم حذف كلمة المرور")
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="menu_settings"))
-        bot.edit_message_text("✅ تم حذف كلمة المرور بنجاح.\n\nالآن يمكن الدخول بدون كلمة مرور.",
-                              uid, mid, reply_markup=kb)
 
     # ============================
     # === العمليات ===

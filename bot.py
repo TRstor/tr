@@ -106,18 +106,17 @@ def cmd_start(message):
     user = get_user(uid)
     
     if user is None:
-        # مستخدم جديد - إنشاء حساب
+        # مستخدم جديد - إنشاء حساب وطلب تعيين كلمة مرور
         name = message.from_user.first_name or ""
         create_user(uid, name)
-        login_user(uid)
         
+        user_states[uid] = {"action": "set_first_password"}
         text = (
             f"أهلاً وسهلاً {escape_md(name)}! 👋\n\n"
             "تم إنشاء حسابك بنجاح ✅\n\n"
-            "🔐 يمكنك تعيين كلمة مرور لحماية حسابك من الإعدادات.\n\n"
-            "اختر القسم المطلوب:"
+            "🔐 أرسل *كلمة مرور* لحماية حسابك:"
         )
-        bot.send_message(uid, text, reply_markup=main_menu(), parse_mode="Markdown")
+        bot.send_message(uid, text, parse_mode="Markdown")
     
     elif user.get("password"):
         # لديه كلمة مرور - طلب إدخالها
@@ -134,14 +133,15 @@ def cmd_start(message):
             bot.send_message(uid, "🔒 أدخل *كلمة المرور* للدخول:", parse_mode="Markdown")
     
     else:
-        # لديه حساب بدون كلمة مرور - دخول مباشر
-        login_user(uid)
+        # لديه حساب بدون كلمة مرور - طلب تعيين كلمة مرور
+        user_states[uid] = {"action": "set_first_password"}
         name = user.get("name", "")
         text = (
             f"أهلاً وسهلاً {escape_md(name)}! 👋\n\n"
-            "اختر القسم المطلوب:"
+            "⚠️ حسابك غير محمي بكلمة مرور.\n\n"
+            "🔐 أرسل *كلمة مرور* لحماية حسابك:"
         )
-        bot.send_message(uid, text, reply_markup=main_menu(), parse_mode="Markdown")
+        bot.send_message(uid, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['help'])
 def cmd_help(message):
@@ -501,7 +501,15 @@ def handle_text_input(message):
         else:
             bot.send_message(uid, "❌ كلمة المرور غير صحيحة. حاول مرة أخرى.\n\n🔑 أرسل كلمة المرور:")
 
-    # === تعيين كلمة مرور جديدة ===
+    # === تعيين كلمة مرور لأول مرة ===
+    elif action == "set_first_password":
+        set_user_password(uid, text)
+        login_user(uid)
+        user_states.pop(uid, None)
+        bot.send_message(uid, "✅ تم تعيين كلمة المرور بنجاح!\n\n🔐 سيتم طلبها عند كل دخول.\n\nاختر القسم المطلوب:",
+                         reply_markup=main_menu())
+
+    # === تعيين كلمة مرور من الإعدادات ===
     elif action == "set_password":
         set_user_password(uid, text)
         user_states.pop(uid, None)

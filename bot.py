@@ -28,8 +28,26 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # حالات المستخدمين (لتتبع المحادثة)
 user_states = {}
 
-# المستخدمون المسجلون دخول (في الذاكرة)
-authenticated_users = set()
+# المستخدمون المسجلون دخول (مع وقت انتهاء الجلسة)
+authenticated_users = {}  # {user_id: expiry_time}
+
+# مدة الجلسة بالدقائق
+SESSION_TIMEOUT_MINUTES = 3
+
+def login_user(uid):
+    """تسجيل دخول المستخدم مع وقت انتهاء"""
+    authenticated_users[uid] = datetime.now() + timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+
+def is_authenticated(uid):
+    """التحقق من تسجيل الدخول وصلاحية الجلسة"""
+    if uid not in authenticated_users:
+        return False
+    if datetime.now() > authenticated_users[uid]:
+        del authenticated_users[uid]
+        return False
+    # تجديد الجلسة عند كل تفاعل
+    authenticated_users[uid] = datetime.now() + timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+    return True
 
 # دالة مساعدة لتهريب رموز Markdown
 def escape_md(text):
@@ -91,7 +109,7 @@ def cmd_start(message):
         # مستخدم جديد - إنشاء حساب
         name = message.from_user.first_name or ""
         create_user(uid, name)
-        authenticated_users.add(uid)
+        login_user(uid)
         
         text = (
             f"أهلاً وسهلاً {escape_md(name)}! 👋\n\n"
@@ -103,7 +121,7 @@ def cmd_start(message):
     
     elif user.get("password"):
         # لديه كلمة مرور - طلب إدخالها
-        if uid in authenticated_users:
+        if uid in authenticated_users and is_authenticated(uid):
             # مسجل دخول بالفعل
             text = (
                 f"مرحباً بك مجدداً! 👋\n\n"
@@ -117,7 +135,7 @@ def cmd_start(message):
     
     else:
         # لديه حساب بدون كلمة مرور - دخول مباشر
-        authenticated_users.add(uid)
+        login_user(uid)
         name = user.get("name", "")
         text = (
             f"أهلاً وسهلاً {escape_md(name)}! 👋\n\n"
@@ -174,23 +192,23 @@ def _handle_callback_data(call, uid, mid, data):
         bot.edit_message_text("اختر القسم المطلوب:", uid, mid, reply_markup=main_menu())
 
     elif data == "menu_subscriptions":
-        if uid not in authenticated_users:
-            bot.answer_callback_query(call.id, "🔒 يرجى تسجيل الدخول أولاً /start")
+        if not is_authenticated(uid):
+            bot.answer_callback_query(call.id, "🔒 انتهت الجلسة، أرسل /start")
             return
         bot.edit_message_text("📧 *إدارة الاشتراكات*\n\nاختر الإجراء:", uid, mid,
                               reply_markup=subscriptions_menu(), parse_mode="Markdown")
 
     elif data == "menu_operations":
-        if uid not in authenticated_users:
-            bot.answer_callback_query(call.id, "🔒 يرجى تسجيل الدخول أولاً /start")
+        if not is_authenticated(uid):
+            bot.answer_callback_query(call.id, "🔒 انتهت الجلسة، أرسل /start")
             return
         bot.edit_message_text("📋 *إدارة العمليات*\n\nاختر الإجراء:", uid, mid,
                               reply_markup=operations_menu(), parse_mode="Markdown")
 
     # === الإعدادات ===
     elif data == "menu_settings":
-        if uid not in authenticated_users:
-            bot.answer_callback_query(call.id, "🔒 يرجى تسجيل الدخول أولاً /start")
+        if not is_authenticated(uid):
+            bot.answer_callback_query(call.id, "🔒 انتهت الجلسة، أرسل /start")
             return
         user = get_user(uid)
         has_password = bool(user and user.get("password"))
@@ -476,7 +494,7 @@ def handle_text_input(message):
     # === تسجيل الدخول بكلمة المرور ===
     if action == "login_password":
         if verify_user_password(uid, text):
-            authenticated_users.add(uid)
+            login_user(uid)
             user_states.pop(uid, None)
             bot.send_message(uid, "✅ تم تسجيل الدخول بنجاح!\n\nاختر القسم المطلوب:",
                              reply_markup=main_menu())

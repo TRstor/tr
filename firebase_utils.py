@@ -71,14 +71,14 @@ def get_or_create_user(user_id, name=""):
 
 
 # جدول النقاط:
-#   - PvP فوز = 3، تعادل = 1
+#   - PvP فوز = 10، تعادل = 3، خسارة = 1
 #   - ضد البوت صعب: فوز = 2، تعادل = 1
 #   - ضد البوت سهل: فوز = 1، تعادل = 0
-#   - الخسارة = 0 دائماً
+#   - الخسارة ضد البوت = 0
 POINTS_TABLE = {
-    ("pvp", "win"): 3,
-    ("pvp", "draw"): 1,
-    ("pvp", "loss"): 0,
+    ("pvp", "win"): 10,
+    ("pvp", "draw"): 3,
+    ("pvp", "loss"): 1,
     ("bot_hard", "win"): 2,
     ("bot_hard", "draw"): 1,
     ("bot_hard", "loss"): 0,
@@ -196,6 +196,7 @@ def backfill_points():
             pts = 0
             pts += POINTS_TABLE[("pvp", "win")] * data.get("pvp_wins", 0)
             pts += POINTS_TABLE[("pvp", "draw")] * data.get("pvp_draws", 0)
+            pts += POINTS_TABLE[("pvp", "loss")] * data.get("pvp_losses", 0)
             pts += POINTS_TABLE[("bot_hard", "win")] * data.get("bot_hard_wins", 0)
             pts += POINTS_TABLE[("bot_hard", "draw")] * data.get("bot_hard_draws", 0)
             pts += POINTS_TABLE[("bot_easy", "win")] * data.get("bot_easy_wins", 0)

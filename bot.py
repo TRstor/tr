@@ -935,7 +935,15 @@ def render_stats(user):
 def render_leaderboard(users, viewer_id):
     if not users:
         return "🏆 *لوحة الشرف*\n\nلا توجد بيانات بعد. كن أول الفائزين!"
-    lines = ["🏆 *لوحة الشرف - أعلى 25 لاعباً بالنقاط*", ""]
+    lines = [
+        "🏆 *لوحة الشرف - أعلى 25 لاعباً بالنقاط*",
+        "",
+        "🎁 *الجوائز:*",
+        "🥇 المركز الأول: *120 UC*",
+        "🥈 المركز الثاني: *60 UC*",
+        "🥉 المركز الثالث: *60 UC*",
+        "",
+    ]
     medals = ["🥇", "🥈", "🥉"]
     for i, u in enumerate(users):
         prefix = medals[i] if i < 3 else f"{i+1}."

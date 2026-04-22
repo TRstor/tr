@@ -184,15 +184,21 @@ def best_move_easy(board):
 # ============================
 
 def main_menu_kb():
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton("⚡ العب الآن (خصم عشوائي)", callback_data="quick_match"),
-        types.InlineKeyboardButton("🤖 لعب ضد البوت", callback_data="menu_bot"),
-        types.InlineKeyboardButton("👥 لعب ضد صديق", callback_data="menu_pvp"),
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    # صف مميّز: العب الآن (بعرض كامل)
+    kb.add(types.InlineKeyboardButton("⚡ العب الآن (خصم عشوائي)", callback_data="quick_match"))
+    # صف: أوضاع اللعب
+    kb.row(
+        types.InlineKeyboardButton("🤖 ضد البوت", callback_data="menu_bot"),
+        types.InlineKeyboardButton("👥 ضد صديق", callback_data="menu_pvp"),
+    )
+    # صف: المعلومات
+    kb.row(
         types.InlineKeyboardButton("📊 إحصائياتي", callback_data="menu_stats"),
         types.InlineKeyboardButton("🏆 لوحة الشرف", callback_data="menu_leaderboard"),
-        types.InlineKeyboardButton("ℹ️ كيف تلعب", callback_data="menu_help"),
     )
+    # صف: المساعدة
+    kb.add(types.InlineKeyboardButton("ℹ️ كيف تلعب", callback_data="menu_help"))
     return kb
 
 

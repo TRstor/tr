@@ -20,7 +20,8 @@ from telebot import types
 from config import BOT_TOKEN
 from firebase_utils import (
     get_or_create_user, record_result, get_user_stats, get_leaderboard,
-    create_game, get_game, update_game, delete_game, get_pending_games,
+    create_game, create_game_symbol, get_game, update_game, delete_game,
+    get_pending_games,
 )
 
 if not BOT_TOKEN:
@@ -686,7 +687,8 @@ def handle_pvp_action(call, data):
 
     # --- إلغاء التحدّي ---
     if action == "cancel":
-        if user_id != game.get("player_x_id"):
+        creator_id = game.get("player_x_id") or game.get("player_o_id")
+        if user_id != creator_id:
             bot.answer_callback_query(call.id, "لا يمكنك إلغاء هذا التحدّي")
             return
         if status not in ("waiting", "posted"):
@@ -711,27 +713,37 @@ def handle_pvp_action(call, data):
         except Exception: pass
         return
 
-    # --- انضمام تلقائي في رسالة Inline: أول نقرة لمستخدم غير المنشئ تجعله O ---
-    if action == "move" and status == "posted":
-        if user_id == game.get("player_x_id"):
+    # --- انضمام تلقائي: أول نقرة من مستخدم ليس هو المنشئ ---
+    if action == "move" and status in ("waiting", "posted"):
+        creator_id = game.get("player_x_id") or game.get("player_o_id")
+        creator_symbol = PLAYER_X if game.get("player_x_id") else PLAYER_O
+
+        if user_id == creator_id:
             bot.answer_callback_query(call.id, "⏳ انتظر انضمام الخصم")
             return
-        # تسجيل اللاعب O وبدء اللعبة (دون استهلاك النقرة كحركة — X يبدأ دائماً)
+
+        # المنضمّ يأخذ الرمز المعاكس
         get_or_create_user(user_id, user_name)
-        update_game(game_id, {
-            "player_o_id": user_id,
-            "player_o_name": user_name,
-            "status": "playing",
-            "turn": PLAYER_X,
-        })
+        updates = {"status": "playing", "turn": PLAYER_X}
+        joined_symbol = PLAYER_O if creator_symbol == PLAYER_X else PLAYER_X
+        if joined_symbol == PLAYER_O:
+            updates["player_o_id"] = user_id
+            updates["player_o_name"] = user_name
+        else:
+            updates["player_x_id"] = user_id
+            updates["player_x_name"] = user_name
+
+        update_game(game_id, updates)
         try:
-            bot.answer_callback_query(
-                call.id, "✅ انضممت كـ ⭕ ! ينتظر دور ❌ أولاً"
+            msg = (
+                "✅ انضممت كـ ⭕ ! ينتظر دور ❌ أولاً"
+                if joined_symbol == PLAYER_O
+                else "✅ انضممت كـ ❌ — أنت تبدأ أولاً!"
             )
+            bot.answer_callback_query(call.id, msg)
         except Exception:
             pass
         refresh_pvp_messages(game_id)
-        # تحديث رسالة المنشئ في DM لإبلاغه أن الخصم انضمّ
         _notify_creator_opponent_joined(game_id)
         return
 
@@ -941,70 +953,112 @@ def render_leaderboard(users, viewer_id):
 @bot.inline_handler(func=lambda q: True)
 def on_inline_query(inline_query):
     """
-    يُستدعى عندما يضغط المنشئ زر "مشاركة التحدّي" ويختار محادثة.
-    الاستعلام (query) = game_id. نرجع بطاقة واحدة للإرسال.
-    البطاقة تحتوي على لوحة اللعب جاهزة — لا حاجة لـ chosen_inline_result.
+    حالتان:
+      (أ) الاستعلام = game_id موجود أنشأه المستخدم من DM (زر مشاركة التحدّي)
+          → نرجع بطاقة واحدة بلوحة اللعب.
+      (ب) الاستعلام فاضي أو 'xo' → نرجع بطاقتين: "ألعب كـ ❌" و "ألعب كـ ⭕".
+          عند اختيار المستخدم واحدة، نُنشئ مباراة جديدة ونعلنها فوراً في المحادثة.
     """
     uid = inline_query.from_user.id
     name = inline_query.from_user.first_name or "لاعب"
     q = (inline_query.query or "").strip()
 
     results = []
-    if q:
-        game = get_game(q)
-        if game and game.get("status") in ("waiting", "posted") \
-                and game.get("player_x_id") == uid:
-            # نعلّم المباراة كـ "posted" مبكراً (اختيارياً) — ستُحدَّث الحالة
-            # أيضاً عند أول نقرة، لكن هذا يساعد لو لم يصل chosen_inline_result.
-            if game.get("status") == "waiting":
-                try:
-                    update_game(q, {"status": "posted"})
-                except Exception:
-                    pass
 
+    # --- (أ) استعلام بمعرّف مباراة قائمة ---
+    if q:
+        existing = get_game(q)
+        if existing and existing.get("status") in ("waiting", "posted") \
+                and existing.get("player_x_id") == uid:
             board_text = (
                 f"🎮 *لعبة XO*\n❌ {name}  ⚔️  ⭕ بانتظار لاعب...\n\n"
                 "⭕ اضغط أي مربع للانضمام كـ ⭕!"
             )
-            empty_board = [EMPTY] * 9
-            kb = board_kb(empty_board, f"pvp:{q}")
-
+            kb = board_kb([EMPTY] * 9, f"pvp:{q}")
             results.append(types.InlineQueryResultArticle(
                 id=q,
-                title="🎮 إرسال تحدّي XO",
-                description=f"لعبة ضد {name} — اضغط للإرسال",
+                title="🎮 إرسال تحدّي XO (أنشأته مسبقاً)",
+                description=f"لعبة ضد {name}",
                 input_message_content=types.InputTextMessageContent(
                     message_text=board_text, parse_mode="Markdown",
                 ),
                 reply_markup=kb,
             ))
-        else:
-            results.append(types.InlineQueryResultArticle(
-                id="invalid",
-                title="❌ التحدّي غير متاح",
-                description="منتهي الصلاحية أو لست صاحبه",
-                input_message_content=types.InputTextMessageContent(
-                    message_text="❌ هذا التحدّي لم يعد متاحاً."
-                ),
-            ))
-    else:
-        username = get_bot_username()
+            try:
+                bot.answer_inline_query(
+                    inline_query.id, results, cache_time=0, is_personal=True,
+                )
+            except Exception as e:
+                print(f"⚠️ answer_inline_query (existing): {e}")
+            return
+
+    # --- (ب) استعلام فاضي أو "xo" → اعرض بطاقتي اختيار الرمز ---
+    q_lower = q.lower()
+    if q == "" or "xo" in q_lower or "اكس" in q or "او" in q:
+        get_or_create_user(uid, name)
+
+        # ننشئ مباراتين جاهزتين (واحدة لكل خيار). غير المستعملة ستُلغى تلقائياً.
+        gid_x = secrets.token_urlsafe(8)
+        gid_o = secrets.token_urlsafe(8)
+        create_game_symbol(gid_x, uid, name, "X")
+        create_game_symbol(gid_o, uid, name, "O")
+
+        # بطاقة: ألعب كـ ❌
+        text_x = (
+            f"🎮 *لعبة XO*\n❌ {name}  ⚔️  ⭕ بانتظار لاعب...\n\n"
+            "⭕ اضغط أي مربع للانضمام كـ ⭕!"
+        )
+        kb_x = board_kb([EMPTY] * 9, f"pvp:{gid_x}")
+
+        # بطاقة: ألعب كـ ⭕
+        text_o = (
+            f"🎮 *لعبة XO*\n❌ بانتظار لاعب...  ⚔️  ⭕ {name}\n\n"
+            "❌ اضغط أي مربع للانضمام كـ ❌ (وتبدأ أولاً)!"
+        )
+        kb_o = board_kb([EMPTY] * 9, f"pvp:{gid_o}")
+
         results.append(types.InlineQueryResultArticle(
-            id="help",
-            title="أنشئ تحدّياً أولاً",
-            description="افتح البوت وأنشئ تحدٍّ ثم اضغط مشاركة",
+            id=gid_x,
+            title="❌ ألعب كـ X (أبدأ أولاً)",
+            description="إرسال تحدّي وأنت تلعب بالـ ❌",
             input_message_content=types.InputTextMessageContent(
-                message_text=f"افتح @{username} وأنشئ تحدٍّ أولاً." if username
-                else "افتح البوت وأنشئ تحدٍّ أولاً."
+                message_text=text_x, parse_mode="Markdown",
             ),
+            reply_markup=kb_x,
+        ))
+        results.append(types.InlineQueryResultArticle(
+            id=gid_o,
+            title="⭕ ألعب كـ O",
+            description="إرسال تحدّي وأنت تلعب بالـ ⭕ (الخصم يبدأ)",
+            input_message_content=types.InputTextMessageContent(
+                message_text=text_o, parse_mode="Markdown",
+            ),
+            reply_markup=kb_o,
         ))
 
+        try:
+            bot.answer_inline_query(
+                inline_query.id, results, cache_time=0, is_personal=True,
+            )
+        except Exception as e:
+            print(f"⚠️ answer_inline_query (choice): {e}")
+        return
+
+    # --- حالة مجهولة: رسالة إرشادية ---
+    results.append(types.InlineQueryResultArticle(
+        id="help",
+        title="اكتب XO لبدء تحدٍّ",
+        description="اكتب 'XO' بعد اسم البوت لعرض خياري ❌ و ⭕",
+        input_message_content=types.InputTextMessageContent(
+            message_text="اكتب XO بعد اسم البوت لبدء تحدٍّ.",
+        ),
+    ))
     try:
         bot.answer_inline_query(
             inline_query.id, results, cache_time=0, is_personal=True,
         )
     except Exception as e:
-        print(f"⚠️ answer_inline_query: {e}")
+        print(f"⚠️ answer_inline_query (help): {e}")
 
 
 @bot.chosen_inline_handler(func=lambda c: True)
@@ -1094,13 +1148,15 @@ def render_inline_board(game_id):
         return
 
     status = game.get("status")
-    x_name = game.get("player_x_name", "X")
+    x_name = game.get("player_x_name") or "بانتظار لاعب..."
     o_name = game.get("player_o_name") or "بانتظار لاعب..."
 
     header = f"🎮 *لعبة XO*\n❌ {x_name}  ⚔️  ⭕ {o_name}\n"
 
-    if status == "posted":
-        header += "\n⭕ اضغط أي مربع للانضمام كـ ⭕!"
+    if status in ("waiting", "posted"):
+        missing = PLAYER_O if game.get("player_x_id") and not game.get("player_o_id") else PLAYER_X
+        sym = "⭕" if missing == PLAYER_O else "❌"
+        header += f"\n{sym} اضغط أي مربع للانضمام كـ {sym}!"
     elif status == "playing":
         turn = game.get("turn", PLAYER_X)
         sym = "❌" if turn == PLAYER_X else "⭕"

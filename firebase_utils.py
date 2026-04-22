@@ -113,7 +113,7 @@ def get_leaderboard(limit=10):
 # ============================
 
 def create_game(game_id, player_x_id, player_x_name, x_chat_id):
-    """إنشاء مباراة PvP جديدة بانتظار اللاعب الثاني"""
+    """إنشاء مباراة PvP جديدة: المنشئ يلعب كـ ❌"""
     db.collection("games").document(game_id).set({
         "player_x_id": int(player_x_id),
         "player_x_name": player_x_name,
@@ -121,15 +121,47 @@ def create_game(game_id, player_x_id, player_x_name, x_chat_id):
         "player_o_name": None,
         "board": "---------",  # 9 خانات
         "turn": "X",
-        "status": "waiting",  # waiting | posted | playing | finished
-        "winner": None,  # X | O | draw | None
-        "x_chat_id": int(x_chat_id),
+        "status": "waiting",
+        "winner": None,
+        "x_chat_id": int(x_chat_id) if x_chat_id else None,
         "x_msg_id": None,
         "o_chat_id": None,
         "o_msg_id": None,
         "inline_message_id": None,
         "created_at": firestore.SERVER_TIMESTAMP,
     })
+
+
+def create_game_symbol(game_id, creator_id, creator_name, symbol):
+    """
+    إنشاء مباراة مع اختيار رمز المنشئ (X أو O).
+    إذا اختار X → هو player_x ويبدأ أولاً.
+    إذا اختار O → هو player_o، والدور للـ X الذي سينضم.
+    """
+    symbol = symbol.upper()
+    base = {
+        "player_x_id": None,
+        "player_x_name": None,
+        "player_o_id": None,
+        "player_o_name": None,
+        "board": "---------",
+        "turn": "X",
+        "status": "waiting",
+        "winner": None,
+        "x_chat_id": None,
+        "x_msg_id": None,
+        "o_chat_id": None,
+        "o_msg_id": None,
+        "inline_message_id": None,
+        "created_at": firestore.SERVER_TIMESTAMP,
+    }
+    if symbol == "X":
+        base["player_x_id"] = int(creator_id)
+        base["player_x_name"] = creator_name
+    else:
+        base["player_o_id"] = int(creator_id)
+        base["player_o_name"] = creator_name
+    db.collection("games").document(game_id).set(base)
 
 
 def get_game(game_id):

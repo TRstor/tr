@@ -57,6 +57,9 @@ PLAYER_O = "O"
 # إذا لم تبدأ المباراة خلال هذه المدة، تُلغى تلقائياً
 CHALLENGE_TIMEOUT_SECONDS = 120  # دقيقتان
 
+# مهلة كل حركة في PvP — من يتأخر يخسر
+MOVE_TIMEOUT_SECONDS = 10
+
 # ====== جدولة إعادة ضبط النقاط الأسبوعية ======
 # كل جمعة 00:00 بتوقيت الرياض (UTC+3) → الخميس 21:00 UTC
 RIYADH_OFFSET = timedelta(hours=3)
@@ -748,7 +751,8 @@ def handle_pvp_action(call, data):
 
         # المنضمّ يأخذ الرمز المعاكس
         get_or_create_user(user_id, user_name)
-        updates = {"status": "playing", "turn": PLAYER_X}
+        deadline = datetime.now(timezone.utc) + timedelta(seconds=MOVE_TIMEOUT_SECONDS)
+        updates = {"status": "playing", "turn": PLAYER_X, "turn_deadline": deadline}
         joined_symbol = PLAYER_O if creator_symbol == PLAYER_X else PLAYER_X
         if joined_symbol == PLAYER_O:
             updates["player_o_id"] = user_id
@@ -801,9 +805,11 @@ def handle_pvp_action(call, data):
         result = check_winner(board)
         next_turn = PLAYER_O if turn == PLAYER_X else PLAYER_X
 
+        new_deadline = datetime.now(timezone.utc) + timedelta(seconds=MOVE_TIMEOUT_SECONDS)
         update_game(game_id, {
             "board": board_str(board),
             "turn": next_turn,
+            "turn_deadline": new_deadline,
         })
 
         if result:
@@ -1203,7 +1209,20 @@ def render_inline_board(game_id):
         turn = game.get("turn", PLAYER_X)
         sym = "❌" if turn == PLAYER_X else "⭕"
         nm = x_name if turn == PLAYER_X else o_name
-        header += f"\n⏳ الدور على {nm} ({sym})"
+        # عدّاد الثواني المتبقية للحركة الحالية
+        dl = game.get("turn_deadline")
+        secs_txt = ""
+        if dl is not None:
+            try:
+                if getattr(dl, "tzinfo", None) is None:
+                    dl = dl.replace(tzinfo=timezone.utc)
+                secs = int((dl - datetime.now(timezone.utc)).total_seconds())
+                secs = max(0, secs)
+                secs_txt = f"  ⏱️ {secs} ث"
+            except Exception:
+                pass
+        header += f"\n⏳ الدور على {nm} ({sym}){secs_txt}"
+        header += f"\n_لديك {MOVE_TIMEOUT_SECONDS} ثوانٍ لكل حركة وإلا خسرت!_"
     elif status == "finished":
         winner = game.get("winner")
         if winner == "draw":
@@ -1212,6 +1231,8 @@ def render_inline_board(game_id):
             wn = x_name if winner == PLAYER_X else o_name
             sym = "❌" if winner == PLAYER_X else "⭕"
             header += f"\n🏆 الفائز: {wn} ({sym})"
+        if game.get("end_reason") == "timeout":
+            header += "\n⌛ (خسر الخصم بانتهاء مهلة الحركة)"
 
     board = board_list(game.get("board", EMPTY * 9))
     disabled = (status == "finished")
@@ -1278,6 +1299,41 @@ def expire_game(game_id, reason):
                 print(f"⚠️ expire DM O: {e}")
 
     delete_game(game_id)
+
+
+def move_timeout_checker():
+    """ثريد خلفي يفحص انتهاء مهلة الحركة في مباريات PvP النشطة كل ثانيتين."""
+    while True:
+        try:
+            pending = get_pending_games()
+            now = datetime.now(timezone.utc)
+            for g in pending:
+                if g.get("status") != "playing":
+                    continue
+                dl = g.get("turn_deadline")
+                if not dl:
+                    continue
+                try:
+                    if getattr(dl, "tzinfo", None) is None:
+                        dl = dl.replace(tzinfo=timezone.utc)
+                    if (now - dl).total_seconds() <= 0:
+                        continue
+                except Exception:
+                    continue
+                # انتهت مهلة اللاعب صاحب الدور → يخسر
+                turn = g.get("turn", PLAYER_X)
+                winner = PLAYER_O if turn == PLAYER_X else PLAYER_X
+                loser_name = (g.get("player_x_name") if turn == PLAYER_X
+                              else g.get("player_o_name")) or "اللاعب"
+                print(f"[move_timeout] game_id={g.get('id')} loser={turn} winner={winner}")
+                try:
+                    update_game(g["id"], {"end_reason": "timeout"})
+                    finalize_pvp(g["id"], winner, resigned=False)
+                except Exception as e:
+                    print(f"⚠️ move_timeout finalize: {e}")
+        except Exception as e:
+            print(f"⚠️ move_timeout_checker: {e}")
+        time_mod.sleep(2)
 
 
 def expiration_checker():
@@ -1375,6 +1431,10 @@ if __name__ == "__main__":
     # ثريد فحص انتهاء صلاحية التحدّيات
     threading.Thread(target=expiration_checker, daemon=True).start()
     print(f"⏳ فاحص انتهاء الصلاحية يعمل (مدة: {CHALLENGE_TIMEOUT_SECONDS}s)")
+
+    # ثريد فحص مهلة الحركة (10 ثواني لكل حركة)
+    threading.Thread(target=move_timeout_checker, daemon=True).start()
+    print(f"⏱️ فاحص مهلة الحركة يعمل (مدة: {MOVE_TIMEOUT_SECONDS}s لكل حركة)")
 
     # حساب النقاط للمستخدمين القدامى (إن وُجدوا)
     try:

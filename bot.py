@@ -638,37 +638,25 @@ def handle_pvp_create(call):
     name = call.from_user.first_name or "لاعب"
     get_or_create_user(uid, name)
 
-    game_id = secrets.token_urlsafe(8)
-    create_game(game_id, uid, name, uid)
-
-    username = get_bot_username()
-    print(f"[PvP] created game_id={game_id} by uid={uid} username={username!r}")
-
     text = (
-        "✅ *تم إنشاء تحدٍّ جديد!*\n\n"
-        "📤 اضغط زر *\"مشاركة التحدّي\"* ثم اختر محادثة صديقك — "
-        "ستُنشر لوحة اللعبة هناك وتلعبان في تلك المحادثة مباشرةً.\n\n"
-        f"⏳ إذا لم يبدأ التحدّي خلال {CHALLENGE_TIMEOUT_SECONDS // 60} دقيقتين، "
-        "سيُلغى تلقائياً."
+        "🎮 *تحدٍّ ضد صديق*\n\n"
+        "📤 اضغط *\"مشاركة التحدّي\"* ثم اختر محادثة صديقك.\n"
+        "ستظهر لك بطاقتان: *ألعب كـ ❌* أو *ألعب كـ ⭕* — اختر واحدة وأرسلها "
+        "لتبدأ اللعبة في تلك المحادثة مباشرةً.\n\n"
+        f"⏳ إذا لم يبدأ اللعب خلال {CHALLENGE_TIMEOUT_SECONDS // 60} دقيقتين، "
+        "يُلغى التحدّي تلقائياً."
     )
     kb = types.InlineKeyboardMarkup(row_width=1)
-
-    # الزر الأساسي: switch_inline_query مع game_id كـ query
-    # عند ضغطه، يفتح تيليجرام قائمة المحادثات ويضع @bot <game_id> في الإدخال.
-    # ثم inline_handler يعرض بطاقة للإرسال، وعند إرسالها تُنشر رسالة اللعبة.
+    # prefill "XO" حتى يظهر للمستخدم بطاقتا X/O نظيفة بدل رمز عشوائي.
     kb.add(types.InlineKeyboardButton(
         "📤 مشاركة التحدّي في محادثة",
-        switch_inline_query=game_id,
+        switch_inline_query="XO",
     ))
-    kb.add(
-        types.InlineKeyboardButton("❌ إلغاء التحدّي", callback_data=f"pvp:{game_id}:cancel"),
-        types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
-    )
-    sent = bot.edit_message_text(
+    kb.add(types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"))
+    bot.edit_message_text(
         text, uid, mid, reply_markup=kb,
         parse_mode="Markdown", disable_web_page_preview=True,
     )
-    update_game(game_id, {"x_msg_id": sent.message_id})
 
 
 def handle_pvp_action(call, data):

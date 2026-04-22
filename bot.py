@@ -648,6 +648,18 @@ def handle_pvp_action(call, data):
     user_name = call.from_user.first_name or "لاعب"
     is_inline = call.message is None
 
+    # إذا وصلنا callback من رسالة inline، نحفظ inline_message_id لأول مرة
+    if is_inline and call.inline_message_id:
+        _g = get_game(game_id)
+        if _g and not _g.get("inline_message_id"):
+            try:
+                update_game(game_id, {
+                    "inline_message_id": call.inline_message_id,
+                    "status": "posted" if _g.get("status") == "waiting" else _g.get("status"),
+                })
+            except Exception as e:
+                print(f"⚠️ save inline_message_id: {e}")
+
     game = get_game(game_id)
     if not game:
         try:
@@ -719,6 +731,8 @@ def handle_pvp_action(call, data):
         except Exception:
             pass
         refresh_pvp_messages(game_id)
+        # تحديث رسالة المنشئ في DM لإبلاغه أن الخصم انضمّ
+        _notify_creator_opponent_joined(game_id)
         return
 
     # --- حركة عادية ---
@@ -929,6 +943,7 @@ def on_inline_query(inline_query):
     """
     يُستدعى عندما يضغط المنشئ زر "مشاركة التحدّي" ويختار محادثة.
     الاستعلام (query) = game_id. نرجع بطاقة واحدة للإرسال.
+    البطاقة تحتوي على لوحة اللعب جاهزة — لا حاجة لـ chosen_inline_result.
     """
     uid = inline_query.from_user.id
     name = inline_query.from_user.first_name or "لاعب"
@@ -939,19 +954,27 @@ def on_inline_query(inline_query):
         game = get_game(q)
         if game and game.get("status") in ("waiting", "posted") \
                 and game.get("player_x_id") == uid:
-            preview_text = (
-                f"🎮 *تحدّي XO*\n\n"
-                f"❌ {name}  ⚔️  ⭕ بانتظار لاعب...\n\n"
-                "⏳ جاري التحضير..."
+            # نعلّم المباراة كـ "posted" مبكراً (اختيارياً) — ستُحدَّث الحالة
+            # أيضاً عند أول نقرة، لكن هذا يساعد لو لم يصل chosen_inline_result.
+            if game.get("status") == "waiting":
+                try:
+                    update_game(q, {"status": "posted"})
+                except Exception:
+                    pass
+
+            board_text = (
+                f"🎮 *لعبة XO*\n❌ {name}  ⚔️  ⭕ بانتظار لاعب...\n\n"
+                "⭕ اضغط أي مربع للانضمام كـ ⭕!"
             )
-            kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton("⏳ لحظات...", callback_data=f"pvp:{q}:noop"))
+            empty_board = [EMPTY] * 9
+            kb = board_kb(empty_board, f"pvp:{q}")
+
             results.append(types.InlineQueryResultArticle(
                 id=q,
-                title=f"🎮 إرسال تحدّي XO",
+                title="🎮 إرسال تحدّي XO",
                 description=f"لعبة ضد {name} — اضغط للإرسال",
                 input_message_content=types.InputTextMessageContent(
-                    message_text=preview_text, parse_mode="Markdown",
+                    message_text=board_text, parse_mode="Markdown",
                 ),
                 reply_markup=kb,
             ))
@@ -1028,6 +1051,37 @@ def on_chosen_inline(chosen):
     except Exception as e:
         if "message is not modified" not in str(e):
             print(f"⚠️ update creator DM: {e}")
+
+
+def _notify_creator_opponent_joined(game_id):
+    """تحديث رسالة المنشئ في DM لإبلاغه بأن الخصم انضمّ وبدأت اللعبة."""
+    game = get_game(game_id)
+    if not game:
+        return
+    chat_id = game.get("x_chat_id")
+    msg_id = game.get("x_msg_id")
+    if not (chat_id and msg_id):
+        return
+    o_name = game.get("player_o_name", "لاعب")
+    text = (
+        f"🎮 *بدأت المباراة!*\n\n"
+        f"❌ أنت  ⚔️  ⭕ {o_name}\n\n"
+        "🎯 افتح المحادثة التي أرسلت إليها التحدّي والعب هناك.\n"
+        "أنت تبدأ أولاً (❌)."
+    )
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("🏳️ استسلام", callback_data=f"pvp:{game_id}:resign"),
+        types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
+    )
+    try:
+        bot.edit_message_text(
+            text, chat_id=chat_id, message_id=msg_id,
+            reply_markup=kb, parse_mode="Markdown",
+        )
+    except Exception as e:
+        if "message is not modified" not in str(e):
+            print(f"⚠️ notify creator: {e}")
 
 
 def render_inline_board(game_id):

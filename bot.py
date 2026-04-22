@@ -23,6 +23,7 @@ from firebase_utils import (
     create_game, create_game_symbol, get_game, update_game, delete_game,
     get_pending_games, backfill_points,
     reset_all_points, archive_season, get_meta, set_last_reset,
+    queue_add, queue_remove, queue_in, queue_size, queue_try_match,
 )
 
 if not BOT_TOKEN:
@@ -59,6 +60,12 @@ CHALLENGE_TIMEOUT_SECONDS = 120  # دقيقتان
 
 # مهلة كل حركة في PvP — من يتأخر يخسر
 MOVE_TIMEOUT_SECONDS = 10
+
+# مهلة البحث عن خصم في "العب الآن"
+QUICK_MATCH_TIMEOUT_SECONDS = 60
+# { user_id: {"chat_id":..., "msg_id":..., "joined_at":datetime} }
+quick_search_sessions = {}
+_qs_lock = threading.Lock()
 
 # ====== جدولة إعادة ضبط النقاط الأسبوعية ======
 # كل جمعة 00:00 بتوقيت الرياض (UTC+3) → الخميس 21:00 UTC
@@ -179,6 +186,7 @@ def best_move_easy(board):
 def main_menu_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(
+        types.InlineKeyboardButton("⚡ العب الآن (خصم عشوائي)", callback_data="quick_match"),
         types.InlineKeyboardButton("🤖 لعب ضد البوت", callback_data="menu_bot"),
         types.InlineKeyboardButton("👥 لعب ضد صديق", callback_data="menu_pvp"),
         types.InlineKeyboardButton("📊 إحصائياتي", callback_data="menu_stats"),
@@ -469,6 +477,14 @@ def _dispatch(call):
         )
         return
 
+    if data == "quick_match":
+        handle_quick_match(call)
+        return
+
+    if data == "qm_cancel":
+        handle_quick_match_cancel(call)
+        return
+
     if data == "menu_stats":
         user = get_user_stats(uid) or get_or_create_user(uid, call.from_user.first_name or "")
         text = render_stats(user)
@@ -629,6 +645,203 @@ def finish_bot_game(uid, mid, game, board, result):
         final_text, uid, mid,
         reply_markup=kb, parse_mode="Markdown",
     )
+
+
+# ============================
+# === العب الآن (Quick Match) ===
+# ============================
+
+def _qm_search_text(elapsed_sec, q_size):
+    m, s = divmod(max(0, elapsed_sec), 60)
+    return (
+        "🔍 *البحث عن خصم...*\n\n"
+        f"⏱️ {m}:{s:02d}\n"
+        f"👥 في الطابور: *{q_size}* لاعب\n\n"
+        f"_سيُلغى البحث تلقائياً بعد {QUICK_MATCH_TIMEOUT_SECONDS} ثانية._"
+    )
+
+
+def _qm_cancel_kb():
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("❌ إلغاء البحث", callback_data="qm_cancel"))
+    return kb
+
+
+def handle_quick_match(call):
+    uid = call.message.chat.id
+    mid = call.message.message_id
+    name = call.from_user.first_name or "لاعب"
+    get_or_create_user(uid, name)
+
+    # إن كان اللاعب أصلاً في الطابور، أظهر له شاشة البحث
+    try:
+        opponent = queue_try_match(uid, name, uid)
+    except Exception as e:
+        print(f"⚠️ queue_try_match: {e}")
+        bot.answer_callback_query(call.id, "تعذّر الاتصال، حاول مجدداً")
+        return
+
+    if opponent is None:
+        # دخلت الطابور، ابدأ شاشة البحث
+        try:
+            qsz = queue_size()
+        except Exception:
+            qsz = 1
+        bot.edit_message_text(
+            _qm_search_text(0, qsz), uid, mid,
+            reply_markup=_qm_cancel_kb(), parse_mode="Markdown",
+        )
+        with _qs_lock:
+            quick_search_sessions[uid] = {
+                "chat_id": uid, "msg_id": mid,
+                "joined_at": datetime.now(timezone.utc),
+                "name": name,
+            }
+        try:
+            bot.answer_callback_query(call.id, "🔍 يبحث عن خصم...")
+        except Exception:
+            pass
+        return
+
+    # وُجد خصم! أنشئ مباراة وأطلق اللعب.
+    _start_quick_match(
+        x_player={"id": opponent["user_id"], "name": opponent["name"], "chat_id": opponent["chat_id"]},
+        o_player={"id": uid, "name": name, "chat_id": uid, "msg_id": mid},
+    )
+    try:
+        bot.answer_callback_query(call.id, "✅ وُجد خصم!")
+    except Exception:
+        pass
+
+
+def handle_quick_match_cancel(call):
+    uid = call.message.chat.id
+    mid = call.message.message_id
+    queue_remove(uid)
+    with _qs_lock:
+        quick_search_sessions.pop(uid, None)
+    bot.edit_message_text(
+        "✅ تم إلغاء البحث.", uid, mid, reply_markup=main_menu_kb(),
+    )
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+
+
+def _start_quick_match(x_player, o_player):
+    """
+    x_player = منتظِر الطابور (سيكون ❌ ويبدأ أولاً) — ليس لديه msg_id بعد.
+    o_player = الداخل الجديد (سيكون ⭕) — لديه msg_id من رسالة البحث.
+    """
+    game_id = secrets.token_urlsafe(8)
+    create_game(game_id, x_player["id"], x_player["name"], x_player["chat_id"])
+    deadline = datetime.now(timezone.utc) + timedelta(seconds=MOVE_TIMEOUT_SECONDS)
+
+    board = [EMPTY] * 9
+
+    # رسالة X: إن كانت له جلسة بحث، استخدم msg_id الموجود (تحديث نفس الرسالة).
+    with _qs_lock:
+        x_sess = quick_search_sessions.get(x_player["id"])
+    x_msg_id = None
+    if x_sess:
+        x_msg_id = x_sess["msg_id"]
+        try:
+            bot.edit_message_text(
+                f"🎮 *وُجد خصم!*\n❌ أنت  ⚔️  ⭕ {o_player['name']}\n\nاللوحة تُحمّل...",
+                x_player["chat_id"], x_msg_id,
+                reply_markup=board_kb(board, f"pvp:{game_id}"),
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            print(f"⚠️ quick_match edit X: {e}")
+            x_msg_id = None
+
+    # إن تعذّر التعديل، أرسل رسالة جديدة للاعب X
+    if not x_msg_id:
+        try:
+            sent_x = bot.send_message(
+                x_player["chat_id"],
+                f"🎮 *وُجد خصم!*\n❌ أنت  ⚔️  ⭕ {o_player['name']}\n\nاللوحة تُحمّل...",
+                reply_markup=board_kb(board, f"pvp:{game_id}"),
+                parse_mode="Markdown",
+            )
+            x_msg_id = sent_x.message_id
+        except Exception as e:
+            print(f"⚠️ quick_match send X: {e}")
+
+    update_game(game_id, {
+        "player_o_id": int(o_player["id"]),
+        "player_o_name": o_player["name"],
+        "status": "playing",
+        "turn": PLAYER_X,
+        "turn_deadline": deadline,
+        "x_chat_id": int(x_player["chat_id"]),
+        "x_msg_id": x_msg_id,
+        "o_chat_id": int(o_player["chat_id"]),
+        "o_msg_id": int(o_player["msg_id"]),
+    })
+
+    # أزل جلسة البحث من الذاكرة (لكلا اللاعبَين إن وُجدا)
+    with _qs_lock:
+        quick_search_sessions.pop(o_player["id"], None)
+        quick_search_sessions.pop(x_player["id"], None)
+
+    # تحديث الرسالتين بمحتوى اللعبة
+    refresh_pvp_messages(game_id)
+
+
+def quick_match_checker():
+    """ثريد خلفي يحدّث عدّاد البحث كل 3 ث، وينفّذ timeout بعد 60ث."""
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            with _qs_lock:
+                sessions = list(quick_search_sessions.items())
+            for uid, s in sessions:
+                elapsed = int((now - s["joined_at"]).total_seconds())
+
+                # timeout
+                if elapsed >= QUICK_MATCH_TIMEOUT_SECONDS:
+                    queue_remove(uid)
+                    with _qs_lock:
+                        quick_search_sessions.pop(uid, None)
+                    try:
+                        kb = types.InlineKeyboardMarkup(row_width=1)
+                        kb.add(types.InlineKeyboardButton(
+                            "🤖 العب ضد البوت بدلاً من ذلك",
+                            callback_data="menu_bot",
+                        ))
+                        kb.add(types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"))
+                        bot.edit_message_text(
+                            "😔 *لم نجد لك خصماً الآن.*\n\n"
+                            "جرّب مرة أخرى بعد قليل أو العب ضد البوت.",
+                            s["chat_id"], s["msg_id"],
+                            reply_markup=kb, parse_mode="Markdown",
+                        )
+                    except Exception as e:
+                        if "message is not modified" not in str(e):
+                            print(f"⚠️ qm timeout edit: {e}")
+                    continue
+
+                # تحديث العدّاد
+                try:
+                    qsz = queue_size()
+                except Exception:
+                    qsz = 1
+                try:
+                    bot.edit_message_text(
+                        _qm_search_text(elapsed, qsz),
+                        s["chat_id"], s["msg_id"],
+                        reply_markup=_qm_cancel_kb(),
+                        parse_mode="Markdown",
+                    )
+                except Exception as e:
+                    if "message is not modified" not in str(e):
+                        print(f"⚠️ qm refresh: {e}")
+        except Exception as e:
+            print(f"⚠️ quick_match_checker: {e}")
+        time_mod.sleep(3)
 
 
 # ============================
@@ -1435,6 +1648,10 @@ if __name__ == "__main__":
     # ثريد فحص مهلة الحركة (10 ثواني لكل حركة)
     threading.Thread(target=move_timeout_checker, daemon=True).start()
     print(f"⏱️ فاحص مهلة الحركة يعمل (مدة: {MOVE_TIMEOUT_SECONDS}s لكل حركة)")
+
+    # ثريد تحديث عدّاد البحث في "العب الآن"
+    threading.Thread(target=quick_match_checker, daemon=True).start()
+    print(f"⚡ فاحص Quick Match يعمل (مهلة البحث: {QUICK_MATCH_TIMEOUT_SECONDS}s)")
 
     # حساب النقاط للمستخدمين القدامى (إن وُجدوا)
     try:

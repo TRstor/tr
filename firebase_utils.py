@@ -270,6 +270,79 @@ def get_game(game_id):
     return None
 
 
+# ============================
+# === طابور "العب الآن" ===
+# ============================
+
+def queue_add(user_id, name, chat_id):
+    """أضف لاعباً للطابور (أو حدّث بياناته إن كان موجوداً)."""
+    db.collection("queue").document(str(user_id)).set({
+        "user_id": int(user_id),
+        "name": name or "لاعب",
+        "chat_id": int(chat_id),
+        "joined_at": firestore.SERVER_TIMESTAMP,
+    })
+
+
+def queue_remove(user_id):
+    """أزل لاعباً من الطابور (بصمت إن لم يكن موجوداً)."""
+    try:
+        db.collection("queue").document(str(user_id)).delete()
+    except Exception:
+        pass
+
+
+def queue_in(user_id):
+    """هل اللاعب حالياً في الطابور؟"""
+    return db.collection("queue").document(str(user_id)).get().exists
+
+
+def queue_size():
+    """عدد اللاعبين المنتظرين."""
+    try:
+        # count() أخف من stream()
+        agg = db.collection("queue").count().get()
+        return int(agg[0][0].value)
+    except Exception:
+        # fallback
+        return sum(1 for _ in db.collection("queue").limit(500).stream())
+
+
+def queue_try_match(new_user_id, new_name, new_chat_id):
+    """
+    محاولة مطابقة ذرّية:
+      - إن وجد منتظراً غيرك → احذفه من الطابور وأرجعه (مباراة!).
+      - إن لم يوجد → أضفك للطابور وأرجع None (انتظار).
+    ذرّية عبر Firestore Transaction لمنع race conditions.
+    """
+    queue_ref = db.collection("queue")
+
+    @firestore.transactional
+    def _txn(transaction):
+        # ابحث عن أقدم منتظر غير الـ new_user_id
+        docs = list(queue_ref.order_by("joined_at").limit(5).stream(transaction=transaction))
+        opponent = None
+        for d in docs:
+            if d.id != str(new_user_id):
+                opponent = d
+                break
+        if opponent is not None:
+            transaction.delete(opponent.reference)
+            data = opponent.to_dict()
+            return {"id": opponent.id, **data}
+        # لا يوجد منافس → أضف الداخل للطابور
+        transaction.set(queue_ref.document(str(new_user_id)), {
+            "user_id": int(new_user_id),
+            "name": new_name or "لاعب",
+            "chat_id": int(new_chat_id),
+            "joined_at": firestore.SERVER_TIMESTAMP,
+        })
+        return None
+
+    transaction = db.transaction()
+    return _txn(transaction)
+
+
 def get_pending_games():
     """جلب كل المباريات التي لم تنتهِ (waiting | posted | playing) لفحص انتهاء الصلاحية."""
     docs = db.collection("games") \

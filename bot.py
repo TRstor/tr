@@ -865,7 +865,7 @@ def handle_pvp_create(call):
         "📤 اضغط الزر بالأسفل\n"
         "   أو\n"
         "⌨️ اكتب في أي محادثة:\n"
-        f" `@{username} XO`\n\n"
+        f"`@{username} XO`\n\n"
         "ثم اختر: *❌* (تبدأ أولاً) أو *⭕*\n"
         "وأرسل البطاقة لتبدأ اللعبة فوراً!\n\n"
         f"⏳ صلاحية التحدّي: {CHALLENGE_TIMEOUT_SECONDS // 60} دقيقتان"

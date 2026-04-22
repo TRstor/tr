@@ -1,27 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-أدوات Firebase - التعامل مع قاعدة البيانات Firestore
+أدوات Firebase - تخزين إحصائيات اللاعبين ومباريات PvP للعبة XO
 """
 
 import json
-import os
 import firebase_admin
 from firebase_admin import credentials, firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 from config import FIREBASE_CREDENTIALS
 
-# === تهيئة Firebase ===
+
 def init_firebase():
     """تهيئة اتصال Firebase"""
     try:
-        if FIREBASE_CREDENTIALS:
-            cred_dict = json.loads(FIREBASE_CREDENTIALS)
-            cred = credentials.Certificate(cred_dict)
-        else:
-            print("❌ يرجى تعيين FIREBASE_CREDENTIALS في متغيرات البيئة على Render")
+        if not FIREBASE_CREDENTIALS:
+            print("❌ يرجى تعيين FIREBASE_CREDENTIALS في متغيرات البيئة")
             return None
-        
+        cred_dict = json.loads(FIREBASE_CREDENTIALS)
+        cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
         db = firestore.client()
         print("✅ تم الاتصال بـ Firebase بنجاح")
@@ -30,217 +28,119 @@ def init_firebase():
         print(f"❌ خطأ في الاتصال بـ Firebase: {e}")
         return None
 
+
 db = init_firebase()
 
+
 # ============================
-# === دوال المستخدمين ===
+# === المستخدمون والإحصائيات ===
 # ============================
 
-def get_user(user_id):
-    """جلب بيانات المستخدم"""
+def get_or_create_user(user_id, name=""):
+    """جلب مستخدم أو إنشاؤه بسجل إحصائيات صفري"""
+    ref = db.collection("users").document(str(user_id))
+    doc = ref.get()
+    if doc.exists:
+        data = doc.to_dict()
+        # تحديث الاسم إذا تغيّر
+        if name and data.get("name") != name:
+            ref.update({"name": name})
+            data["name"] = name
+        return {"id": doc.id, **data}
+
+    new_data = {
+        "user_id": int(user_id),
+        "name": name or "لاعب",
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "bot_easy_wins": 0,
+        "bot_easy_losses": 0,
+        "bot_easy_draws": 0,
+        "bot_hard_wins": 0,
+        "bot_hard_losses": 0,
+        "bot_hard_draws": 0,
+        "pvp_wins": 0,
+        "pvp_losses": 0,
+        "pvp_draws": 0,
+        "created_at": firestore.SERVER_TIMESTAMP,
+    }
+    ref.set(new_data)
+    return {"id": str(user_id), **new_data}
+
+
+def record_result(user_id, mode, result):
+    """
+    mode: 'bot_easy' | 'bot_hard' | 'pvp'
+    result: 'win' | 'loss' | 'draw'
+    """
+    if mode not in ("bot_easy", "bot_hard", "pvp"):
+        return
+    if result not in ("win", "loss", "draw"):
+        return
+
+    ref = db.collection("users").document(str(user_id))
+    # الإجمالي
+    total_key = {"win": "wins", "loss": "losses", "draw": "draws"}[result]
+    # حسب النمط
+    mode_key = f"{mode}_{ {'win':'wins','loss':'losses','draw':'draws'}[result] }"
+
+    ref.update({
+        total_key: firestore.Increment(1),
+        mode_key: firestore.Increment(1),
+    })
+
+
+def get_user_stats(user_id):
+    """جلب إحصائيات مستخدم"""
     doc = db.collection("users").document(str(user_id)).get()
     if doc.exists:
         return {"id": doc.id, **doc.to_dict()}
     return None
 
-def create_user(user_id, name=""):
-    """إنشاء حساب مستخدم جديد"""
-    doc_ref = db.collection("users").document(str(user_id))
-    doc_ref.set({
-        "user_id": user_id,
-        "name": name,
-        "password": "",
-        "created_at": firestore.SERVER_TIMESTAMP
-    })
-    return str(user_id)
 
-def set_user_password(user_id, password):
-    """تعيين كلمة مرور للمستخدم"""
-    db.collection("users").document(str(user_id)).update({
-        "password": password
-    })
-
-def verify_user_password(user_id, password):
-    """التحقق من كلمة مرور المستخدم"""
-    user = get_user(user_id)
-    if user and user.get("password") == password:
-        return True
-    return False
-
-# ============================
-# === دوال العمليات ===
-# ============================
-
-def add_operation(user_id, title, details=""):
-    """إضافة عملية جديدة"""
-    doc_ref = db.collection("operations").document()
-    doc_ref.set({
-        "user_id": user_id,
-        "title": title,
-        "details": details,
-        "created_at": firestore.SERVER_TIMESTAMP
-    })
-    return doc_ref.id
-
-def get_operations(user_id):
-    """جلب جميع عمليات المستخدم"""
-    from google.cloud.firestore_v1.base_query import FieldFilter
-    ops = db.collection("operations") \
-        .where(filter=FieldFilter("user_id", "==", user_id)) \
+def get_leaderboard(limit=10):
+    """أعلى اللاعبين حسب عدد مرات الفوز"""
+    docs = db.collection("users") \
+        .order_by("wins", direction=firestore.Query.DESCENDING) \
+        .limit(limit) \
         .stream()
-    return [{"id": doc.id, **doc.to_dict()} for doc in ops]
+    return [{"id": d.id, **d.to_dict()} for d in docs]
 
-def get_operation_by_id(op_id):
-    """جلب عملية بالمعرّف"""
-    doc = db.collection("operations").document(op_id).get()
+
+# ============================
+# === مباريات PvP ===
+# ============================
+
+def create_game(game_id, player_x_id, player_x_name, x_chat_id):
+    """إنشاء مباراة PvP جديدة بانتظار اللاعب الثاني"""
+    db.collection("games").document(game_id).set({
+        "player_x_id": int(player_x_id),
+        "player_x_name": player_x_name,
+        "player_o_id": None,
+        "player_o_name": None,
+        "board": "---------",  # 9 خانات
+        "turn": "X",
+        "status": "waiting",  # waiting | playing | finished
+        "winner": None,  # X | O | draw | None
+        "x_chat_id": int(x_chat_id),
+        "x_msg_id": None,
+        "o_chat_id": None,
+        "o_msg_id": None,
+        "created_at": firestore.SERVER_TIMESTAMP,
+    })
+
+
+def get_game(game_id):
+    doc = db.collection("games").document(game_id).get()
     if doc.exists:
         return {"id": doc.id, **doc.to_dict()}
     return None
 
-def delete_operation(op_id):
-    """حذف عملية"""
-    db.collection("operations").document(op_id).delete()
 
-# ============================
-# === دوال الإيميلات ===
-# ============================
+def update_game(game_id, data):
+    db.collection("games").document(game_id).update(data)
 
-def add_email(user_id, email, subscription_type="", max_clients=5):
-    """إضافة إيميل أساسي"""
-    doc_ref = db.collection("emails").document()
-    doc_ref.set({
-        "user_id": user_id,
-        "email": email,
-        "subscription_type": subscription_type,
-        "max_clients": max_clients,
-        "created_at": firestore.SERVER_TIMESTAMP
-    })
-    return doc_ref.id
 
-def get_emails(user_id):
-    """جلب جميع الإيميلات"""
-    from google.cloud.firestore_v1.base_query import FieldFilter
-    docs = db.collection("emails") \
-        .where(filter=FieldFilter("user_id", "==", user_id)) \
-        .stream()
-    return [{"id": doc.id, **doc.to_dict()} for doc in docs]
-
-def get_email_by_id(email_id):
-    """جلب إيميل بالمعرّف"""
-    doc = db.collection("emails").document(email_id).get()
-    if doc.exists:
-        return {"id": doc.id, **doc.to_dict()}
-    return None
-
-def delete_email(email_id):
-    """حذف إيميل وجميع عملائه"""
-    # حذف العملاء أولاً
-    clients = db.collection("emails").document(email_id) \
-        .collection("clients").stream()
-    for c in clients:
-        c.reference.delete()
-    # حذف الإيميل
-    db.collection("emails").document(email_id).delete()
-
-def update_email(email_id, data):
-    """تحديث بيانات الإيميل"""
-    db.collection("emails").document(email_id).update(data)
-
-# ============================
-# === دوال العملاء ===
-# ============================
-
-def add_client(email_id, name, phone, start_date, end_date):
-    """إضافة عميل تحت إيميل معين"""
-    doc_ref = db.collection("emails").document(email_id) \
-        .collection("clients").document()
-    doc_ref.set({
-        "name": name,
-        "phone": phone,
-        "start_date": start_date,
-        "end_date": end_date,
-        "created_at": firestore.SERVER_TIMESTAMP
-    })
-    return doc_ref.id
-
-def get_clients(email_id):
-    """جلب عملاء إيميل معين"""
-    docs = db.collection("emails").document(email_id) \
-        .collection("clients").stream()
-    return [{"id": doc.id, **doc.to_dict()} for doc in docs]
-
-def get_client_by_id(email_id, client_id):
-    """جلب عميل بالمعرّف"""
-    doc = db.collection("emails").document(email_id) \
-        .collection("clients").document(client_id).get()
-    if doc.exists:
-        return {"id": doc.id, **doc.to_dict()}
-    return None
-
-def delete_client(email_id, client_id):
-    """حذف عميل"""
-    db.collection("emails").document(email_id) \
-        .collection("clients").document(client_id).delete()
-
-def update_client(email_id, client_id, data):
-    """تحديث بيانات عميل"""
-    db.collection("emails").document(email_id) \
-        .collection("clients").document(client_id).update(data)
-
-def count_clients(email_id):
-    """عدد العملاء في إيميل"""
-    docs = db.collection("emails").document(email_id) \
-        .collection("clients").stream()
-    return sum(1 for _ in docs)
-
-def search_clients_by_name(user_id, search_term):
-    """البحث عن عملاء بالاسم"""
-    results = []
-    from google.cloud.firestore_v1.base_query import FieldFilter
-    emails = db.collection("emails") \
-        .where(filter=FieldFilter("user_id", "==", user_id)) \
-        .stream()
-    
-    for email_doc in emails:
-        email_data = email_doc.to_dict()
-        email_id = email_doc.id
-        clients = db.collection("emails").document(email_id) \
-            .collection("clients").stream()
-        
-        for client_doc in clients:
-            client_data = client_doc.to_dict()
-            client_name = client_data.get("name", "").lower()
-            if search_term.lower() in client_name:
-                results.append({
-                    "client_id": client_doc.id,
-                    "email_id": email_id,
-                    "email": email_data.get("email", ""),
-                    "subscription_type": email_data.get("subscription_type", ""),
-                    **client_data
-                })
-    return results
-
-def get_all_clients_with_emails(user_id):
-    """جلب جميع العملاء مع بيانات الإيميل للتنبيهات"""
-    results = []
-    from google.cloud.firestore_v1.base_query import FieldFilter
-    emails = db.collection("emails") \
-        .where(filter=FieldFilter("user_id", "==", user_id)) \
-        .stream()
-    
-    for email_doc in emails:
-        email_data = email_doc.to_dict()
-        email_id = email_doc.id
-        clients = db.collection("emails").document(email_id) \
-            .collection("clients").stream()
-        
-        for client_doc in clients:
-            client_data = client_doc.to_dict()
-            results.append({
-                "client_id": client_doc.id,
-                "email_id": email_id,
-                "email": email_data.get("email", ""),
-                "subscription_type": email_data.get("subscription_type", ""),
-                **client_data
-            })
-    return results
+def delete_game(game_id):
+    db.collection("games").document(game_id).delete()

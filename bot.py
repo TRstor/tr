@@ -859,13 +859,15 @@ def handle_pvp_create(call):
     name = call.from_user.first_name or "لاعب"
     get_or_create_user(uid, name)
 
+    username = get_bot_username() or "ht5edudstg_bot"
     text = (
-        "🎮 *تحدٍّ ضد صديق*\n\n"
-        "📤 اضغط *\"مشاركة التحدّي\"* ثم اختر محادثة صديقك.\n"
-        "ستظهر لك بطاقتان: *ألعب كـ ❌* أو *ألعب كـ ⭕* — اختر واحدة وأرسلها "
-        "لتبدأ اللعبة في تلك المحادثة مباشرةً.\n\n"
-        f"⏳ إذا لم يبدأ اللعب خلال {CHALLENGE_TIMEOUT_SECONDS // 60} دقيقتين، "
-        "يُلغى التحدّي تلقائياً."
+        "🎮 *العب مع صديقك*\n\n"
+        "📤 اضغط الزر بالأسفل\n"
+        "   أو\n"
+        f"⌨️ اكتب في أي محادثة: `@{username} XO`\n\n"
+        "ثم اختر: *❌* (تبدأ أولاً) أو *⭕*\n"
+        "وأرسل البطاقة لتبدأ اللعبة فوراً!\n\n"
+        f"⏳ صلاحية التحدّي: {CHALLENGE_TIMEOUT_SECONDS // 60} دقيقتان"
     )
     kb = types.InlineKeyboardMarkup(row_width=1)
     # prefill "XO" حتى يظهر للمستخدم بطاقتا X/O نظيفة بدل رمز عشوائي.

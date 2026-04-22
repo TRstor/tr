@@ -935,27 +935,13 @@ def render_stats(user):
 def render_leaderboard(users, viewer_id):
     if not users:
         return "🏆 *لوحة الشرف*\n\nلا توجد بيانات بعد. كن أول الفائزين!"
-    lines = [
-        "🏆 *لوحة الشرف - أعلى 25 لاعباً بالنقاط*",
-        "",
-        "📊 _نظام النقاط:_",
-        "• فوز ضد لاعب = *3* | تعادل = *1*",
-        "• فوز ضد البوت (صعب) = *2* | تعادل = *1*",
-        "• فوز ضد البوت (سهل) = *1*",
-        "",
-    ]
+    lines = ["🏆 *لوحة الشرف - أعلى 25 لاعباً بالنقاط*", ""]
     medals = ["🥇", "🥈", "🥉"]
     for i, u in enumerate(users):
         prefix = medals[i] if i < 3 else f"{i+1}."
         me = " 👈 أنت" if str(u.get("user_id")) == str(viewer_id) else ""
         pts = u.get("points", 0)
-        w = u.get("wins", 0)
-        d = u.get("draws", 0)
-        l = u.get("losses", 0)
-        lines.append(
-            f"{prefix} {u.get('name','لاعب')} — *{pts}* نقطة "
-            f"(🏆{w} 🤝{d} 💔{l}){me}"
-        )
+        lines.append(f"{prefix} {u.get('name','لاعب')} — *{pts}* نقطة{me}")
     return "\n".join(lines)
 
 

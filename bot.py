@@ -281,6 +281,23 @@ def cmd_menu(message):
     bot.send_message(message.chat.id, "القائمة الرئيسية:", reply_markup=main_menu_kb())
 
 
+@bot.message_handler(commands=["join"])
+def cmd_join(message):
+    """الانضمام يدوياً لتحدٍّ عبر المعرّف: /join <game_id>"""
+    uid = message.chat.id
+    name = message.from_user.first_name or "لاعب"
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        bot.send_message(
+            uid,
+            "❌ استخدم الصيغة: `/join CODE`\n(استبدل CODE بمعرّف التحدّي الذي أعطاك إياه صديقك)",
+            parse_mode="Markdown",
+        )
+        return
+    game_id = parts[1].strip()
+    handle_join_game(uid, name, game_id)
+
+
 def help_text():
     return (
         "ℹ️ *كيف تلعب XO:*\n\n"
@@ -568,11 +585,17 @@ def handle_pvp_create(call):
     game_id = secrets.token_urlsafe(8)
     create_game(game_id, uid, name, uid)
 
-    if BOT_USERNAME := get_bot_username():
-        link = f"https://t.me/{BOT_USERNAME}?start=join_{game_id}"
-        link_line = f"🔗 رابط التحدّي:\n{link}"
+    username = get_bot_username()
+    if username:
+        link = f"https://t.me/{username}?start=join_{game_id}"
+        link_line = (
+            f"🔗 شارك هذا الرابط مع صديقك:\n{link}\n\n"
+            f"أو أعطه هذا الأمر ليرسله للبوت:\n`/join {game_id}`"
+        )
     else:
-        link_line = f"🔗 معرّف التحدّي: `{game_id}`\n(اطلب من صديقك إرسال /start ثم الانضمام)"
+        link_line = (
+            f"🔗 أعط صديقك هذا الأمر ليرسله للبوت:\n`/join {game_id}`"
+        )
 
     text = (
         "✅ تم إنشاء التحدّي!\n\n"
@@ -857,6 +880,14 @@ if __name__ == "__main__":
         print("✅ تم حذف الـ webhook (إن وجد)")
     except Exception as e:
         print(f"⚠️ تعذر حذف الـ webhook: {e}")
+
+    # محاولة جلب اسم البوت مبكراً (للتشخيص)
+    try:
+        me = bot.get_me()
+        print(f"🤖 Bot username: @{me.username}  |  id: {me.id}  |  name: {me.first_name}")
+        _BOT_USERNAME_CACHE["value"] = me.username or ""
+    except Exception as e:
+        print(f"⚠️ تعذر جلب معلومات البوت: {e}")
 
     # تأخير بسيط للسماح لأي نسخة سابقة بالانتهاء (مفيد أثناء redeploy على Render)
     import time as _t

@@ -10,13 +10,17 @@
 
 import secrets
 import random
+import threading
+import time as time_mod
+from datetime import datetime, timezone, timedelta
+
 import telebot
 from telebot import types
 
 from config import BOT_TOKEN
 from firebase_utils import (
     get_or_create_user, record_result, get_user_stats, get_leaderboard,
-    create_game, get_game, update_game, delete_game,
+    create_game, get_game, update_game, delete_game, get_pending_games,
 )
 
 if not BOT_TOKEN:
@@ -47,6 +51,9 @@ bot_games = {}
 EMPTY = "-"
 PLAYER_X = "X"
 PLAYER_O = "O"
+
+# إذا لم تبدأ المباراة خلال هذه المدة، تُلغى تلقائياً
+CHALLENGE_TIMEOUT_SECONDS = 120  # دقيقتان
 
 WIN_LINES = [
     (0, 1, 2), (3, 4, 5), (6, 7, 8),  # صفوف
@@ -387,9 +394,21 @@ def on_callback(call):
 
 
 def _dispatch(call):
+    data = call.data or ""
+
+    # Callbacks القادمة من رسائل Inline (ليس لها call.message) تخص PvP فقط
+    if call.message is None:
+        if data.startswith("pvp:"):
+            handle_pvp_action(call, data)
+        else:
+            try:
+                bot.answer_callback_query(call.id, "هذا الزر لا يعمل هنا")
+            except Exception:
+                pass
+        return
+
     uid = call.message.chat.id
     mid = call.message.message_id
-    data = call.data or ""
 
     # === قوائم عامة ===
     if data == "back_main":
@@ -586,102 +605,129 @@ def handle_pvp_create(call):
     create_game(game_id, uid, name, uid)
 
     username = get_bot_username()
-    print(f"[PvP] username={username!r} game_id={game_id}")
+    print(f"[PvP] created game_id={game_id} by uid={uid} username={username!r}")
 
     text = (
-        "✅ *تم إنشاء التحدّي!*\n\n"
-        f"📋 معرّف التحدّي:\n`{game_id}`\n\n"
-        "👥 لمشاركة التحدّي مع صديقك:\n"
-        "1️⃣ اضغط زر *\"📤 مشاركة التحدّي\"* بالأسفل لإرساله في أي دردشة.\n"
-        "2️⃣ أو اطلب منه إرسال /start للبوت ثم:\n"
-        f"   `/join {game_id}`\n\n"
-        "⏳ بانتظار انضمام اللاعب الثاني..."
+        "✅ *تم إنشاء تحدٍّ جديد!*\n\n"
+        "📤 اضغط زر *\"مشاركة التحدّي\"* ثم اختر محادثة صديقك — "
+        "ستُنشر لوحة اللعبة هناك وتلعبان في تلك المحادثة مباشرةً.\n\n"
+        f"⏳ إذا لم يبدأ التحدّي خلال {CHALLENGE_TIMEOUT_SECONDS // 60} دقيقتين، "
+        "سيُلغى تلقائياً."
     )
     kb = types.InlineKeyboardMarkup(row_width=1)
 
-    if username:
-        share_text = (
-            f"🎮 تحدّيني في لعبة XO!\n"
-            f"https://t.me/{username}?start=join_{game_id}"
-        )
-        # زر يفتح نافذة اختيار دردشة لمشاركة نص الدعوة
-        kb.add(types.InlineKeyboardButton(
-            "📤 مشاركة التحدّي", switch_inline_query=share_text
-        ))
-        # زر رابط مباشر (يفتح البوت مباشرةً إن ضغطه صاحب التحدّي للتجربة)
-        kb.add(types.InlineKeyboardButton(
-            "🔗 فتح الرابط مباشرةً",
-            url=f"https://t.me/{username}?start=join_{game_id}",
-        ))
-
+    # الزر الأساسي: switch_inline_query مع game_id كـ query
+    # عند ضغطه، يفتح تيليجرام قائمة المحادثات ويضع @bot <game_id> في الإدخال.
+    # ثم inline_handler يعرض بطاقة للإرسال، وعند إرسالها تُنشر رسالة اللعبة.
+    kb.add(types.InlineKeyboardButton(
+        "📤 مشاركة التحدّي في محادثة",
+        switch_inline_query=game_id,
+    ))
     kb.add(
         types.InlineKeyboardButton("❌ إلغاء التحدّي", callback_data=f"pvp:{game_id}:cancel"),
         types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
     )
-    sent = bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown",
-                                 disable_web_page_preview=True)
-    # حفظ msg_id للاعب X (لاستبدال الرسالة لاحقاً عند بدء اللعبة)
+    sent = bot.edit_message_text(
+        text, uid, mid, reply_markup=kb,
+        parse_mode="Markdown", disable_web_page_preview=True,
+    )
     update_game(game_id, {"x_msg_id": sent.message_id})
 
 
 def handle_pvp_action(call, data):
     # الصيغة: pvp:<game_id>:<action>[:arg]
-    uid = call.message.chat.id
-    mid = call.message.message_id
-
     parts = data.split(":")
     if len(parts) < 3:
-        bot.answer_callback_query(call.id)
+        try: bot.answer_callback_query(call.id)
+        except Exception: pass
         return
 
     game_id = parts[1]
     action = parts[2]
+    user_id = call.from_user.id
+    user_name = call.from_user.first_name or "لاعب"
+    is_inline = call.message is None
 
     game = get_game(game_id)
     if not game:
-        bot.answer_callback_query(call.id, "المباراة انتهت أو حُذفت")
         try:
-            bot.edit_message_text("🏁 انتهت المباراة.", uid, mid, reply_markup=main_menu_kb())
+            bot.answer_callback_query(call.id, "المباراة انتهت أو حُذفت")
         except Exception:
             pass
+        if not is_inline:
+            try:
+                bot.edit_message_text(
+                    "🏁 انتهت المباراة.",
+                    call.message.chat.id, call.message.message_id,
+                    reply_markup=main_menu_kb(),
+                )
+            except Exception:
+                pass
         return
 
-    # التحقق أن المستخدم طرف في المباراة
-    if uid not in (game.get("player_x_id"), game.get("player_o_id")):
-        bot.answer_callback_query(call.id, "لست طرفاً في هذه المباراة")
-        return
+    status = game.get("status")
 
     if action == "noop":
-        bot.answer_callback_query(call.id)
+        try: bot.answer_callback_query(call.id)
+        except Exception: pass
         return
 
+    # --- إلغاء التحدّي ---
     if action == "cancel":
-        # فقط منشئ التحدّي يقدر يلغيه (وقبل انضمام الثاني)
-        if uid != game.get("player_x_id"):
+        if user_id != game.get("player_x_id"):
             bot.answer_callback_query(call.id, "لا يمكنك إلغاء هذا التحدّي")
             return
-        if game.get("status") != "waiting":
+        if status not in ("waiting", "posted"):
             bot.answer_callback_query(call.id, "المباراة بدأت بالفعل")
             return
-        delete_game(game_id)
-        bot.edit_message_text("❌ تم إلغاء التحدّي.", uid, mid, reply_markup=main_menu_kb())
+        expire_game(game_id, "❌ *ألغى المنشئ التحدّي.*")
+        try: bot.answer_callback_query(call.id, "تم الإلغاء")
+        except Exception: pass
         return
 
+    # --- استسلام ---
     if action == "resign":
-        if game.get("status") != "playing":
+        if status != "playing":
             bot.answer_callback_query(call.id)
             return
-        # المستسلم يخسر
-        if uid == game.get("player_x_id"):
-            winner = PLAYER_O
-        else:
-            winner = PLAYER_X
+        if user_id not in (game.get("player_x_id"), game.get("player_o_id")):
+            bot.answer_callback_query(call.id, "لست طرفاً في هذه المباراة")
+            return
+        winner = PLAYER_O if user_id == game.get("player_x_id") else PLAYER_X
         finalize_pvp(game_id, winner, resigned=True)
+        try: bot.answer_callback_query(call.id)
+        except Exception: pass
         return
 
+    # --- انضمام تلقائي في رسالة Inline: أول نقرة لمستخدم غير المنشئ تجعله O ---
+    if action == "move" and status == "posted":
+        if user_id == game.get("player_x_id"):
+            bot.answer_callback_query(call.id, "⏳ انتظر انضمام الخصم")
+            return
+        # تسجيل اللاعب O وبدء اللعبة (دون استهلاك النقرة كحركة — X يبدأ دائماً)
+        get_or_create_user(user_id, user_name)
+        update_game(game_id, {
+            "player_o_id": user_id,
+            "player_o_name": user_name,
+            "status": "playing",
+            "turn": PLAYER_X,
+        })
+        try:
+            bot.answer_callback_query(
+                call.id, "✅ انضممت كـ ⭕ ! ينتظر دور ❌ أولاً"
+            )
+        except Exception:
+            pass
+        refresh_pvp_messages(game_id)
+        return
+
+    # --- حركة عادية ---
     if action == "move":
-        if game.get("status") != "playing":
+        if status != "playing":
             bot.answer_callback_query(call.id, "المباراة غير نشطة")
+            return
+        if user_id not in (game.get("player_x_id"), game.get("player_o_id")):
+            bot.answer_callback_query(call.id, "لست طرفاً في هذه المباراة")
             return
 
         try:
@@ -692,7 +738,7 @@ def handle_pvp_action(call, data):
 
         turn = game.get("turn", PLAYER_X)
         expected_uid = game.get("player_x_id") if turn == PLAYER_X else game.get("player_o_id")
-        if uid != expected_uid:
+        if user_id != expected_uid:
             bot.answer_callback_query(call.id, "ليس دورك ⏳")
             return
 
@@ -715,15 +761,22 @@ def handle_pvp_action(call, data):
         else:
             refresh_pvp_messages(game_id)
 
-        bot.answer_callback_query(call.id)
+        try: bot.answer_callback_query(call.id)
+        except Exception: pass
         return
 
 
 def refresh_pvp_messages(game_id):
-    """تحديث رسالتي اللاعبين X و O باللوحة الجديدة"""
+    """تحديث كل الرسائل المرتبطة بالمباراة (inline + DM للاعبَين إن وُجد)."""
     game = get_game(game_id)
     if not game:
         return
+
+    # 1) الرسالة الـ inline (الأهم الآن)
+    if game.get("inline_message_id"):
+        render_inline_board(game_id)
+
+    # 2) رسائل DM للاعبين (نمط /join القديم)
     board = board_list(game["board"])
     kb = board_kb(board, f"pvp:{game_id}")
 
@@ -735,6 +788,9 @@ def refresh_pvp_messages(game_id):
         msg_id = game.get(msg_key)
         viewer = game.get(player_key)
         if not (chat_id and msg_id and viewer):
+            continue
+        # إذا المنشئ شارك التحدّي عبر inline، رسالة X في DM ما عادت لوحة لعب — نتجاهلها
+        if player_key == "player_x_id" and game.get("inline_message_id"):
             continue
         try:
             bot.edit_message_text(
@@ -770,18 +826,13 @@ def finalize_pvp(game_id, winner, resigned=False):
         if po: record_result(po, "pvp", "win")
         if px: record_result(px, "pvp", "loss")
 
-    # رسالة نهاية للاعبين
+    # 1) الرسالة الـ inline
+    if game.get("inline_message_id"):
+        render_inline_board(game_id)
+
+    # 2) رسائل DM للاعبين (نمط /join القديم)
     board = board_list(game["board"])
-    kb_end = types.InlineKeyboardMarkup(row_width=1)
-    kb_end.add(
-        types.InlineKeyboardButton("👥 تحدٍّ جديد", callback_data="menu_pvp"),
-        types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
-    )
-    # لوحة نهائية معطّلة
     final_board_kb = board_kb(board, f"pvp:{game_id}", disabled=True)
-    # ندمج لوحة اللعب المعطّلة مع أزرار النهاية
-    for row in kb_end.keyboard:
-        final_board_kb.keyboard.append(row)
 
     for player_key, chat_key, msg_key in [
         ("player_x_id", "x_chat_id", "x_msg_id"),
@@ -792,6 +843,10 @@ def finalize_pvp(game_id, winner, resigned=False):
         viewer = game.get(player_key)
         if not (chat_id and msg_id and viewer):
             continue
+        # إذا المباراة كانت inline، تجاهل رسالة X في DM
+        if player_key == "player_x_id" and game.get("inline_message_id"):
+            continue
+
         suffix = ""
         if resigned:
             if winner == PLAYER_X and viewer == po:
@@ -866,6 +921,245 @@ def render_leaderboard(users, viewer_id):
 
 
 # ============================
+# === Inline Mode (اللعب في محادثة صديقك) ===
+# ============================
+
+@bot.inline_handler(func=lambda q: True)
+def on_inline_query(inline_query):
+    """
+    يُستدعى عندما يضغط المنشئ زر "مشاركة التحدّي" ويختار محادثة.
+    الاستعلام (query) = game_id. نرجع بطاقة واحدة للإرسال.
+    """
+    uid = inline_query.from_user.id
+    name = inline_query.from_user.first_name or "لاعب"
+    q = (inline_query.query or "").strip()
+
+    results = []
+    if q:
+        game = get_game(q)
+        if game and game.get("status") in ("waiting", "posted") \
+                and game.get("player_x_id") == uid:
+            preview_text = (
+                f"🎮 *تحدّي XO*\n\n"
+                f"❌ {name}  ⚔️  ⭕ بانتظار لاعب...\n\n"
+                "⏳ جاري التحضير..."
+            )
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("⏳ لحظات...", callback_data=f"pvp:{q}:noop"))
+            results.append(types.InlineQueryResultArticle(
+                id=q,
+                title=f"🎮 إرسال تحدّي XO",
+                description=f"لعبة ضد {name} — اضغط للإرسال",
+                input_message_content=types.InputTextMessageContent(
+                    message_text=preview_text, parse_mode="Markdown",
+                ),
+                reply_markup=kb,
+            ))
+        else:
+            results.append(types.InlineQueryResultArticle(
+                id="invalid",
+                title="❌ التحدّي غير متاح",
+                description="منتهي الصلاحية أو لست صاحبه",
+                input_message_content=types.InputTextMessageContent(
+                    message_text="❌ هذا التحدّي لم يعد متاحاً."
+                ),
+            ))
+    else:
+        username = get_bot_username()
+        results.append(types.InlineQueryResultArticle(
+            id="help",
+            title="أنشئ تحدّياً أولاً",
+            description="افتح البوت وأنشئ تحدٍّ ثم اضغط مشاركة",
+            input_message_content=types.InputTextMessageContent(
+                message_text=f"افتح @{username} وأنشئ تحدٍّ أولاً." if username
+                else "افتح البوت وأنشئ تحدٍّ أولاً."
+            ),
+        ))
+
+    try:
+        bot.answer_inline_query(
+            inline_query.id, results, cache_time=0, is_personal=True,
+        )
+    except Exception as e:
+        print(f"⚠️ answer_inline_query: {e}")
+
+
+@bot.chosen_inline_handler(func=lambda c: True)
+def on_chosen_inline(chosen):
+    """
+    يُستدعى بعد أن يرسل المستخدم البطاقة فعلياً في محادثة.
+    الآن نعرف inline_message_id ونستبدل رسالة المعاينة بلوحة اللعب.
+    ⚠️ يحتاج تفعيل Inline feedback في BotFather (/setinlinefeedback = 100%).
+    """
+    game_id = chosen.result_id
+    im_id = chosen.inline_message_id
+    print(f"[PvP] chosen_inline_result game_id={game_id} im_id={im_id}")
+    if not im_id or game_id in ("invalid", "help"):
+        return
+
+    game = get_game(game_id)
+    if not game or game.get("status") not in ("waiting", "posted"):
+        return
+
+    update_game(game_id, {
+        "inline_message_id": im_id,
+        "status": "posted",
+    })
+    render_inline_board(game_id)
+
+    # تحديث رسالة المنشئ في محادثة البوت
+    try:
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        kb.add(
+            types.InlineKeyboardButton(
+                "❌ إلغاء التحدّي", callback_data=f"pvp:{game_id}:cancel"
+            ),
+            types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
+        )
+        bot.edit_message_text(
+            "✅ تم إرسال التحدّي إلى المحادثة!\n\n"
+            "🎯 افتح تلك المحادثة والعب من هناك.\n"
+            f"⏳ إذا لم يبدأ الخصم خلال {CHALLENGE_TIMEOUT_SECONDS // 60} "
+            "دقيقتين، سيُلغى التحدّي تلقائياً.",
+            chat_id=game.get("x_chat_id"),
+            message_id=game.get("x_msg_id"),
+            reply_markup=kb,
+        )
+    except Exception as e:
+        if "message is not modified" not in str(e):
+            print(f"⚠️ update creator DM: {e}")
+
+
+def render_inline_board(game_id):
+    """رسم لوحة اللعبة في الرسالة الـ inline المنشورة في محادثة صديقك."""
+    game = get_game(game_id)
+    if not game:
+        return
+    im_id = game.get("inline_message_id")
+    if not im_id:
+        return
+
+    status = game.get("status")
+    x_name = game.get("player_x_name", "X")
+    o_name = game.get("player_o_name") or "بانتظار لاعب..."
+
+    header = f"🎮 *لعبة XO*\n❌ {x_name}  ⚔️  ⭕ {o_name}\n"
+
+    if status == "posted":
+        header += "\n⭕ اضغط أي مربع للانضمام كـ ⭕!"
+    elif status == "playing":
+        turn = game.get("turn", PLAYER_X)
+        sym = "❌" if turn == PLAYER_X else "⭕"
+        nm = x_name if turn == PLAYER_X else o_name
+        header += f"\n⏳ الدور على {nm} ({sym})"
+    elif status == "finished":
+        winner = game.get("winner")
+        if winner == "draw":
+            header += "\n🤝 تعادل!"
+        elif winner in (PLAYER_X, PLAYER_O):
+            wn = x_name if winner == PLAYER_X else o_name
+            sym = "❌" if winner == PLAYER_X else "⭕"
+            header += f"\n🏆 الفائز: {wn} ({sym})"
+
+    board = board_list(game.get("board", EMPTY * 9))
+    disabled = (status == "finished")
+    kb = board_kb(board, f"pvp:{game_id}", disabled=disabled)
+
+    try:
+        bot.edit_message_text(
+            header,
+            inline_message_id=im_id,
+            reply_markup=kb,
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        if "message is not modified" not in str(e):
+            print(f"⚠️ render_inline_board: {e}")
+
+
+# ============================
+# === انتهاء صلاحية التحدّيات ===
+# ============================
+
+def expire_game(game_id, reason):
+    """إنهاء تحدٍّ قسرياً (انتهاء مهلة / إلغاء / إلخ) وإبلاغ الأطراف."""
+    game = get_game(game_id)
+    if not game:
+        return
+
+    # تحديث الرسالة المنشورة في محادثة الصديق (إن وُجدت)
+    if game.get("inline_message_id"):
+        try:
+            bot.edit_message_text(
+                f"🎮 *تحدّي XO*\n\n{reason}",
+                inline_message_id=game["inline_message_id"],
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            if "message is not modified" not in str(e):
+                print(f"⚠️ expire inline: {e}")
+
+    # تحديث رسالة المنشئ في DM
+    if game.get("x_chat_id") and game.get("x_msg_id"):
+        try:
+            bot.edit_message_text(
+                f"{reason}\n\nأرسل /menu للبدء من جديد.",
+                chat_id=game["x_chat_id"],
+                message_id=game["x_msg_id"],
+                reply_markup=main_menu_kb(),
+            )
+        except Exception as e:
+            if "message is not modified" not in str(e):
+                print(f"⚠️ expire DM X: {e}")
+
+    # تحديث رسالة اللاعب O (إن وُجدت بنمط /join القديم)
+    if game.get("o_chat_id") and game.get("o_msg_id"):
+        try:
+            bot.edit_message_text(
+                f"{reason}",
+                chat_id=game["o_chat_id"],
+                message_id=game["o_msg_id"],
+                reply_markup=main_menu_kb(),
+            )
+        except Exception as e:
+            if "message is not modified" not in str(e):
+                print(f"⚠️ expire DM O: {e}")
+
+    delete_game(game_id)
+
+
+def expiration_checker():
+    """ثريد خلفي يفحص التحدّيات منتهية الصلاحية كل 15 ثانية."""
+    while True:
+        try:
+            pending = get_pending_games()
+            now = datetime.now(timezone.utc)
+            for g in pending:
+                status = g.get("status")
+                # نحذف فقط التحدّيات التي لم تبدأ
+                if status not in ("waiting", "posted"):
+                    continue
+                created = g.get("created_at")
+                if not created:
+                    continue
+                try:
+                    age = now - created
+                except TypeError:
+                    # created بدون tz
+                    age = now.replace(tzinfo=None) - created
+                if age.total_seconds() > CHALLENGE_TIMEOUT_SECONDS:
+                    print(f"[expire] game_id={g.get('id')} age={age.total_seconds():.0f}s")
+                    expire_game(
+                        g["id"],
+                        "⌛ *انتهت صلاحية التحدّي*\n\n"
+                        "لم ينضم أي لاعب خلال دقيقتين.",
+                    )
+        except Exception as e:
+            print(f"⚠️ expiration_checker: {e}")
+        time_mod.sleep(15)
+
+
+# ============================
 # === رسائل غير متوقعة ===
 # ============================
 
@@ -899,13 +1193,20 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"⚠️ تعذر جلب معلومات البوت: {e}")
 
-    # تأخير بسيط للسماح لأي نسخة سابقة بالانتهاء (مفيد أثناء redeploy على Render)
-    import time as _t
-    _t.sleep(5)
+    # ثريد فحص انتهاء صلاحية التحدّيات
+    threading.Thread(target=expiration_checker, daemon=True).start()
+    print(f"⏳ فاحص انتهاء الصلاحية يعمل (مدة: {CHALLENGE_TIMEOUT_SECONDS}s)")
 
-    # infinity_polling يعيد المحاولة تلقائياً عند الأخطاء مع restart_on_change=False
+    # تأخير بسيط للسماح لأي نسخة سابقة بالانتهاء (مفيد أثناء redeploy على Render)
+    time_mod.sleep(5)
+
+    # infinity_polling مع تفعيل تلقّي تحديثات inline و chosen_inline_result
     bot.infinity_polling(
         timeout=30,
         long_polling_timeout=20,
         restart_on_change=False,
+        allowed_updates=[
+            "message", "callback_query",
+            "inline_query", "chosen_inline_result",
+        ],
     )

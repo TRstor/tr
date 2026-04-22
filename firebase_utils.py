@@ -121,12 +121,13 @@ def create_game(game_id, player_x_id, player_x_name, x_chat_id):
         "player_o_name": None,
         "board": "---------",  # 9 خانات
         "turn": "X",
-        "status": "waiting",  # waiting | playing | finished
+        "status": "waiting",  # waiting | posted | playing | finished
         "winner": None,  # X | O | draw | None
         "x_chat_id": int(x_chat_id),
         "x_msg_id": None,
         "o_chat_id": None,
         "o_msg_id": None,
+        "inline_message_id": None,
         "created_at": firestore.SERVER_TIMESTAMP,
     })
 
@@ -136,6 +137,14 @@ def get_game(game_id):
     if doc.exists:
         return {"id": doc.id, **doc.to_dict()}
     return None
+
+
+def get_pending_games():
+    """جلب كل المباريات التي لم تنتهِ (waiting | posted | playing) لفحص انتهاء الصلاحية."""
+    docs = db.collection("games") \
+        .where(filter=FieldFilter("status", "in", ["waiting", "posted", "playing"])) \
+        .stream()
+    return [{"id": d.id, **d.to_dict()} for d in docs]
 
 
 def update_game(game_id, data):

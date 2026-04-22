@@ -132,6 +132,55 @@ def get_leaderboard(limit=25):
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
 
+def reset_all_points():
+    """يُصفّر حقل `points` لكل اللاعبين — عبر batch writes."""
+    count = 0
+    batch = db.batch()
+    ops = 0
+    for d in db.collection("users").stream():
+        batch.update(d.reference, {"points": 0})
+        ops += 1
+        count += 1
+        if ops >= 450:
+            batch.commit()
+            batch = db.batch()
+            ops = 0
+    if ops:
+        batch.commit()
+    return count
+
+
+def archive_season(season_id, reset_time_utc, top_users):
+    """أرشفة لقطة أفضل 25 لاعب قبل التصفير."""
+    db.collection("seasons").document(season_id).set({
+        "season_id": season_id,
+        "reset_at": reset_time_utc,
+        "top": [
+            {
+                "user_id": u.get("user_id"),
+                "name": u.get("name", "لاعب"),
+                "points": u.get("points", 0),
+            }
+            for u in top_users
+        ],
+    })
+
+
+def get_meta():
+    """جلب وثيقة meta/leaderboard (تحتوي last_reset_at)."""
+    doc = db.collection("meta").document("leaderboard").get()
+    if doc.exists:
+        return doc.to_dict()
+    return {}
+
+
+def set_last_reset(ts):
+    """تعيين last_reset_at في meta/leaderboard."""
+    db.collection("meta").document("leaderboard").set(
+        {"last_reset_at": ts}, merge=True
+    )
+
+
 def backfill_points():
     """
     حساب النقاط للمستخدمين الذين لا يملكون حقل `points` (مستخدمون قدامى).

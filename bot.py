@@ -22,6 +22,7 @@ from firebase_utils import (
     get_or_create_user, record_result, get_user_stats, get_leaderboard,
     create_game, create_game_symbol, get_game, update_game, delete_game,
     get_pending_games, backfill_points,
+    reset_all_points, archive_season, get_meta, set_last_reset,
 )
 
 if not BOT_TOKEN:
@@ -55,6 +56,41 @@ PLAYER_O = "O"
 
 # إذا لم تبدأ المباراة خلال هذه المدة، تُلغى تلقائياً
 CHALLENGE_TIMEOUT_SECONDS = 120  # دقيقتان
+
+# ====== جدولة إعادة ضبط النقاط الأسبوعية ======
+# كل جمعة 00:00 بتوقيت الرياض (UTC+3) → الخميس 21:00 UTC
+RIYADH_OFFSET = timedelta(hours=3)
+RESET_WEEKDAY = 4  # 0=Mon ... 4=Fri
+
+
+def last_scheduled_reset(now_utc):
+    """الجمعة 00:00 (توقيت الرياض) الأخيرة التي مرّت — بصيغة UTC tz-aware."""
+    now_ry = now_utc + RIYADH_OFFSET
+    days_since = (now_ry.weekday() - RESET_WEEKDAY) % 7
+    last_ry = (now_ry - timedelta(days=days_since)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return (last_ry - RIYADH_OFFSET).replace(tzinfo=timezone.utc)
+
+
+def next_scheduled_reset(now_utc):
+    """الجمعة 00:00 (توقيت الرياض) القادمة — بصيغة UTC tz-aware."""
+    return last_scheduled_reset(now_utc) + timedelta(days=7)
+
+
+def format_time_left(delta):
+    """تنسيق المدة المتبقية: '3 أيام 5 ساعات' أو '4 ساعات 12 دقيقة'."""
+    total = int(delta.total_seconds())
+    if total <= 0:
+        return "الآن"
+    days = total // 86400
+    hours = (total % 86400) // 3600
+    minutes = (total % 3600) // 60
+    if days > 0:
+        return f"{days} يوم {hours} ساعة"
+    if hours > 0:
+        return f"{hours} ساعة {minutes} دقيقة"
+    return f"{minutes} دقيقة"
 
 WIN_LINES = [
     (0, 1, 2), (3, 4, 5), (6, 7, 8),  # صفوف
@@ -933,10 +969,21 @@ def render_stats(user):
 
 
 def render_leaderboard(users, viewer_id):
+    try:
+        time_left = format_time_left(
+            next_scheduled_reset(datetime.now(timezone.utc)) - datetime.now(timezone.utc)
+        )
+    except Exception:
+        time_left = "—"
     if not users:
-        return "🏆 *لوحة الشرف*\n\nلا توجد بيانات بعد. كن أول الفائزين!"
+        return (
+            "🏆 *لوحة الشرف*\n\n"
+            f"⏳ يُعاد التصفير خلال: *{time_left}*\n\n"
+            "لا توجد بيانات بعد. كن أول الفائزين!"
+        )
     lines = [
         "🏆 *لوحة الشرف - أعلى 25 لاعباً بالنقاط*",
+        f"⏳ يُعاد التصفير خلال: *{time_left}*",
         "",
         "🎁 *الجوائز:*",
         "🥇 المركز الأول: *120 UC*",
@@ -1276,6 +1323,33 @@ def expiration_checker():
         time_mod.sleep(15)
 
 
+def weekly_reset_checker():
+    """ثريد يفحص كل 5 دقائق إذا حان موعد التصفير الأسبوعي."""
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            target = last_scheduled_reset(now)
+            meta = get_meta()
+            last = meta.get("last_reset_at")
+            # Firestore قد يرجع datetime بدون tz
+            if last is not None and getattr(last, "tzinfo", None) is None:
+                last = last.replace(tzinfo=timezone.utc)
+            if last is None or last < target:
+                print(f"[weekly_reset] triggering target={target.isoformat()}")
+                try:
+                    top = get_leaderboard(25)
+                    season_id = target.strftime("%G-W%V")
+                    archive_season(season_id, target, top)
+                    n = reset_all_points()
+                    set_last_reset(target)
+                    print(f"[weekly_reset] done — archived={len(top)} reset_users={n}")
+                except Exception as e:
+                    print(f"⚠️ weekly_reset execute: {e}")
+        except Exception as e:
+            print(f"⚠️ weekly_reset_checker: {e}")
+        time_mod.sleep(300)  # كل 5 دقائق
+
+
 # ============================
 # === رسائل غير متوقعة ===
 # ============================
@@ -1319,6 +1393,20 @@ if __name__ == "__main__":
         backfill_points()
     except Exception as e:
         print(f"⚠️ backfill_points at startup: {e}")
+
+    # أول تشغيل: نثبّت last_reset_at على الجمعة الأخيرة كي لا تُصفَّر النقاط الحالية فوراً
+    try:
+        _meta = get_meta()
+        if not _meta.get("last_reset_at"):
+            _target = last_scheduled_reset(datetime.now(timezone.utc))
+            set_last_reset(_target)
+            print(f"🗓️ تهيئة last_reset_at = {_target.isoformat()}")
+    except Exception as e:
+        print(f"⚠️ seed last_reset_at: {e}")
+
+    # ثريد التصفير الأسبوعي (الجمعة 00:00 بتوقيت الرياض)
+    threading.Thread(target=weekly_reset_checker, daemon=True).start()
+    print("🗓️ مجدول التصفير الأسبوعي يعمل (كل جمعة 00:00 بتوقيت الرياض)")
 
     # تأخير بسيط للسماح لأي نسخة سابقة بالانتهاء (مفيد أثناء redeploy على Render)
     time_mod.sleep(5)

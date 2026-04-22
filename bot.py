@@ -25,12 +25,20 @@ if not BOT_TOKEN:
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 
-# اسم البوت للاستخدام في روابط الدعوة
-try:
-    BOT_USERNAME = bot.get_me().username
-except Exception as e:
-    print(f"⚠️ تعذر جلب اسم البوت: {e}")
-    BOT_USERNAME = ""
+# اسم البوت — يُجلب بشكل كسول أول مرة فقط
+_BOT_USERNAME_CACHE = {"value": None}
+
+
+def get_bot_username():
+    """جلب اسم البوت مع تخزين النتيجة."""
+    if _BOT_USERNAME_CACHE["value"] is not None:
+        return _BOT_USERNAME_CACHE["value"]
+    try:
+        _BOT_USERNAME_CACHE["value"] = bot.get_me().username or ""
+    except Exception as e:
+        print(f"⚠️ تعذر جلب اسم البوت: {e}")
+        _BOT_USERNAME_CACHE["value"] = ""
+    return _BOT_USERNAME_CACHE["value"]
 
 # مباريات ضد البوت (بالذاكرة فقط)
 # {user_id: {"board": list[9], "difficulty": "easy"|"hard", "msg_id": int}}
@@ -560,7 +568,7 @@ def handle_pvp_create(call):
     game_id = secrets.token_urlsafe(8)
     create_game(game_id, uid, name, uid)
 
-    if BOT_USERNAME:
+    if BOT_USERNAME := get_bot_username():
         link = f"https://t.me/{BOT_USERNAME}?start=join_{game_id}"
         link_line = f"🔗 رابط التحدّي:\n{link}"
     else:
@@ -843,4 +851,10 @@ def fallback(message):
 
 if __name__ == "__main__":
     print("🎮 بوت لعبة XO يعمل الآن...")
-    bot.infinity_polling()
+    # حذف أي webhook قديم لتفادي خطأ 409 Conflict عند استخدام getUpdates
+    try:
+        bot.remove_webhook()
+        print("✅ تم حذف الـ webhook (إن وجد)")
+    except Exception as e:
+        print(f"⚠️ تعذر حذف الـ webhook: {e}")
+    bot.infinity_polling(timeout=30, long_polling_timeout=20)

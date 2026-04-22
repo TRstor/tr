@@ -586,24 +586,34 @@ def handle_pvp_create(call):
     create_game(game_id, uid, name, uid)
 
     username = get_bot_username()
-    if username:
-        link = f"https://t.me/{username}?start=join_{game_id}"
-        link_line = (
-            f"🔗 شارك هذا الرابط مع صديقك:\n{link}\n\n"
-            f"أو أعطه هذا الأمر ليرسله للبوت:\n`/join {game_id}`"
-        )
-    else:
-        link_line = (
-            f"🔗 أعط صديقك هذا الأمر ليرسله للبوت:\n`/join {game_id}`"
-        )
+    print(f"[PvP] username={username!r} game_id={game_id}")
 
     text = (
-        "✅ تم إنشاء التحدّي!\n\n"
-        f"{link_line}\n\n"
-        "⏳ بانتظار انضمام اللاعب الثاني...\n"
-        "ستظهر اللوحة تلقائياً بمجرد انضمامه."
+        "✅ *تم إنشاء التحدّي!*\n\n"
+        f"📋 معرّف التحدّي:\n`{game_id}`\n\n"
+        "👥 لمشاركة التحدّي مع صديقك:\n"
+        "1️⃣ اضغط زر *\"📤 مشاركة التحدّي\"* بالأسفل لإرساله في أي دردشة.\n"
+        "2️⃣ أو اطلب منه إرسال `/start` للبوت ثم:\n"
+        f"   `/join {game_id}`\n\n"
+        "⏳ بانتظار انضمام اللاعب الثاني..."
     )
     kb = types.InlineKeyboardMarkup(row_width=1)
+
+    if username:
+        share_text = (
+            f"🎮 تحدّيني في لعبة XO!\n"
+            f"https://t.me/{username}?start=join_{game_id}"
+        )
+        # زر يفتح نافذة اختيار دردشة لمشاركة نص الدعوة
+        kb.add(types.InlineKeyboardButton(
+            "📤 مشاركة التحدّي", switch_inline_query=share_text
+        ))
+        # زر رابط مباشر (يفتح البوت مباشرةً إن ضغطه صاحب التحدّي للتجربة)
+        kb.add(types.InlineKeyboardButton(
+            "🔗 فتح الرابط مباشرةً",
+            url=f"https://t.me/{username}?start=join_{game_id}",
+        ))
+
     kb.add(
         types.InlineKeyboardButton("❌ إلغاء التحدّي", callback_data=f"pvp:{game_id}:cancel"),
         types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),

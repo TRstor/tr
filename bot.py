@@ -239,7 +239,6 @@ def board_kb(board, prefix, disabled=False):
             row = []
     # أزرار تحكّم
     kb.row(
-        types.InlineKeyboardButton("🔄 استسلام/إنهاء", callback_data=f"{prefix}:resign"),
         types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
     )
     return kb
@@ -1386,8 +1385,7 @@ def _notify_creator_opponent_joined(game_id):
     )
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(
-        types.InlineKeyboardButton("🏳️ استسلام", callback_data=f"pvp:{game_id}:resign"),
-        types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
+        types.InlineKeyboardButton(" القائمة", callback_data="back_main"),
     )
     try:
         bot.edit_message_text(

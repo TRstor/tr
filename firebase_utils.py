@@ -51,6 +51,7 @@ def get_or_create_user(user_id, name=""):
     new_data = {
         "user_id": int(user_id),
         "name": name or "لاعب",
+        "points": 0,
         "wins": 0,
         "losses": 0,
         "draws": 0,
@@ -69,6 +70,24 @@ def get_or_create_user(user_id, name=""):
     return {"id": str(user_id), **new_data}
 
 
+# جدول النقاط:
+#   - PvP فوز = 3، تعادل = 1
+#   - ضد البوت صعب: فوز = 2، تعادل = 1
+#   - ضد البوت سهل: فوز = 1، تعادل = 0
+#   - الخسارة = 0 دائماً
+POINTS_TABLE = {
+    ("pvp", "win"): 3,
+    ("pvp", "draw"): 1,
+    ("pvp", "loss"): 0,
+    ("bot_hard", "win"): 2,
+    ("bot_hard", "draw"): 1,
+    ("bot_hard", "loss"): 0,
+    ("bot_easy", "win"): 1,
+    ("bot_easy", "draw"): 0,
+    ("bot_easy", "loss"): 0,
+}
+
+
 def record_result(user_id, mode, result):
     """
     mode: 'bot_easy' | 'bot_hard' | 'pvp'
@@ -84,11 +103,16 @@ def record_result(user_id, mode, result):
     total_key = {"win": "wins", "loss": "losses", "draw": "draws"}[result]
     # حسب النمط
     mode_key = f"{mode}_{ {'win':'wins','loss':'losses','draw':'draws'}[result] }"
+    # النقاط
+    pts = POINTS_TABLE.get((mode, result), 0)
 
-    ref.update({
+    updates = {
         total_key: firestore.Increment(1),
         mode_key: firestore.Increment(1),
-    })
+    }
+    if pts:
+        updates["points"] = firestore.Increment(pts)
+    ref.update(updates)
 
 
 def get_user_stats(user_id):
@@ -99,13 +123,39 @@ def get_user_stats(user_id):
     return None
 
 
-def get_leaderboard(limit=10):
-    """أعلى اللاعبين حسب عدد مرات الفوز"""
+def get_leaderboard(limit=25):
+    """أعلى اللاعبين حسب النقاط"""
     docs = db.collection("users") \
-        .order_by("wins", direction=firestore.Query.DESCENDING) \
+        .order_by("points", direction=firestore.Query.DESCENDING) \
         .limit(limit) \
         .stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
+
+
+def backfill_points():
+    """
+    حساب النقاط للمستخدمين الذين لا يملكون حقل `points` (مستخدمون قدامى).
+    يُستدعى مرة واحدة عند بدء التشغيل — آمن للتكرار.
+    """
+    updated = 0
+    try:
+        docs = db.collection("users").stream()
+        for d in docs:
+            data = d.to_dict()
+            if "points" in data:
+                continue  # محسوب سابقاً
+            pts = 0
+            pts += POINTS_TABLE[("pvp", "win")] * data.get("pvp_wins", 0)
+            pts += POINTS_TABLE[("pvp", "draw")] * data.get("pvp_draws", 0)
+            pts += POINTS_TABLE[("bot_hard", "win")] * data.get("bot_hard_wins", 0)
+            pts += POINTS_TABLE[("bot_hard", "draw")] * data.get("bot_hard_draws", 0)
+            pts += POINTS_TABLE[("bot_easy", "win")] * data.get("bot_easy_wins", 0)
+            d.reference.update({"points": pts})
+            updated += 1
+        print(f"✅ backfill_points: updated {updated} users")
+    except Exception as e:
+        print(f"⚠️ backfill_points: {e}")
+    return updated
 
 
 # ============================

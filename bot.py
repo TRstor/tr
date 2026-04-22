@@ -21,7 +21,7 @@ from config import BOT_TOKEN
 from firebase_utils import (
     get_or_create_user, record_result, get_user_stats, get_leaderboard,
     create_game, create_game_symbol, get_game, update_game, delete_game,
-    get_pending_games,
+    get_pending_games, backfill_points,
 )
 
 if not BOT_TOKEN:
@@ -439,7 +439,7 @@ def _dispatch(call):
         return
 
     if data == "menu_leaderboard":
-        board = get_leaderboard(10)
+        board = get_leaderboard(25)
         text = render_leaderboard(board, uid)
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_main"))
@@ -911,6 +911,7 @@ def render_stats(user):
     wr = (user.get("wins", 0) / total_games * 100) if total_games else 0
     return (
         f"📊 *إحصائيات {user.get('name','لاعب')}*\n\n"
+        f"⭐ *النقاط: {user.get('points', 0)}*\n\n"
         f"🎮 إجمالي المباريات: {total_games}\n"
         f"🏆 انتصارات: {user.get('wins',0)}\n"
         f"💔 هزائم: {user.get('losses',0)}\n"
@@ -934,14 +935,26 @@ def render_stats(user):
 def render_leaderboard(users, viewer_id):
     if not users:
         return "🏆 *لوحة الشرف*\n\nلا توجد بيانات بعد. كن أول الفائزين!"
-    lines = ["🏆 *لوحة الشرف - أعلى 10*\n"]
+    lines = [
+        "🏆 *لوحة الشرف - أعلى 25 لاعباً بالنقاط*",
+        "",
+        "📊 _نظام النقاط:_",
+        "• فوز ضد لاعب = *3* | تعادل = *1*",
+        "• فوز ضد البوت (صعب) = *2* | تعادل = *1*",
+        "• فوز ضد البوت (سهل) = *1*",
+        "",
+    ]
     medals = ["🥇", "🥈", "🥉"]
     for i, u in enumerate(users):
         prefix = medals[i] if i < 3 else f"{i+1}."
         me = " 👈 أنت" if str(u.get("user_id")) == str(viewer_id) else ""
+        pts = u.get("points", 0)
+        w = u.get("wins", 0)
+        d = u.get("draws", 0)
+        l = u.get("losses", 0)
         lines.append(
-            f"{prefix} {u.get('name','لاعب')} — "
-            f"فوز {u.get('wins',0)} / خسارة {u.get('losses',0)} / تعادل {u.get('draws',0)}{me}"
+            f"{prefix} {u.get('name','لاعب')} — *{pts}* نقطة "
+            f"(🏆{w} 🤝{d} 💔{l}){me}"
         )
     return "\n".join(lines)
 
@@ -1306,6 +1319,12 @@ if __name__ == "__main__":
     # ثريد فحص انتهاء صلاحية التحدّيات
     threading.Thread(target=expiration_checker, daemon=True).start()
     print(f"⏳ فاحص انتهاء الصلاحية يعمل (مدة: {CHALLENGE_TIMEOUT_SECONDS}s)")
+
+    # حساب النقاط للمستخدمين القدامى (إن وُجدوا)
+    try:
+        backfill_points()
+    except Exception as e:
+        print(f"⚠️ backfill_points at startup: {e}")
 
     # تأخير بسيط للسماح لأي نسخة سابقة بالانتهاء (مفيد أثناء redeploy على Render)
     time_mod.sleep(5)

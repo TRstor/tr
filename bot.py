@@ -857,4 +857,14 @@ if __name__ == "__main__":
         print("✅ تم حذف الـ webhook (إن وجد)")
     except Exception as e:
         print(f"⚠️ تعذر حذف الـ webhook: {e}")
-    bot.infinity_polling(timeout=30, long_polling_timeout=20)
+
+    # تأخير بسيط للسماح لأي نسخة سابقة بالانتهاء (مفيد أثناء redeploy على Render)
+    import time as _t
+    _t.sleep(5)
+
+    # infinity_polling يعيد المحاولة تلقائياً عند الأخطاء مع restart_on_change=False
+    bot.infinity_polling(
+        timeout=30,
+        long_polling_timeout=20,
+        restart_on_change=False,
+    )

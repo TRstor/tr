@@ -269,7 +269,7 @@ def start_menu_kb():
 
 def calcs_menu_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    pc_lbl = "🔥 حاسبة الشعبية" if FEATURES["popcalc_enabled"] else "🔥 حاسبة الشعبية  🔒"
+    pc_lbl = "🔥 حاسبة المعركة الفردية" if FEATURES["popcalc_enabled"] else "🔥 حاسبة المعركة الفردية  🔒"
     tc_lbl = "⚔️ حاسبة معركة الفريق" if FEATURES["teamcalc_enabled"] else "⚔️ حاسبة معركة الفريق  🔒"
     kb.add(types.InlineKeyboardButton(pc_lbl, callback_data="open_popcalc"))
     kb.add(types.InlineKeyboardButton(tc_lbl, callback_data="open_teamcalc"))
@@ -308,7 +308,7 @@ def popcalc_result_kb():
 
 def popcalc_intro_text():
     return (
-        "🔥 *حاسبة الشعبية*\n\n"
+        "🔥 *حاسبة المعركة الفردية*\n\n"
         "احسب نقاط الفوز والخسارة قبل أن تدخل المعركة!\n\n"
         "اضغط « *حاسبة جديدة* » لتبدأ."
     )
@@ -316,7 +316,7 @@ def popcalc_intro_text():
 
 def popcalc_tiers_text():
     return (
-        "📊 *إحصائيات معركة الشعبية*\n\n"
+        "📊 *إحصائيات المعركة الفردية*\n\n"
         "{من 0 إلى 2,000} = 6 نقطة\n"
         "{من 2,001 إلى 4,000} = 10 نقطة\n"
         "{من 4,001 إلى 8,000} = 14 نقطة\n"
@@ -589,7 +589,7 @@ def admin_panel_text():
     return (
         "🛠 *لوحة المالك*\n\n"
         f"• لعبة XO: {xo}\n"
-        f"• حاسبة الشعبية: {pc}\n"
+        f"• حاسبة المعركة الفردية: {pc}\n"
         f"• حاسبة معركة الفريق: {tc}\n\n"
         "اختر إجراءً:"
     )
@@ -598,7 +598,7 @@ def admin_panel_text():
 def admin_panel_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
     xo_btn = "🔒 تعطيل لعبة XO" if FEATURES["xo_enabled"] else "✅ تفعيل لعبة XO"
-    pc_btn = "🔒 تعطيل حاسبة الشعبية" if FEATURES["popcalc_enabled"] else "✅ تفعيل حاسبة الشعبية"
+    pc_btn = "🔒 تعطيل حاسبة المعركة الفردية" if FEATURES["popcalc_enabled"] else "✅ تفعيل حاسبة المعركة الفردية"
     tc_btn = "🔒 تعطيل حاسبة معركة الفريق" if FEATURES["teamcalc_enabled"] else "✅ تفعيل حاسبة معركة الفريق"
     kb.add(types.InlineKeyboardButton(xo_btn, callback_data="admin_toggle_xo"))
     kb.add(types.InlineKeyboardButton(pc_btn, callback_data="admin_toggle_popcalc"))
@@ -686,7 +686,7 @@ def cmd_status(message):
         f"🎮 مباريات ضد البوت (نشطة): *{bot_active}*\n"
         f"📭 طابور Quick Match: *{qs}*\n\n"
         f"🎯 لعبة XO: {xo_line}\n"
-        f"🔥 حاسبة الشعبية: {pc_line}"
+        f"🔥 حاسبة المعركة الفردية: {pc_line}"
     )
     bot.send_message(uid, text, parse_mode="Markdown")
 
@@ -964,7 +964,7 @@ def _dispatch(call):
     if data == "open_popcalc":
         if not FEATURES["popcalc_enabled"] and not is_admin(uid):
             try:
-                bot.answer_callback_query(call.id, "🔒 حاسبة الشعبية متوقفة مؤقتاً", show_alert=True)
+                bot.answer_callback_query(call.id, "🔒 حاسبة المعركة الفردية متوقفة مؤقتاً", show_alert=True)
             except Exception:
                 pass
             return
@@ -978,7 +978,7 @@ def _dispatch(call):
     if data == "popcalc_new":
         popcalc_sessions[uid] = {"stage": "your_pop", "msg_id": mid, "mode": "pop"}
         bot.edit_message_text(
-            "🔥 *حاسبة الشعبية*\n\n"
+            "🔥 *حاسبة المعركة الفردية*\n\n"
             "1️⃣ أرسل شعبيتك الآن كرقم (مثال: `50000`)",
             uid, mid,
             reply_markup=popcalc_cancel_kb(), parse_mode="Markdown",
@@ -2285,7 +2285,7 @@ def handle_popcalc_input(message, sess):
         result_kb = teamcalc_result_kb()
         cancel_kb = teamcalc_cancel_kb()
     else:
-        title = "🔥 *حاسبة الشعبية*"
+        title = "🔥 *حاسبة المعركة الفردية*"
         points_fn = pop_points
         result_kb = popcalc_result_kb()
         cancel_kb = popcalc_cancel_kb()

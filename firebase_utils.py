@@ -166,6 +166,23 @@ def archive_season(season_id, reset_time_utc, top_users):
     })
 
 
+def get_last_season():
+    """جلب أحدث موسم مُؤرشف (أو None إن لم يوجد)."""
+    try:
+        docs = list(
+            db.collection("seasons")
+            .order_by("reset_at", direction=firestore.Query.DESCENDING)
+            .limit(1)
+            .stream()
+        )
+        if docs:
+            d = docs[0]
+            return {"id": d.id, **d.to_dict()}
+    except Exception as e:
+        print(f"⚠️ get_last_season: {e}")
+    return None
+
+
 def get_meta():
     """جلب وثيقة meta/leaderboard (تحتوي last_reset_at)."""
     doc = db.collection("meta").document("leaderboard").get()

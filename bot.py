@@ -24,6 +24,7 @@ from firebase_utils import (
     get_pending_games, backfill_points,
     reset_all_points, archive_season, get_meta, set_last_reset,
     queue_add, queue_remove, queue_in, queue_size, queue_try_match,
+    get_last_season,
 )
 
 if not BOT_TOKEN:
@@ -501,7 +502,17 @@ def _dispatch(call):
     if data == "menu_leaderboard":
         board = get_leaderboard(25)
         text = render_leaderboard(board, uid)
-        kb = types.InlineKeyboardMarkup()
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        kb.add(types.InlineKeyboardButton("🏅 الأسبوع السابق", callback_data="menu_last_season"))
+        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_main"))
+        bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+        return
+
+    if data == "menu_last_season":
+        season = get_last_season()
+        text = render_last_season(season)
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        kb.add(types.InlineKeyboardButton("🏆 لوحة الحالية", callback_data="menu_leaderboard"))
         kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_main"))
         bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
         return
@@ -1212,6 +1223,32 @@ def render_leaderboard(users, viewer_id):
         me = " 👈 أنت" if str(u.get("user_id")) == str(viewer_id) else ""
         pts = u.get("points", 0)
         lines.append(f"{prefix} {u.get('name','لاعب')} — *{pts}* نقطة{me}")
+    return "\n".join(lines)
+
+
+def render_last_season(season):
+    """عرض فائزي الأسبوع السابق (Top 3 من الأرشيف)."""
+    if not season or not season.get("top"):
+        return (
+            "🏅 *الأسبوع السابق*\n\n"
+            "لا يوجد موسم مُؤرشف بعد.\n"
+            "سيظهر هنا الفائزون بعد أول تصفير (الجمعة 00:00 بتوقيت الرياض)."
+        )
+    top = season.get("top", [])[:3]
+    season_id = season.get("id") or season.get("season_id", "")
+    lines = [
+        f"🏅 *الفائزون — {season_id}*",
+        "",
+        "🎁 *الجوائز:*",
+    ]
+    medals = ["🥇", "🥈", "🥉"]
+    prizes = ["120 UC", "60 UC", "60 UC"]
+    for i, u in enumerate(top):
+        nm = u.get("name", "لاعب")
+        pts = u.get("points", 0)
+        lines.append(f"{medals[i]} *{nm}* — {pts} نقطة — 🎁 {prizes[i]}")
+    if len(top) < 3:
+        lines.append("\n_(لم يكتمل عدد الفائزين هذا الأسبوع)_")
     return "\n".join(lines)
 
 

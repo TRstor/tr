@@ -244,6 +244,7 @@ def popcalc_back_kb():
 def popcalc_result_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("🔁 حساب جديد", callback_data="popcalc_new"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="open_popcalc"))
     kb.add(types.InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="back_start"))
     return kb
 
@@ -295,6 +296,8 @@ def main_menu_kb():
     )
     # صف: المساعدة
     kb.add(types.InlineKeyboardButton("ℹ️ كيف تلعب", callback_data="menu_help"))
+    # رجوع للقائمة الرئيسية (XO / حاسبة الشعبية)
+    kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_start"))
     return kb
 
 

@@ -52,6 +52,34 @@ def get_bot_username():
 # {user_id: {"board": list[9], "difficulty": "easy"|"hard", "msg_id": int}}
 bot_games = {}
 
+# جلسات حاسبة الشعبية (بالذاكرة)
+# {user_id: {"stage": "your_pop"|"opp_pop", "msg_id": int, "own_pts": int, "own_pop": int}}
+popcalc_sessions = {}
+
+# جدول الشعبية → النقاط (مستنبط من صورة اللعبة)
+# كل عنصر: (min_popularity, max_popularity, points)
+POP_TIERS = [
+    (0,        1_500,    6),
+    (1_501,    3_000,    10),
+    (3_001,    8_000,    14),
+    (8_001,    14_000,   16),
+    (14_001,   46_000,   20),
+    (46_001,   119_000,  24),
+    (119_001,  250_000,  28),
+    (250_001,  480_000,  32),
+    (480_001,  950_000,  36),
+    (950_001,  1_500_000, 40),
+    (1_500_001, 10**12,  42),
+]
+
+
+def pop_points(popularity):
+    """يرجع عدد النقاط المقابل لمستوى شعبية."""
+    for lo, hi, pts in POP_TIERS:
+        if lo <= popularity <= hi:
+            return pts
+    return POP_TIERS[-1][2]
+
 EMPTY = "-"
 PLAYER_X = "X"
 PLAYER_O = "O"
@@ -183,6 +211,73 @@ def best_move_easy(board):
 # ============================
 # === الواجهات (لوحات الأزرار) ===
 # ============================
+
+def start_menu_kb():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("🎮 لعبة XO", callback_data="open_xo"))
+    kb.add(types.InlineKeyboardButton("🔥 حاسبة الشعبية", callback_data="open_popcalc"))
+    return kb
+
+
+# ====== حاسبة الشعبية — واجهات ونصوص ======
+
+def popcalc_menu_kb():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("🧮 حساب جديد", callback_data="popcalc_new"))
+    kb.add(types.InlineKeyboardButton("📋 جدول النقاط", callback_data="popcalc_tiers"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_start"))
+    return kb
+
+
+def popcalc_cancel_kb():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("❌ إلغاء", callback_data="popcalc_cancel"))
+    return kb
+
+
+def popcalc_back_kb():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="open_popcalc"))
+    return kb
+
+
+def popcalc_result_kb():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("🔁 حساب جديد", callback_data="popcalc_new"))
+    kb.add(types.InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="back_start"))
+    return kb
+
+
+def popcalc_intro_text():
+    return (
+        "🔥 *حاسبة الشعبية*\n\n"
+        "احسب النقاط التي ستربحها أو تخسرها في معركة الشعبية "
+        "بناءً على شعبيتك وشعبية خصمك.\n\n"
+        "• ربح: نقاطك + (نقاط الخصم ÷ 2)\n"
+        "• خسارة: نقاطك ÷ 2\n\n"
+        "اضغط *حساب جديد* لتبدأ."
+    )
+
+
+def popcalc_tiers_text():
+    def fmt(n):
+        if n >= 1_000_000:
+            return f"{n/1_000_000:g}M"
+        if n >= 1_000:
+            return f"{n//1000}K"
+        return str(n)
+
+    lines = ["📋 *جدول الشعبية والنقاط*\n"]
+    for lo, hi, pts in POP_TIERS:
+        if hi >= 10**10:
+            rng = f"{fmt(lo)}+"
+        elif lo == 0:
+            rng = f"حتى {fmt(hi)}"
+        else:
+            rng = f"{fmt(lo)} - {fmt(hi)}"
+        lines.append(f"• {rng}  ⇐  *{pts}* نقطة")
+    return "\n".join(lines)
+
 
 def main_menu_kb():
     kb = types.InlineKeyboardMarkup(row_width=2)
@@ -325,11 +420,10 @@ def cmd_start(message):
         return
 
     text = (
-        f"أهلاً {name}! 👋\n"
-        "مرحباً في بوت *لعبة XO* 🎮\n\n"
+        f"أهلاً {name}! 👋\n\n"
         "اختر من القائمة:"
     )
-    bot.send_message(uid, text, reply_markup=main_menu_kb(), parse_mode="Markdown")
+    bot.send_message(uid, text, reply_markup=start_menu_kb(), parse_mode="Markdown")
 
 
 @bot.message_handler(commands=["help"])
@@ -468,7 +562,53 @@ def _dispatch(call):
     if data == "back_main":
         # عند الرجوع من لعبة جارية ضد البوت، نحذفها
         bot_games.pop(uid, None)
-        bot.edit_message_text("القائمة الرئيسية:", uid, mid, reply_markup=main_menu_kb())
+        bot.edit_message_text("🎮 *لعبة XO*\n\nاختر:", uid, mid,
+                              reply_markup=main_menu_kb(), parse_mode="Markdown")
+        return
+
+    if data == "back_start":
+        bot_games.pop(uid, None)
+        popcalc_sessions.pop(uid, None)
+        bot.edit_message_text("القائمة الرئيسية:", uid, mid,
+                              reply_markup=start_menu_kb())
+        return
+
+    if data == "open_xo":
+        bot.edit_message_text("🎮 *لعبة XO*\n\nاختر:", uid, mid,
+                              reply_markup=main_menu_kb(), parse_mode="Markdown")
+        return
+
+    if data == "open_popcalc":
+        popcalc_sessions.pop(uid, None)
+        bot.edit_message_text(
+            popcalc_intro_text(), uid, mid,
+            reply_markup=popcalc_menu_kb(), parse_mode="Markdown",
+        )
+        return
+
+    if data == "popcalc_new":
+        popcalc_sessions[uid] = {"stage": "your_pop", "msg_id": mid}
+        bot.edit_message_text(
+            "🔥 *حاسبة الشعبية*\n\n"
+            "1️⃣ أرسل شعبيتك الآن كرقم (مثال: `50000`)",
+            uid, mid,
+            reply_markup=popcalc_cancel_kb(), parse_mode="Markdown",
+        )
+        return
+
+    if data == "popcalc_tiers":
+        bot.edit_message_text(
+            popcalc_tiers_text(), uid, mid,
+            reply_markup=popcalc_back_kb(), parse_mode="Markdown",
+        )
+        return
+
+    if data == "popcalc_cancel":
+        popcalc_sessions.pop(uid, None)
+        bot.edit_message_text(
+            popcalc_intro_text(), uid, mid,
+            reply_markup=popcalc_menu_kb(), parse_mode="Markdown",
+        )
         return
 
     if data == "menu_bot":
@@ -1657,11 +1797,97 @@ def weekly_reset_checker():
 
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def fallback(message):
+    uid = message.chat.id
+    # حاسبة الشعبية — التقاط الإدخال أثناء الجلسة
+    sess = popcalc_sessions.get(uid)
+    if sess:
+        handle_popcalc_input(message, sess)
+        return
     bot.send_message(
-        message.chat.id,
+        uid,
         "استخدم القائمة 👇",
-        reply_markup=main_menu_kb(),
+        reply_markup=start_menu_kb(),
     )
+
+
+def _parse_popularity(text):
+    """يستخرج رقم الشعبية من نص المستخدم (يقبل الفواصل/المسافات/K/M)."""
+    t = (text or "").strip().lower().replace(",", "").replace("٬", "").replace(" ", "")
+    # ترجمة الأرقام العربية
+    ar2en = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+    t = t.translate(ar2en)
+    mult = 1
+    if t.endswith("k"):
+        mult = 1_000
+        t = t[:-1]
+    elif t.endswith("m"):
+        mult = 1_000_000
+        t = t[:-1]
+    try:
+        val = float(t) * mult
+    except Exception:
+        return None
+    if val < 0:
+        return None
+    return int(val)
+
+
+def handle_popcalc_input(message, sess):
+    uid = message.chat.id
+    value = _parse_popularity(message.text)
+    if value is None:
+        bot.send_message(uid, "⚠️ أرسل رقماً صحيحاً فقط (مثال: `50000` أو `1.2M`)",
+                         parse_mode="Markdown")
+        return
+
+    # حاول حذف رسالة المستخدم لإبقاء المحادثة نظيفة
+    try:
+        bot.delete_message(uid, message.message_id)
+    except Exception:
+        pass
+
+    msg_id = sess.get("msg_id")
+
+    if sess["stage"] == "your_pop":
+        sess["own_pop"] = value
+        sess["own_pts"] = pop_points(value)
+        sess["stage"] = "opp_pop"
+        try:
+            bot.edit_message_text(
+                f"🔥 *حاسبة الشعبية*\n\n"
+                f"✅ شعبيتك: *{value:,}*  ({sess['own_pts']} نقطة)\n\n"
+                f"2️⃣ الآن أرسل شعبية الخصم كرقم:",
+                uid, msg_id,
+                reply_markup=popcalc_cancel_kb(), parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+        return
+
+    if sess["stage"] == "opp_pop":
+        own_pts = sess["own_pts"]
+        own_pop = sess["own_pop"]
+        opp_pop = value
+        opp_pts = pop_points(opp_pop)
+        win_gain = own_pts + opp_pts // 2
+        loss = own_pts // 2
+        text = (
+            "🔥 *نتيجة حاسبة الشعبية*\n\n"
+            f"👤 شعبيتك: *{own_pop:,}*  →  {own_pts} نقطة\n"
+            f"🎯 شعبية الخصم: *{opp_pop:,}*  →  {opp_pts} نقطة\n\n"
+            f"✅ عند الفوز: *+{win_gain}* نقطة\n"
+            f"❌ عند الخسارة: *-{loss}* نقطة"
+        )
+        popcalc_sessions.pop(uid, None)
+        try:
+            bot.edit_message_text(
+                text, uid, msg_id,
+                reply_markup=popcalc_result_kb(), parse_mode="Markdown",
+            )
+        except Exception:
+            bot.send_message(uid, text,
+                             reply_markup=popcalc_result_kb(), parse_mode="Markdown")
+        return
 
 
 # ============================

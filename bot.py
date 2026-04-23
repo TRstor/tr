@@ -54,6 +54,9 @@ def get_bot_username():
 # {user_id: {"board": list[9], "difficulty": "easy"|"hard", "msg_id": int}}
 bot_games = {}
 
+# وقت إقلاع البوت (لـ /status و /uptime)
+BOT_START_TIME = datetime.now(timezone.utc)
+
 # جلسات حاسبة الشعبية (بالذاكرة)
 # {user_id: {"stage": "your_pop"|"opp_pop", "msg_id": int, "own_pts": int, "own_pop": int}}
 popcalc_sessions = {}
@@ -522,6 +525,79 @@ def cmd_backup(message):
     if not is_admin(uid):
         return
     _send_backup(uid)
+
+
+def _format_uptime(td):
+    total = int(td.total_seconds())
+    d, rem = divmod(total, 86400)
+    h, rem = divmod(rem, 3600)
+    m, s = divmod(rem, 60)
+    parts = []
+    if d: parts.append(f"{d}ي")
+    if h: parts.append(f"{h}س")
+    if m: parts.append(f"{m}د")
+    if not parts: parts.append(f"{s}ث")
+    return " ".join(parts)
+
+
+@bot.message_handler(commands=["status"])
+def cmd_status(message):
+    uid = message.chat.id
+    if not is_admin(uid):
+        return
+
+    now = datetime.now(timezone.utc)
+    uptime = now - BOT_START_TIME
+
+    # اختبار اتصال Firestore + عدد المستخدمين
+    fs_ok = False
+    users_count = "-"
+    try:
+        from firebase_utils import db as _db
+        t0 = time_mod.time()
+        agg = _db.collection("users").count().get()
+        users_count = agg[0][0].value if agg else 0
+        fs_ping_ms = int((time_mod.time() - t0) * 1000)
+        fs_ok = True
+    except Exception as e:
+        fs_ping_ms = -1
+        print(f"⚠️ /status firestore: {e}")
+
+    # مباريات نشطة في الذاكرة + طابور
+    bot_active = len(bot_games)
+    try:
+        qs = queue_size()
+    except Exception:
+        qs = "-"
+
+    # استخدام الذاكرة (اختياري — يعمل بدون مكتبات خارجية)
+    mem_str = "-"
+    try:
+        import resource
+        rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # على Linux الرقم بالـ KB، على macOS بالـ bytes
+        mem_mb = rss_kb / 1024
+        mem_str = f"{mem_mb:.1f} MB"
+    except Exception:
+        pass
+
+    fs_line = f"✅ متصل ({fs_ping_ms}ms)" if fs_ok else "❌ غير متصل"
+    xo_line = "✅ مُفعّلة" if FEATURES["xo_enabled"] else "🔒 متوقفة"
+    pc_line = "✅ مُفعّلة" if FEATURES["popcalc_enabled"] else "🔒 متوقفة"
+
+    text = (
+        "📊 *حالة البوت*\n\n"
+        f"⏱ وقت التشغيل: *{_format_uptime(uptime)}*\n"
+        f"🕒 منذ: `{BOT_START_TIME.strftime('%Y-%m-%d %H:%M UTC')}`\n"
+        f"💾 الذاكرة: *{mem_str}*\n\n"
+        f"🔥 Firestore: {fs_line}\n"
+        f"👥 المستخدمون: *{users_count}*\n\n"
+        f"🎮 مباريات ضد البوت (نشطة): *{bot_active}*\n"
+        f"📭 طابور Quick Match: *{qs}*\n\n"
+        f"🎯 لعبة XO: {xo_line}\n"
+        f"🔥 حاسبة الشعبية: {pc_line}"
+    )
+    bot.send_message(uid, text, parse_mode="Markdown")
 
 
 def _send_backup(uid):

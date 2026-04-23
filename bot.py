@@ -245,7 +245,6 @@ def popcalc_result_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("🔁 حساب جديد", callback_data="popcalc_new"))
     kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="open_popcalc"))
-    kb.add(types.InlineKeyboardButton("🏠 القائمة الرئيسية", callback_data="back_start"))
     return kb
 
 
@@ -1874,10 +1873,41 @@ def handle_popcalc_input(message, sess):
         opp_pts = pop_points(opp_pop)
         win_gain = own_pts + opp_pts // 2
         loss = own_pts // 2
+
+        # مقارنة بين اللاعبين
+        if opp_pop > own_pop:
+            ratio = opp_pop / max(own_pop, 1)
+            if ratio >= 5:
+                verdict = (
+                    "⚠️ *الخصم أعلى بكثير منك!*\n"
+                    f"شعبيته تعادل ~{ratio:.1f}× شعبيتك. فرصة الفوز ضعيفة، "
+                    "لكن إن فزت فستربح عدداً كبيراً من النقاط! 🔥"
+                )
+            else:
+                verdict = (
+                    "🔴 *الخصم أعلى منك*\n"
+                    "المعركة صعبة، لكن في حال الفوز ستحصد مكافأة جيدة."
+                )
+        elif opp_pop < own_pop:
+            ratio = own_pop / max(opp_pop, 1)
+            if ratio >= 5:
+                verdict = (
+                    "🟢 *أنت أعلى بكثير من الخصم*\n"
+                    "الفوز متوقع، لكن الربح محدود. احذر، الخسارة توجع!"
+                )
+            else:
+                verdict = (
+                    "🟡 *أنت أعلى من الخصم*\n"
+                    "فرصتك جيدة للفوز."
+                )
+        else:
+            verdict = "⚖️ *أنتما متعادلان في الشعبية* — معركة عادلة!"
+
         text = (
             "🔥 *نتيجة حاسبة الشعبية*\n\n"
             f"👤 شعبيتك: *{own_pop:,}*  →  {own_pts} نقطة\n"
             f"🎯 شعبية الخصم: *{opp_pop:,}*  →  {opp_pts} نقطة\n\n"
+            f"{verdict}\n\n"
             f"✅ عند الفوز: *+{win_gain}* نقطة\n"
             f"❌ عند الخسارة: *-{loss}* نقطة"
         )

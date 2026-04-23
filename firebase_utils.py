@@ -198,6 +198,19 @@ def set_last_reset(ts):
     )
 
 
+def get_flags():
+    """جلب أعلام التفعيل (feature flags) من meta/flags."""
+    doc = db.collection("meta").document("flags").get()
+    if doc.exists:
+        return doc.to_dict()
+    return {}
+
+
+def set_flag(name, value):
+    """تعيين علم ميزة."""
+    db.collection("meta").document("flags").set({name: bool(value)}, merge=True)
+
+
 def backfill_points():
     """
     حساب النقاط للمستخدمين الذين لا يملكون حقل `points` (مستخدمون قدامى).

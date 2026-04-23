@@ -25,6 +25,7 @@ from firebase_utils import (
     reset_all_points, archive_season, get_meta, set_last_reset,
     queue_add, queue_remove, queue_in, queue_size, queue_try_match,
     get_last_season,
+    get_flags, set_flag,
 )
 
 if not BOT_TOKEN:
@@ -95,6 +96,23 @@ QUICK_MATCH_TIMEOUT_SECONDS = 60
 # { user_id: {"chat_id":..., "msg_id":..., "joined_at":datetime} }
 quick_search_sessions = {}
 _qs_lock = threading.Lock()
+
+# ====== أعلام الميزات (Feature Flags) — تُحمَّل من Firestore ======
+FEATURES = {
+    "xo_enabled": True,
+    "popcalc_enabled": True,
+}
+
+
+def load_flags():
+    """تحميل الأعلام من Firestore عند الإقلاع وبعد كل تعديل."""
+    try:
+        stored = get_flags() or {}
+        for k in list(FEATURES.keys()):
+            if k in stored:
+                FEATURES[k] = bool(stored[k])
+    except Exception as e:
+        print(f"⚠️ load_flags: {e}")
 
 # ====== جدولة إعادة ضبط النقاط الأسبوعية ======
 # كل جمعة 00:00 بتوقيت الرياض (UTC+3) → الخميس 21:00 UTC
@@ -214,8 +232,10 @@ def best_move_easy(board):
 
 def start_menu_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("🎮 لعبة XO", callback_data="open_xo"))
-    kb.add(types.InlineKeyboardButton("🔥 حاسبة الشعبية", callback_data="open_popcalc"))
+    xo_lbl = "🎮 لعبة XO" if FEATURES["xo_enabled"] else "🎮 لعبة XO  🔒"
+    pc_lbl = "🔥 حاسبة الشعبية" if FEATURES["popcalc_enabled"] else "🔥 حاسبة الشعبية  🔒"
+    kb.add(types.InlineKeyboardButton(xo_lbl, callback_data="open_xo"))
+    kb.add(types.InlineKeyboardButton(pc_lbl, callback_data="open_popcalc"))
     return kb
 
 
@@ -467,11 +487,30 @@ def cmd_admin(message):
     uid = message.chat.id
     if not is_admin(uid):
         return
+    bot.send_message(uid, admin_panel_text(),
+                     reply_markup=admin_panel_kb(), parse_mode="Markdown")
+
+
+def admin_panel_text():
+    xo = "✅ مُفعّلة" if FEATURES["xo_enabled"] else "🔒 متوقفة"
+    pc = "✅ مُفعّلة" if FEATURES["popcalc_enabled"] else "🔒 متوقفة"
+    return (
+        "🛠 *لوحة المالك*\n\n"
+        f"• لعبة XO: {xo}\n"
+        f"• حاسبة الشعبية: {pc}\n\n"
+        "اختر إجراءً:"
+    )
+
+
+def admin_panel_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
+    xo_btn = "🔒 تعطيل لعبة XO" if FEATURES["xo_enabled"] else "✅ تفعيل لعبة XO"
+    pc_btn = "🔒 تعطيل حاسبة الشعبية" if FEATURES["popcalc_enabled"] else "✅ تفعيل حاسبة الشعبية"
+    kb.add(types.InlineKeyboardButton(xo_btn, callback_data="admin_toggle_xo"))
+    kb.add(types.InlineKeyboardButton(pc_btn, callback_data="admin_toggle_popcalc"))
     kb.add(types.InlineKeyboardButton("🧹 إعادة تعيين كل النقاط فوراً",
                                       callback_data="admin_reset_ask"))
-    bot.send_message(uid, "🛠 *لوحة المالك*\n\nاختر إجراءً:",
-                     reply_markup=kb, parse_mode="Markdown")
+    return kb
 
 
 @bot.message_handler(commands=["reset"])
@@ -646,6 +685,28 @@ def _dispatch(call):
             except Exception as e:
                 bot.edit_message_text(f"❌ فشل التنفيذ: {e}", uid, mid)
             return
+        if data == "admin_toggle_xo":
+            FEATURES["xo_enabled"] = not FEATURES["xo_enabled"]
+            try:
+                set_flag("xo_enabled", FEATURES["xo_enabled"])
+            except Exception as e:
+                print(f"⚠️ set_flag xo: {e}")
+            bot.edit_message_text(
+                admin_panel_text(), uid, mid,
+                reply_markup=admin_panel_kb(), parse_mode="Markdown",
+            )
+            return
+        if data == "admin_toggle_popcalc":
+            FEATURES["popcalc_enabled"] = not FEATURES["popcalc_enabled"]
+            try:
+                set_flag("popcalc_enabled", FEATURES["popcalc_enabled"])
+            except Exception as e:
+                print(f"⚠️ set_flag popcalc: {e}")
+            bot.edit_message_text(
+                admin_panel_text(), uid, mid,
+                reply_markup=admin_panel_kb(), parse_mode="Markdown",
+            )
+            return
 
     # === قوائم عامة ===
     if data == "back_main":
@@ -663,11 +724,23 @@ def _dispatch(call):
         return
 
     if data == "open_xo":
+        if not FEATURES["xo_enabled"] and not is_admin(uid):
+            try:
+                bot.answer_callback_query(call.id, "🔒 لعبة XO متوقفة مؤقتاً", show_alert=True)
+            except Exception:
+                pass
+            return
         bot.edit_message_text("🎮 *لعبة XO*\n\nاختر:", uid, mid,
                               reply_markup=main_menu_kb(), parse_mode="Markdown")
         return
 
     if data == "open_popcalc":
+        if not FEATURES["popcalc_enabled"] and not is_admin(uid):
+            try:
+                bot.answer_callback_query(call.id, "🔒 حاسبة الشعبية متوقفة مؤقتاً", show_alert=True)
+            except Exception:
+                pass
+            return
         popcalc_sessions.pop(uid, None)
         bot.edit_message_text(
             popcalc_intro_text(), uid, mid,
@@ -2029,6 +2102,10 @@ if __name__ == "__main__":
         _BOT_USERNAME_CACHE["value"] = me.username or ""
     except Exception as e:
         print(f"⚠️ تعذر جلب معلومات البوت: {e}")
+
+    # تحميل أعلام الميزات
+    load_flags()
+    print(f"🏁 FEATURES: {FEATURES}")
 
     # ثريد فحص انتهاء صلاحية التحدّيات
     threading.Thread(target=expiration_checker, daemon=True).start()

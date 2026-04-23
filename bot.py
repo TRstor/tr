@@ -17,7 +17,7 @@ from datetime import datetime, timezone, timedelta
 import telebot
 from telebot import types
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, ADMIN_ID
 from firebase_utils import (
     get_or_create_user, record_result, get_user_stats, get_leaderboard,
     create_game, create_game_symbol, get_game, update_game, delete_game,
@@ -454,6 +454,58 @@ def cmd_join(message):
     handle_join_game(uid, name, game_id)
 
 
+# ============================
+# === أوامر المالك ===
+# ============================
+
+def is_admin(uid):
+    return ADMIN_ID and int(uid) == int(ADMIN_ID)
+
+
+@bot.message_handler(commands=["admin"])
+def cmd_admin(message):
+    uid = message.chat.id
+    if not is_admin(uid):
+        return
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("🧹 إعادة تعيين كل النقاط فوراً",
+                                      callback_data="admin_reset_ask"))
+    bot.send_message(uid, "🛠 *لوحة المالك*\n\nاختر إجراءً:",
+                     reply_markup=kb, parse_mode="Markdown")
+
+
+@bot.message_handler(commands=["reset"])
+def cmd_reset(message):
+    """اختصار: /reset → يسأل المالك للتأكيد قبل تصفير النقاط."""
+    uid = message.chat.id
+    if not is_admin(uid):
+        return
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("✅ نعم، صفّر الآن", callback_data="admin_reset_confirm"),
+        types.InlineKeyboardButton("❌ إلغاء", callback_data="admin_reset_cancel"),
+    )
+    bot.send_message(
+        uid,
+        "⚠️ *تحذير*\n\nسيتم أرشفة أفضل 25 لاعباً في الموسم الحالي "
+        "ثم *تصفير نقاط جميع المستخدمين*.\n\nهل أنت متأكد؟",
+        reply_markup=kb, parse_mode="Markdown",
+    )
+
+
+def _do_full_reset():
+    """ينفّذ نفس منطق weekly_reset يدوياً."""
+    now = datetime.now(timezone.utc)
+    top = get_leaderboard(25)
+    # استخدم موعد الإعادة المجدول السابق كـ season_id لتجنّب التعارض
+    target = last_scheduled_reset(now)
+    season_id = target.strftime("%G-W%V") + "-manual-" + now.strftime("%H%M%S")
+    archive_season(season_id, now, top)
+    n = reset_all_points()
+    set_last_reset(now)
+    return len(top), n
+
+
 def help_text():
     return (
         "ℹ️ *كيف تلعب XO:*\n\n"
@@ -558,6 +610,42 @@ def _dispatch(call):
 
     uid = call.message.chat.id
     mid = call.message.message_id
+
+    # === أوامر المالك ===
+    if data.startswith("admin_"):
+        if not is_admin(uid):
+            try:
+                bot.answer_callback_query(call.id, "⛔ هذا الإجراء للمالك فقط")
+            except Exception:
+                pass
+            return
+        if data == "admin_reset_ask":
+            kb = types.InlineKeyboardMarkup(row_width=2)
+            kb.add(
+                types.InlineKeyboardButton("✅ نعم، صفّر الآن", callback_data="admin_reset_confirm"),
+                types.InlineKeyboardButton("❌ إلغاء", callback_data="admin_reset_cancel"),
+            )
+            bot.edit_message_text(
+                "⚠️ *تحذير*\n\nسيتم أرشفة أفضل 25 لاعباً "
+                "ثم *تصفير نقاط جميع المستخدمين*.\n\nهل أنت متأكد؟",
+                uid, mid, reply_markup=kb, parse_mode="Markdown",
+            )
+            return
+        if data == "admin_reset_cancel":
+            bot.edit_message_text("❎ تم الإلغاء.", uid, mid)
+            return
+        if data == "admin_reset_confirm":
+            try:
+                archived, reset_n = _do_full_reset()
+                bot.edit_message_text(
+                    f"✅ *تمت إعادة التعيين بنجاح*\n\n"
+                    f"• تمت أرشفة: *{archived}* لاعباً\n"
+                    f"• تم تصفير نقاط: *{reset_n}* مستخدماً",
+                    uid, mid, parse_mode="Markdown",
+                )
+            except Exception as e:
+                bot.edit_message_text(f"❌ فشل التنفيذ: {e}", uid, mid)
+            return
 
     # === قوائم عامة ===
     if data == "back_main":

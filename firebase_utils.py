@@ -36,21 +36,29 @@ db = init_firebase()
 # === المستخدمون والإحصائيات ===
 # ============================
 
-def get_or_create_user(user_id, name=""):
+def get_or_create_user(user_id, name="", username=""):
     """جلب مستخدم أو إنشاؤه بسجل إحصائيات صفري"""
     ref = db.collection("users").document(str(user_id))
     doc = ref.get()
     if doc.exists:
         data = doc.to_dict()
+        updates = {}
         # تحديث الاسم إذا تغيّر
         if name and data.get("name") != name:
-            ref.update({"name": name})
+            updates["name"] = name
             data["name"] = name
+        # تحديث اليوزر إذا تغيّر
+        if username != data.get("username", ""):
+            updates["username"] = username
+            data["username"] = username
+        if updates:
+            ref.update(updates)
         return {"id": doc.id, **data}
 
     new_data = {
         "user_id": int(user_id),
         "name": name or "لاعب",
+        "username": username or "",
         "points": 0,
         "wins": 0,
         "losses": 0,

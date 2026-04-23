@@ -522,20 +522,52 @@ def board_str(board_list_):
 def cmd_start(message):
     uid = message.chat.id
     name = message.from_user.first_name or "لاعب"
-    get_or_create_user(uid, name)
+    username = message.from_user.username or ""
+    get_or_create_user(uid, name, username)
 
     # التعامل مع رابط الانضمام لتحدٍّ: /start join_GAMEID
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) == 2 and parts[1].startswith("join_"):
         game_id = parts[1][len("join_"):]
+        if not require_username(message):
+            return
         handle_join_game(uid, name, game_id)
         return
 
+    if not require_username(message):
+        return
+
     text = (
-        f"أهلاً {name}! 👋\n\n"
+        f"👋 أهلاً *{name}*!\n\n"
+        f"🆔 ID: `{uid}`\n"
+        f"👤 اليوزر: @{username}\n\n"
         "اختر من القائمة:"
     )
     bot.send_message(uid, text, reply_markup=start_menu_kb(), parse_mode="Markdown")
+
+
+def require_username(message):
+    """تأكد أن المستخدم لديه يوزرنيم، وإلا أرسل له تعليمات ولا يسمح بالاستخدام."""
+    username = (message.from_user.username or "").strip()
+    if username:
+        return True
+    uid = message.chat.id
+    text = (
+        "🔒 *لا يمكن استخدام البوت بدون يوزر*\n\n"
+        "لضمان عدالة المسابقة ومنع الانتحال، نطلب من كل لاعب إضافة "
+        "*اسم مستخدم (Username)* في تليجرام.\n\n"
+        "📱 *كيفية الإضافة:*\n"
+        "1️⃣ افتح الإعدادات ⚙️\n"
+        "2️⃣ اضغط على *اسم المستخدم / Username*\n"
+        "3️⃣ اختر اسماً وأكّده\n"
+        "4️⃣ عُد وأرسل /start من جديد\n\n"
+        "✅ بعد الإضافة ستتمكن من اللعب والمنافسة على الجوائز."
+    )
+    try:
+        bot.send_message(uid, text, parse_mode="Markdown")
+    except Exception:
+        pass
+    return False
 
 
 @bot.message_handler(commands=["help"])
@@ -851,6 +883,19 @@ def _dispatch(call):
 
     uid = call.message.chat.id
     mid = call.message.message_id
+
+    # === حارس اليوزر: لا سماح بدون username (ما عدا المالك) ===
+    if not (call.from_user.username or "").strip():
+        if not (ADMIN_ID and int(call.from_user.id) == int(ADMIN_ID)):
+            try:
+                bot.answer_callback_query(
+                    call.id,
+                    "🔒 أضف يوزر (Username) في تليجرام ثم أرسل /start",
+                    show_alert=True,
+                )
+            except Exception:
+                pass
+            return
 
     # === أوامر المالك ===
     if data.startswith("admin_"):
@@ -2229,6 +2274,9 @@ def weekly_reset_checker():
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def fallback(message):
     uid = message.chat.id
+    # حارس اليوزر (ما عدا المالك)
+    if not is_admin(uid) and not require_username(message):
+        return
     # حاسبة الشعبية — التقاط الإدخال أثناء الجلسة
     sess = popcalc_sessions.get(uid)
     if sess:

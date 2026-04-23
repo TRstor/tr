@@ -237,9 +237,17 @@ def best_move_easy(board):
 def start_menu_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
     xo_lbl = "🎮 لعبة XO" if FEATURES["xo_enabled"] else "🎮 لعبة XO  🔒"
-    pc_lbl = "🔥 حاسبة الشعبية" if FEATURES["popcalc_enabled"] else "🔥 حاسبة الشعبية  🔒"
     kb.add(types.InlineKeyboardButton(xo_lbl, callback_data="open_xo"))
+    kb.add(types.InlineKeyboardButton("🧮 الحاسبات", callback_data="open_calcs"))
+    return kb
+
+
+def calcs_menu_kb():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    pc_lbl = "🔥 حاسبة الشعبية" if FEATURES["popcalc_enabled"] else "🔥 حاسبة الشعبية  🔒"
     kb.add(types.InlineKeyboardButton(pc_lbl, callback_data="open_popcalc"))
+    # مكان لإضافة حاسبات جديدة مستقبلاً
+    kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_start"))
     return kb
 
 
@@ -249,7 +257,7 @@ def popcalc_menu_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("🧮 حاسبة جديدة", callback_data="popcalc_new"))
     kb.add(types.InlineKeyboardButton("📋 جدول النقاط", callback_data="popcalc_tiers"))
-    kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_start"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="open_calcs"))
     return kb
 
 
@@ -850,6 +858,13 @@ def _dispatch(call):
             return
         bot.edit_message_text("🎮 *لعبة XO*\n\nاختر:", uid, mid,
                               reply_markup=main_menu_kb(), parse_mode="Markdown")
+        return
+
+    if data == "open_calcs":
+        bot.edit_message_text(
+            "🧮 *الحاسبات*\n\nاختر الحاسبة:",
+            uid, mid, reply_markup=calcs_menu_kb(), parse_mode="Markdown",
+        )
         return
 
     if data == "open_popcalc":

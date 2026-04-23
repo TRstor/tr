@@ -272,9 +272,9 @@ def popcalc_tiers_text():
     for i, (lo, hi, pts) in enumerate(POP_TIERS):
         low_label = "0" if i == 0 else fmt(prev_hi)
         if hi >= 10**10:
-            rng = f"{{ من {low_label} إلى ∞ }}"
+            rng = f"﴾ من {low_label} إلى ∞ ﴿"
         else:
-            rng = f"{{ من {low_label} إلى {fmt(hi)} }}"
+            rng = f"﴾ من {low_label} إلى {fmt(hi)} ﴿"
         lines.append(f"{rng} → *{pts}* نقطة")
         prev_hi = hi if hi < 10**10 else prev_hi
     return "\n".join(lines)

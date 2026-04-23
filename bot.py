@@ -267,15 +267,16 @@ def popcalc_tiers_text():
             return f"{n/1_000:g}K"
         return str(n)
 
-    lines = ["📋 *جدول الشعبية والنقاط*\n"]
-    for lo, hi, pts in POP_TIERS:
+    lines = ["� *إحصائيات معركة الشعبية*\n"]
+    prev_hi = 0
+    for i, (lo, hi, pts) in enumerate(POP_TIERS):
+        low_label = "0" if i == 0 else fmt(prev_hi)
         if hi >= 10**10:
-            rng = f"{fmt(lo)}+"
-        elif lo == 0:
-            rng = f"حتى {fmt(hi)}"
+            rng = f"{{ من {low_label} إلى ∞ }}"
         else:
-            rng = f"{fmt(lo)} - {fmt(hi)}"
-        lines.append(f"• {rng}  ⇐  *{pts}* نقطة")
+            rng = f"{{ من {low_label} إلى {fmt(hi)} }}"
+        lines.append(f"{rng} → *{pts}* نقطة")
+        prev_hi = hi if hi < 10**10 else prev_hi
     return "\n".join(lines)
 
 

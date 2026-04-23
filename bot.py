@@ -223,7 +223,7 @@ def start_menu_kb():
 
 def popcalc_menu_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("🧮 حساب جديد", callback_data="popcalc_new"))
+    kb.add(types.InlineKeyboardButton("🧮 حاسبة جديدة", callback_data="popcalc_new"))
     kb.add(types.InlineKeyboardButton("📋 جدول النقاط", callback_data="popcalc_tiers"))
     kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_start"))
     return kb
@@ -243,7 +243,7 @@ def popcalc_back_kb():
 
 def popcalc_result_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("🔁 حساب جديد", callback_data="popcalc_new"))
+    kb.add(types.InlineKeyboardButton("🔁 حاسبة جديدة", callback_data="popcalc_new"))
     kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="open_popcalc"))
     return kb
 
@@ -255,7 +255,7 @@ def popcalc_intro_text():
         "بناءً على شعبيتك وشعبية خصمك.\n\n"
         "• ربح: نقاطك + (نقاط الخصم ÷ 2)\n"
         "• خسارة: نقاطك ÷ 2\n\n"
-        "اضغط *حساب جديد* لتبدأ."
+        "اضغط *حاسبة جديدة* لتبدأ."
     )
 
 

@@ -12,6 +12,7 @@ import secrets
 import random
 import threading
 import time as time_mod
+import json
 from datetime import datetime, timezone, timedelta
 
 import telebot
@@ -25,7 +26,7 @@ from firebase_utils import (
     reset_all_points, archive_season, get_meta, set_last_reset,
     queue_add, queue_remove, queue_in, queue_size, queue_try_match,
     get_last_season,
-    get_flags, set_flag,
+    get_flags, set_flag, export_all,
 )
 
 if not BOT_TOKEN:
@@ -508,9 +509,43 @@ def admin_panel_kb():
     pc_btn = "🔒 تعطيل حاسبة الشعبية" if FEATURES["popcalc_enabled"] else "✅ تفعيل حاسبة الشعبية"
     kb.add(types.InlineKeyboardButton(xo_btn, callback_data="admin_toggle_xo"))
     kb.add(types.InlineKeyboardButton(pc_btn, callback_data="admin_toggle_popcalc"))
+    kb.add(types.InlineKeyboardButton("📦 نسخ احتياطي (Backup)", callback_data="admin_backup"))
     kb.add(types.InlineKeyboardButton("🧹 إعادة تعيين كل النقاط فوراً",
                                       callback_data="admin_reset_ask"))
     return kb
+
+
+@bot.message_handler(commands=["backup"])
+def cmd_backup(message):
+    """تصدير Firestore كاملاً كملف JSON يُرسل للمالك."""
+    uid = message.chat.id
+    if not is_admin(uid):
+        return
+    _send_backup(uid)
+
+
+def _send_backup(uid):
+    import io
+    try:
+        bot.send_chat_action(uid, "upload_document")
+    except Exception:
+        pass
+    try:
+        data = export_all()
+        counts = {k: len(v) for k, v in data.items()}
+        payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        fname = f"backup_{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H%M%S')}.json"
+        f = io.BytesIO(payload)
+        f.name = fname
+        caption = (
+            "📦 *نسخة احتياطية*\n\n"
+            + "\n".join([f"• {k}: *{v}*" for k, v in counts.items()])
+            + f"\n\n🕒 {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+        )
+        bot.send_document(uid, f, caption=caption, parse_mode="Markdown",
+                          visible_file_name=fname)
+    except Exception as e:
+        bot.send_message(uid, f"❌ فشل التصدير: {e}")
 
 
 @bot.message_handler(commands=["reset"])
@@ -706,6 +741,13 @@ def _dispatch(call):
                 admin_panel_text(), uid, mid,
                 reply_markup=admin_panel_kb(), parse_mode="Markdown",
             )
+            return
+        if data == "admin_backup":
+            try:
+                bot.answer_callback_query(call.id, "📦 جاري التحضير...")
+            except Exception:
+                pass
+            _send_backup(uid)
             return
 
     # === قوائم عامة ===

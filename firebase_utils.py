@@ -211,6 +211,31 @@ def set_flag(name, value):
     db.collection("meta").document("flags").set({name: bool(value)}, merge=True)
 
 
+def export_all():
+    """تصدير جميع مجموعات Firestore إلى قاموس قابل للتسلسل JSON."""
+    import datetime as _dt
+
+    def _json_safe(v):
+        if isinstance(v, _dt.datetime):
+            return {"__dt__": v.isoformat()}
+        if isinstance(v, dict):
+            return {k: _json_safe(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [_json_safe(x) for x in v]
+        return v
+
+    result = {}
+    for col in ("users", "games", "seasons", "meta", "queue"):
+        docs = []
+        try:
+            for d in db.collection(col).stream():
+                docs.append({"_id": d.id, **_json_safe(d.to_dict() or {})})
+        except Exception as e:
+            print(f"⚠️ export_all {col}: {e}")
+        result[col] = docs
+    return result
+
+
 def backfill_points():
     """
     حساب النقاط للمستخدمين الذين لا يملكون حقل `points` (مستخدمون قدامى).

@@ -636,6 +636,8 @@ def admin_panel_kb():
     kb.add(types.InlineKeyboardButton(pc_btn, callback_data="admin_toggle_popcalc"))
     kb.add(types.InlineKeyboardButton(tc_btn, callback_data="admin_toggle_teamcalc"))
     kb.add(types.InlineKeyboardButton("📦 نسخ احتياطي (Backup)", callback_data="admin_backup"))
+    kb.add(types.InlineKeyboardButton("📋 لوحة تفصيلية (IDs + يوزرات)",
+                                      callback_data="admin_leaderboard"))
     kb.add(types.InlineKeyboardButton("🧹 إعادة تعيين كل النقاط فوراً",
                                       callback_data="admin_reset_ask"))
     return kb
@@ -971,6 +973,18 @@ def _dispatch(call):
             except Exception:
                 pass
             _send_backup(uid)
+            return
+        if data == "admin_leaderboard":
+            board = get_leaderboard(25)
+            text = render_admin_leaderboard(board)
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_back"))
+            bot.edit_message_text(text, uid, mid,
+                                  reply_markup=kb, parse_mode="Markdown")
+            return
+        if data == "admin_back":
+            bot.edit_message_text(admin_panel_text(), uid, mid,
+                                  reply_markup=admin_panel_kb(), parse_mode="Markdown")
             return
 
     # === قوائم عامة ===
@@ -1858,7 +1872,6 @@ def render_leaderboard(users, viewer_id):
             "",
             "_تم التصفير. كن أول من يسجّل نقاطاً هذا الأسبوع!_",
         ]
-        # ألحق آخر فائزين محفوظين إن وُجدوا
         try:
             season = get_last_season()
         except Exception:
@@ -1870,9 +1883,7 @@ def render_leaderboard(users, viewer_id):
             prizes = ["120 UC", "60 UC", "60 UC"]
             for i, u in enumerate(season.get("top", [])[:3]):
                 pts = u.get("points", 0)
-                uname = u.get("username", "")
-                tail = f" — `@{uname}`" if uname else ""
-                head.append(f"{medals[i]} {_mention(u)} — {pts} نقطة — 🎁 {prizes[i]}{tail}")
+                head.append(f"{medals[i]} *{_md_escape(u.get('name','لاعب'))}* — {pts} نقطة — 🎁 {prizes[i]}")
         return "\n".join(head)
 
     lines = [
@@ -1890,7 +1901,36 @@ def render_leaderboard(users, viewer_id):
         prefix = medals[i] if i < 3 else f"{i+1}."
         me = " 👈 أنت" if str(u.get("user_id")) == str(viewer_id) else ""
         pts = u.get("points", 0)
-        lines.append(f"{prefix} {_mention(u)} — *{pts}* نقطة{me}")
+        lines.append(f"{prefix} {_md_escape(u.get('name','لاعب'))} — *{pts}* نقطة{me}")
+    return "\n".join(lines)
+
+
+def render_admin_leaderboard(users):
+    """لوحة تفصيلية للمالك — تعرض الاسم + اليوزر + الـID + النقاط."""
+    try:
+        time_left = format_time_left(
+            next_scheduled_reset(datetime.now(timezone.utc)) - datetime.now(timezone.utc)
+        )
+    except Exception:
+        time_left = "—"
+    if not users:
+        return "🛠 *لوحة المالك التفصيلية*\n\nلا يوجد لاعبون."
+    lines = [
+        "🛠 *لوحة المالك — تفاصيل أعلى 25 لاعباً*",
+        f"⏳ يُعاد التصفير خلال: *{time_left}*",
+        "",
+    ]
+    medals = ["🥇", "🥈", "🥉"]
+    for i, u in enumerate(users):
+        prefix = medals[i] if i < 3 else f"{i+1}."
+        pts = u.get("points", 0)
+        uid_ = u.get("user_id", "—")
+        uname = u.get("username", "") or ""
+        uname_str = f"@{uname}" if uname else "—"
+        lines.append(
+            f"{prefix} *{_md_escape(u.get('name','لاعب'))}* — *{pts}* نقطة\n"
+            f"   🆔 `{uid_}` | 👤 `{uname_str}`"
+        )
     return "\n".join(lines)
 
 
@@ -1913,9 +1953,7 @@ def render_last_season(season):
     prizes = ["120 UC", "60 UC", "60 UC"]
     for i, u in enumerate(top):
         pts = u.get("points", 0)
-        uname = u.get("username", "")
-        tail = f" — `@{uname}`" if uname else ""
-        lines.append(f"{medals[i]} {_mention(u)} — {pts} نقطة — 🎁 {prizes[i]}{tail}")
+        lines.append(f"{medals[i]} *{_md_escape(u.get('name','لاعب'))}* — {pts} نقطة — 🎁 {prizes[i]}")
     if len(top) < 3:
         lines.append("\n_(لم يكتمل عدد الفائزين هذا الأسبوع)_")
     return "\n".join(lines)

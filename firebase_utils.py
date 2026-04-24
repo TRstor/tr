@@ -167,6 +167,7 @@ def archive_season(season_id, reset_time_utc, top_users):
             {
                 "user_id": u.get("user_id"),
                 "name": u.get("name", "لاعب"),
+                "username": u.get("username", ""),
                 "points": u.get("points", 0),
             }
             for u in top_users

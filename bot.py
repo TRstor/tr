@@ -1810,6 +1810,23 @@ def render_stats(user):
     )
 
 
+def _md_escape(s):
+    """تهريب محارف Markdown في أسماء اللاعبين."""
+    s = str(s or "لاعب")
+    for ch in ("\\", "[", "]", "*", "_", "`", "(", ")"):
+        s = s.replace(ch, "\\" + ch)
+    return s
+
+
+def _mention(u):
+    """منشن قابل للنقر يؤدي إلى حساب اللاعب الحقيقي."""
+    name = _md_escape(u.get("name", "لاعب"))
+    uid = u.get("user_id")
+    if uid:
+        return f"[{name}](tg://user?id={int(uid)})"
+    return name
+
+
 def render_leaderboard(users, viewer_id):
     try:
         time_left = format_time_left(
@@ -1838,7 +1855,7 @@ def render_leaderboard(users, viewer_id):
         prefix = medals[i] if i < 3 else f"{i+1}."
         me = " 👈 أنت" if str(u.get("user_id")) == str(viewer_id) else ""
         pts = u.get("points", 0)
-        lines.append(f"{prefix} {u.get('name','لاعب')} — *{pts}* نقطة{me}")
+        lines.append(f"{prefix} {_mention(u)} — *{pts}* نقطة{me}")
     return "\n".join(lines)
 
 
@@ -1860,9 +1877,10 @@ def render_last_season(season):
     medals = ["🥇", "🥈", "🥉"]
     prizes = ["120 UC", "60 UC", "60 UC"]
     for i, u in enumerate(top):
-        nm = u.get("name", "لاعب")
         pts = u.get("points", 0)
-        lines.append(f"{medals[i]} *{nm}* — {pts} نقطة — 🎁 {prizes[i]}")
+        uname = u.get("username", "")
+        tail = f" — @{uname}" if uname else ""
+        lines.append(f"{medals[i]} {_mention(u)} — {pts} نقطة — 🎁 {prizes[i]}{tail}")
     if len(top) < 3:
         lines.append("\n_(لم يكتمل عدد الفائزين هذا الأسبوع)_")
     return "\n".join(lines)

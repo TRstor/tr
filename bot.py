@@ -984,8 +984,16 @@ def _dispatch(call):
     if data == "back_start":
         bot_games.pop(uid, None)
         popcalc_sessions.pop(uid, None)
-        bot.edit_message_text("القائمة الرئيسية:", uid, mid,
-                              reply_markup=start_menu_kb())
+        name = call.from_user.first_name or "لاعب"
+        username = call.from_user.username or ""
+        text = (
+            f"👋 أهلاً بعودتك *{_md_escape(name)}*!\n\n"
+            f"🆔 ID: `{uid}`\n"
+            f"👤 اليوزر: `@{username}`\n\n"
+            "اختر من القائمة:"
+        )
+        bot.edit_message_text(text, uid, mid,
+                              reply_markup=start_menu_kb(), parse_mode="Markdown")
         return
 
     if data == "open_xo":

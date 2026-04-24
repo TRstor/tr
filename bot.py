@@ -1871,7 +1871,7 @@ def render_leaderboard(users, viewer_id):
             for i, u in enumerate(season.get("top", [])[:3]):
                 pts = u.get("points", 0)
                 uname = u.get("username", "")
-                tail = f" — @{uname}" if uname else ""
+                tail = f" — `@{uname}`" if uname else ""
                 head.append(f"{medals[i]} {_mention(u)} — {pts} نقطة — 🎁 {prizes[i]}{tail}")
         return "\n".join(head)
 
@@ -1914,7 +1914,7 @@ def render_last_season(season):
     for i, u in enumerate(top):
         pts = u.get("points", 0)
         uname = u.get("username", "")
-        tail = f" — @{uname}" if uname else ""
+        tail = f" — `@{uname}`" if uname else ""
         lines.append(f"{medals[i]} {_mention(u)} — {pts} نقطة — 🎁 {prizes[i]}{tail}")
     if len(top) < 3:
         lines.append("\n_(لم يكتمل عدد الفائزين هذا الأسبوع)_")

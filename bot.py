@@ -28,6 +28,21 @@ from firebase_utils import (
     get_last_season,
     get_flags, set_flag, export_all,
 )
+from moderation import (
+    is_banned, is_muted, ban_user, unban_user,
+    mute_user, unmute_user, warn_user, clear_warnings, adjust_points,
+    get_action_log, get_user_doc,
+    list_all_users, list_banned_users, search_users,
+    check_and_increment_daily_matches, record_pair_match, get_pair_count,
+)
+
+# إعدادات الإشراف (قابلة للتعديل لاحقاً من اللوحة)
+DAILY_MATCH_LIMIT = 50            # حد أقصى للمباريات اليومية للاعب (0 = بلا حد)
+PAIR_MATCH_LIMIT_PER_DAY = 3      # أكثر من هذا العدد بين نفس اللاعبين = farming
+USERS_PAGE_SIZE = 10              # عدد المستخدمين في كل صفحة
+
+# حالات بحث المالك (واحدة لكل مالك)
+admin_search_waiting = {}
 
 if not BOT_TOKEN:
     print("❌ يرجى تعيين BOT_TOKEN في متغيرات البيئة")
@@ -525,6 +540,9 @@ def cmd_start(message):
     username = message.from_user.username or ""
     get_or_create_user(uid, name, username)
 
+    if not require_not_banned_msg(message):
+        return
+
     # التعامل مع رابط الانضمام لتحدٍّ: /start join_GAMEID
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) == 2 and parts[1].startswith("join_"):
@@ -568,6 +586,71 @@ def require_username(message):
     except Exception:
         pass
     return False
+
+
+def _fmt_ban_until(until):
+    try:
+        if hasattr(until, "to_datetime"):
+            dt = until.to_datetime()
+        else:
+            dt = until
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        # Riyadh time
+        riyadh = dt.astimezone(timezone(timedelta(hours=3)))
+        return riyadh.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return "—"
+
+
+def require_not_banned_msg(message):
+    """حارس الحظر/الكتم لمعالجات الرسائل — يعيد True إذا مسموح."""
+    uid = message.chat.id
+    # المالك مستثنى
+    if ADMIN_ID and int(uid) == int(ADMIN_ID):
+        return True
+    # كتم: تجاهل بصمت
+    if is_muted(uid):
+        return False
+    banned, reason, until = is_banned(uid)
+    if banned:
+        txt = "🚫 *تم حظرك من استخدام البوت*"
+        if reason:
+            txt += f"\n📝 السبب: {reason}"
+        if until:
+            txt += f"\n⏳ حتى: {_fmt_ban_until(until)}"
+        else:
+            txt += "\n⛔ حظر دائم"
+        try:
+            bot.send_message(uid, txt, parse_mode="Markdown")
+        except Exception:
+            pass
+        return False
+    return True
+
+
+def require_not_banned_call(call):
+    """حارس الحظر/الكتم للـ callbacks — يعيد True إذا مسموح."""
+    uid = call.from_user.id
+    if ADMIN_ID and int(uid) == int(ADMIN_ID):
+        return True
+    if is_muted(uid):
+        try:
+            bot.answer_callback_query(call.id)
+        except Exception:
+            pass
+        return False
+    banned, reason, until = is_banned(uid)
+    if banned:
+        msg = "🚫 محظور"
+        if reason:
+            msg += f" — {reason[:40]}"
+        try:
+            bot.answer_callback_query(call.id, msg, show_alert=True)
+        except Exception:
+            pass
+        return False
+    return True
 
 
 @bot.message_handler(commands=["help"])
@@ -638,6 +721,12 @@ def admin_panel_kb():
     kb.add(types.InlineKeyboardButton("📦 نسخ احتياطي (Backup)", callback_data="admin_backup"))
     kb.add(types.InlineKeyboardButton("📋 لوحة تفصيلية (IDs + يوزرات)",
                                       callback_data="admin_leaderboard"))
+    kb.add(types.InlineKeyboardButton("👥 كل المستخدمين",
+                                      callback_data="admin_users_0"))
+    kb.add(types.InlineKeyboardButton("🔍 بحث عن لاعب",
+                                      callback_data="admin_search"))
+    kb.add(types.InlineKeyboardButton("🚫 قائمة المحظورين",
+                                      callback_data="admin_banned"))
     kb.add(types.InlineKeyboardButton("🧹 إعادة تعيين كل النقاط فوراً",
                                       callback_data="admin_reset_ask"))
     return kb
@@ -747,6 +836,270 @@ def _send_backup(uid):
                           visible_file_name=fname)
     except Exception as e:
         bot.send_message(uid, f"❌ فشل التصدير: {e}")
+
+
+# ============================
+# === إدارة اللاعبين — عرض ===
+# ============================
+
+def _user_line_short(u, idx=None):
+    name = u.get("name", "لاعب")
+    uid_ = u.get("user_id") or u.get("id") or "—"
+    uname = u.get("username") or ""
+    pts = u.get("points", 0)
+    tags = []
+    if u.get("banned"):
+        tags.append("🚫")
+    if u.get("muted"):
+        tags.append("🔇")
+    if (u.get("warnings") or 0) > 0:
+        tags.append(f"⚠️{u.get('warnings')}")
+    tag_str = (" " + "".join(tags)) if tags else ""
+    uname_str = f" @{uname}" if uname else ""
+    prefix = f"{idx}. " if idx is not None else ""
+    return f"{prefix}*{_md_escape(name)}*{tag_str}\n   🆔 `{uid_}` |{uname_str} | نقاط: *{pts}*"
+
+
+def _send_users_page(uid, mid, page, edit=False):
+    users = list_all_users()
+    total = len(users)
+    per = USERS_PAGE_SIZE
+    pages = max(1, (total + per - 1) // per)
+    page = max(0, min(page, pages - 1))
+    start = page * per
+    chunk = users[start:start + per]
+    header = (
+        f"👥 *كل المستخدمين المسجّلين*\n"
+        f"الإجمالي: *{total}* | الصفحة {page + 1}/{pages}\n\n"
+    )
+    body = "\n\n".join(
+        _user_line_short(u, idx=start + i + 1) for i, u in enumerate(chunk)
+    ) if chunk else "_لا يوجد مستخدمون._"
+    text = header + body
+
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    # أزرار بروفايل لكل مستخدم
+    for u in chunk:
+        tid = u.get("user_id") or u.get("id")
+        kb.add(types.InlineKeyboardButton(
+            f"👤 {u.get('name','لاعب')[:22]}",
+            callback_data=f"admin_u_{tid}",
+        ))
+    # تنقّل
+    nav = []
+    if page > 0:
+        nav.append(types.InlineKeyboardButton("◀️ السابق", callback_data=f"admin_users_{page-1}"))
+    if page < pages - 1:
+        nav.append(types.InlineKeyboardButton("التالي ▶️", callback_data=f"admin_users_{page+1}"))
+    if nav:
+        kb.row(*nav)
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
+
+    if edit:
+        bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+    else:
+        bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
+
+
+def _render_banned_list(banned):
+    if not banned:
+        return "🚫 *قائمة المحظورين*\n\n_لا يوجد محظورون حالياً._"
+    lines = [f"🚫 *قائمة المحظورين* — العدد: *{len(banned)}*\n"]
+    for i, u in enumerate(banned, 1):
+        until = u.get("ban_until")
+        kind = "⛔ دائم" if not until else f"⏳ حتى {_fmt_ban_until(until)}"
+        reason = u.get("ban_reason") or "—"
+        lines.append(
+            f"{i}. *{_md_escape(u.get('name','لاعب'))}* — {kind}\n"
+            f"   🆔 `{u.get('user_id') or u.get('id')}` | 📝 {reason}"
+        )
+    return "\n".join(lines)
+
+
+def _send_admin_search_results(uid, query, results):
+    if not results:
+        text = f"🔍 *البحث*: `{query}`\n\nلا توجد نتائج."
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
+        bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
+        return
+    text = f"🔍 *نتائج البحث*: `{query}` — عددها {len(results)}\n\n"
+    text += "\n\n".join(_user_line_short(u, idx=i+1) for i, u in enumerate(results[:20]))
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for u in results[:10]:
+        tid = u.get("user_id") or u.get("id")
+        kb.add(types.InlineKeyboardButton(
+            f"👤 {u.get('name','لاعب')[:28]}",
+            callback_data=f"admin_u_{tid}",
+        ))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
+    bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
+
+
+def _send_user_profile(uid, mid, target_id, edit=False):
+    u = get_user_doc(target_id)
+    if not u:
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_back"))
+        txt = f"❌ لا يوجد لاعب بالـID `{target_id}`"
+        if edit:
+            bot.edit_message_text(txt, uid, mid, reply_markup=kb, parse_mode="Markdown")
+        else:
+            bot.send_message(uid, txt, reply_markup=kb, parse_mode="Markdown")
+        return
+
+    name = u.get("name", "لاعب")
+    uid_ = u.get("user_id") or u.get("id")
+    uname = u.get("username") or "—"
+    pts = u.get("points", 0)
+    w = u.get("wins", 0); l = u.get("losses", 0); d = u.get("draws", 0)
+    pw = u.get("pvp_wins", 0); pl = u.get("pvp_losses", 0); pd = u.get("pvp_draws", 0)
+    warnings = u.get("warnings", 0)
+    banned = u.get("banned")
+    muted = u.get("muted")
+    mt = u.get("matches_today", 0)
+
+    status = []
+    if banned:
+        until = u.get("ban_until")
+        status.append("🚫 محظور " + (f"(حتى {_fmt_ban_until(until)})" if until else "(دائم)"))
+        if u.get("ban_reason"):
+            status.append(f"📝 سبب الحظر: {u.get('ban_reason')}")
+    if muted:
+        status.append("🔇 مكتوم")
+    if warnings:
+        status.append(f"⚠️ تحذيرات: *{warnings}*")
+
+    log = get_action_log(target_id)[-5:]
+    log_lines = []
+    for entry in reversed(log):
+        ts = (entry.get("ts") or "")[:16].replace("T", " ")
+        log_lines.append(f"• `{ts}` — {entry.get('type','?')} — {entry.get('reason','') or '—'}")
+
+    text = (
+        f"👤 *{_md_escape(name)}*\n"
+        f"🆔 `{uid_}` | 👤 `@{uname}`\n\n"
+        f"🏆 *النقاط*: *{pts}*\n"
+        f"📊 الإجمالي: ف{w} / خ{l} / ت{d}\n"
+        f"🆚 PvP: ف{pw} / خ{pl} / ت{pd}\n"
+        f"📅 مباريات اليوم: *{mt}*\n"
+    )
+    if status:
+        text += "\n" + "\n".join(status) + "\n"
+    if log_lines:
+        text += "\n📜 *آخر الإجراءات:*\n" + "\n".join(log_lines)
+
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    if banned:
+        kb.add(types.InlineKeyboardButton("✅ رفع الحظر", callback_data=f"admin_act_unban_{uid_}"))
+    else:
+        kb.row(
+            types.InlineKeyboardButton("🚫 حظر دائم", callback_data=f"admin_act_banperm_{uid_}"),
+            types.InlineKeyboardButton("⏰ حظر 24س", callback_data=f"admin_act_ban24_{uid_}"),
+        )
+        kb.add(types.InlineKeyboardButton("📅 حظر أسبوع", callback_data=f"admin_act_ban168_{uid_}"))
+    if muted:
+        kb.add(types.InlineKeyboardButton("🔊 إلغاء الكتم", callback_data=f"admin_act_unmute_{uid_}"))
+    else:
+        kb.add(types.InlineKeyboardButton("🔇 كتم", callback_data=f"admin_act_mute_{uid_}"))
+    kb.row(
+        types.InlineKeyboardButton("⚠️ تحذير", callback_data=f"admin_act_warn_{uid_}"),
+        types.InlineKeyboardButton("🧹 تصفير التحذيرات", callback_data=f"admin_act_clearw_{uid_}"),
+    )
+    kb.row(
+        types.InlineKeyboardButton("➕ 5 نقاط", callback_data=f"admin_act_pts+5_{uid_}"),
+        types.InlineKeyboardButton("➖ 5 نقاط", callback_data=f"admin_act_pts-5_{uid_}"),
+    )
+    kb.add(types.InlineKeyboardButton("📜 السجل الكامل", callback_data=f"admin_act_log_{uid_}"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
+
+    if edit:
+        try:
+            bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+        except Exception:
+            bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
+    else:
+        bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
+
+
+def _handle_admin_action(call, data):
+    """admin_act_<kind>_<uid>"""
+    uid = call.message.chat.id
+    mid = call.message.message_id
+    parts = data.split("_")
+    # admin_act_<kind>_<uid>
+    if len(parts) < 4:
+        return
+    kind = parts[2]
+    target = parts[-1]
+    try:
+        tid = int(target)
+    except Exception:
+        tid = target
+
+    done = ""
+    try:
+        if kind == "unban":
+            unban_user(tid, by=uid); done = "✅ تم رفع الحظر"
+        elif kind == "banperm":
+            ban_user(tid, reason="حظر دائم من المالك", duration_hours=None, by=uid)
+            done = "🚫 حظر دائم"
+        elif kind == "ban24":
+            ban_user(tid, reason="حظر 24 ساعة", duration_hours=24, by=uid)
+            done = "⏰ حظر 24 ساعة"
+        elif kind == "ban168":
+            ban_user(tid, reason="حظر أسبوع", duration_hours=168, by=uid)
+            done = "📅 حظر أسبوع"
+        elif kind == "mute":
+            mute_user(tid, by=uid); done = "🔇 مكتوم"
+        elif kind == "unmute":
+            unmute_user(tid, by=uid); done = "🔊 فُكّ الكتم"
+        elif kind == "warn":
+            n = warn_user(tid, reason="تحذير من المالك", by=uid)
+            done = f"⚠️ تحذير ({n})"
+        elif kind == "clearw":
+            clear_warnings(tid, by=uid); done = "🧹 صُفّرت التحذيرات"
+        elif kind.startswith("pts"):
+            delta = int(kind[3:])
+            adjust_points(tid, delta, reason="تعديل يدوي", by=uid)
+            done = f"{'➕' if delta>=0 else '➖'} {abs(delta)} نقاط"
+        elif kind == "log":
+            _send_full_log(uid, mid, tid); return
+        try:
+            bot.answer_callback_query(call.id, done or "تم")
+        except Exception:
+            pass
+        # إعادة عرض البروفايل محدّثاً
+        _send_user_profile(uid, mid, tid, edit=True)
+    except Exception as e:
+        try:
+            bot.answer_callback_query(call.id, f"❌ {e}", show_alert=True)
+        except Exception:
+            pass
+
+
+def _send_full_log(uid, mid, target_id):
+    log = get_action_log(target_id)
+    if not log:
+        text = "📜 *السجل فارغ*"
+    else:
+        lines = ["📜 *السجل الكامل* (آخر 30)\n"]
+        for entry in reversed(log):
+            ts = (entry.get("ts") or "")[:16].replace("T", " ")
+            by = entry.get("by") or "-"
+            lines.append(
+                f"• `{ts}` — *{entry.get('type','?')}*\n"
+                f"   📝 {entry.get('reason','') or '—'} | by `{by}`"
+            )
+        text = "\n".join(lines)
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للبروفايل",
+                                      callback_data=f"admin_u_{target_id}"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
+    try:
+        bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
 
 
 @bot.message_handler(commands=["reset"])
@@ -886,6 +1239,10 @@ def _dispatch(call):
     uid = call.message.chat.id
     mid = call.message.message_id
 
+    # === حارس الحظر/الكتم ===
+    if not require_not_banned_call(call):
+        return
+
     # === حارس اليوزر: لا سماح بدون username (ما عدا المالك) ===
     if not (call.from_user.username or "").strip():
         if not (ADMIN_ID and int(call.from_user.id) == int(ADMIN_ID)):
@@ -985,6 +1342,51 @@ def _dispatch(call):
         if data == "admin_back":
             bot.edit_message_text(admin_panel_text(), uid, mid,
                                   reply_markup=admin_panel_kb(), parse_mode="Markdown")
+            return
+        # قائمة كل المستخدمين مع تنقّل بالصفحات: admin_users_<page>
+        if data.startswith("admin_users_"):
+            try:
+                page = int(data.split("_")[-1])
+            except Exception:
+                page = 0
+            _send_users_page(uid, mid, page, edit=True)
+            return
+        # بحث
+        if data == "admin_search":
+            admin_search_waiting[uid] = True
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("❌ إلغاء", callback_data="admin_back"))
+            bot.edit_message_text(
+                "🔍 *بحث عن لاعب*\n\n"
+                "أرسل الآن أحد الخيارات:\n"
+                "• ID رقمي (مثل `123456789`)\n"
+                "• يوزر (مثل `@user_name`)\n"
+                "• جزء من الاسم (مثل `بو`)\n",
+                uid, mid, reply_markup=kb, parse_mode="Markdown",
+            )
+            return
+        # قائمة المحظورين
+        if data == "admin_banned":
+            banned = list_banned_users()
+            text = _render_banned_list(banned)
+            kb = types.InlineKeyboardMarkup(row_width=1)
+            for u in banned[:10]:
+                kb.add(types.InlineKeyboardButton(
+                    f"👤 {u.get('name','لاعب')}",
+                    callback_data=f"admin_u_{u.get('user_id') or u.get('id')}",
+                ))
+            kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_back"))
+            bot.edit_message_text(text, uid, mid,
+                                  reply_markup=kb, parse_mode="Markdown")
+            return
+        # بروفايل لاعب: admin_u_<uid>
+        if data.startswith("admin_u_"):
+            target = data[len("admin_u_"):]
+            _send_user_profile(uid, mid, target, edit=True)
+            return
+        # إجراءات: admin_act_<kind>_<uid>[_<arg>]
+        if data.startswith("admin_act_"):
+            _handle_admin_action(call, data)
             return
 
     # === قوائم عامة ===
@@ -1741,16 +2143,46 @@ def finalize_pvp(game_id, winner, resigned=False):
     px = game.get("player_x_id")
     po = game.get("player_o_id")
 
-    # تحديث الإحصائيات
+    # فحص farming: إذا هذا الزوج لعب اليوم أكثر من الحد — نسجّل إحصائياً لكن لا نمنح نقاطاً
+    pair_count = 0
+    farm_detected = False
+    if px and po:
+        pair_count = record_pair_match(px, po, PAIR_MATCH_LIMIT_PER_DAY)
+        if pair_count > PAIR_MATCH_LIMIT_PER_DAY:
+            farm_detected = True
+            # تنبيه المالك
+            try:
+                if ADMIN_ID:
+                    bot.send_message(
+                        int(ADMIN_ID),
+                        "⚠️ *اكتشاف farming محتمل*\n\n"
+                        f"🆔 `{px}` × `{po}`\n"
+                        f"📊 المباراة رقم *{pair_count}* بينهما اليوم "
+                        f"(الحد: {PAIR_MATCH_LIMIT_PER_DAY})\n\n"
+                        "_لم تُحتسب النقاط لهذه المباراة._",
+                        parse_mode="Markdown",
+                    )
+            except Exception:
+                pass
+
+    # تحديث الإحصائيات — نتخطى منح النقاط عند farming
+    def _rec(pid, mode, outcome):
+        record_result(pid, mode, outcome, award_points=not farm_detected)
+        # زيادة عدّاد مباريات اليوم (بلا سقف — للعرض فقط)
+        try:
+            check_and_increment_daily_matches(pid, daily_limit=10**9)
+        except Exception:
+            pass
+
     if winner == "draw":
-        if px: record_result(px, "pvp", "draw")
-        if po: record_result(po, "pvp", "draw")
+        if px: _rec(px, "pvp", "draw")
+        if po: _rec(po, "pvp", "draw")
     elif winner == PLAYER_X:
-        if px: record_result(px, "pvp", "win")
-        if po: record_result(po, "pvp", "loss")
+        if px: _rec(px, "pvp", "win")
+        if po: _rec(po, "pvp", "loss")
     elif winner == PLAYER_O:
-        if po: record_result(po, "pvp", "win")
-        if px: record_result(px, "pvp", "loss")
+        if po: _rec(po, "pvp", "win")
+        if px: _rec(px, "pvp", "loss")
 
     # 1) الرسالة الـ inline
     if game.get("inline_message_id"):
@@ -2365,6 +2797,16 @@ def weekly_reset_checker():
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def fallback(message):
     uid = message.chat.id
+    # حارس الحظر/الكتم
+    if not require_not_banned_msg(message):
+        return
+    # معالجة إدخال بحث المالك إن كان بانتظاره
+    if is_admin(uid) and admin_search_waiting.get(uid):
+        admin_search_waiting.pop(uid, None)
+        query = (message.text or "").strip()
+        results = search_users(query)
+        _send_admin_search_results(uid, query, results)
+        return
     # حارس اليوزر (ما عدا المالك)
     if not is_admin(uid) and not require_username(message):
         return

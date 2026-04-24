@@ -96,10 +96,11 @@ POINTS_TABLE = {
 }
 
 
-def record_result(user_id, mode, result):
+def record_result(user_id, mode, result, award_points=True):
     """
     mode: 'bot_easy' | 'bot_hard' | 'pvp'
     result: 'win' | 'loss' | 'draw'
+    award_points: لو False يُحتسب المباراة إحصائياً فقط بدون منح نقاط (farming).
     """
     if mode not in ("bot_easy", "bot_hard", "pvp"):
         return
@@ -118,7 +119,7 @@ def record_result(user_id, mode, result):
         total_key: firestore.Increment(1),
         mode_key: firestore.Increment(1),
     }
-    if pts:
+    if pts and award_points:
         updates["points"] = firestore.Increment(pts)
     ref.update(updates)
 

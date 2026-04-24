@@ -538,9 +538,9 @@ def cmd_start(message):
         return
 
     text = (
-        f"👋 أهلاً *{name}*!\n\n"
+        f"👋 أهلاً *{_md_escape(name)}*!\n\n"
         f"🆔 ID: `{uid}`\n"
-        f"👤 اليوزر: @{username}\n\n"
+        f"👤 اليوزر: `@{username}`\n\n"
         "اختر من القائمة:"
     )
     bot.send_message(uid, text, reply_markup=start_menu_kb(), parse_mode="Markdown")

@@ -1842,12 +1842,39 @@ def render_leaderboard(users, viewer_id):
         )
     except Exception:
         time_left = "—"
-    if not users:
-        return (
-            "🏆 *لوحة الشرف*\n\n"
-            f"⏳ يُعاد التصفير خلال: *{time_left}*\n\n"
-            "لا توجد بيانات بعد. كن أول الفائزين!"
-        )
+
+    # هل اللوحة الحالية "فارغة" فعلياً (كل اللاعبين بصفر)؟
+    all_zero = bool(users) and all((u.get("points", 0) or 0) == 0 for u in users)
+
+    if not users or all_zero:
+        head = [
+            "🏆 *لوحة الشرف*",
+            f"⏳ يُعاد التصفير خلال: *{time_left}*",
+            "",
+            "🎁 *الجوائز:*",
+            "🥇 المركز الأول: *120 UC*",
+            "🥈 المركز الثاني: *60 UC*",
+            "🥉 المركز الثالث: *60 UC*",
+            "",
+            "_تم التصفير. كن أول من يسجّل نقاطاً هذا الأسبوع!_",
+        ]
+        # ألحق آخر فائزين محفوظين إن وُجدوا
+        try:
+            season = get_last_season()
+        except Exception:
+            season = None
+        if season and season.get("top"):
+            head.append("")
+            head.append("🏅 *آخر فائزين (الأسبوع السابق):*")
+            medals = ["🥇", "🥈", "🥉"]
+            prizes = ["120 UC", "60 UC", "60 UC"]
+            for i, u in enumerate(season.get("top", [])[:3]):
+                pts = u.get("points", 0)
+                uname = u.get("username", "")
+                tail = f" — @{uname}" if uname else ""
+                head.append(f"{medals[i]} {_mention(u)} — {pts} نقطة — 🎁 {prizes[i]}{tail}")
+        return "\n".join(head)
+
     lines = [
         "🏆 *لوحة الشرف - أعلى 25 لاعباً بالنقاط*",
         f"⏳ يُعاد التصفير خلال: *{time_left}*",

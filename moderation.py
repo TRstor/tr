@@ -138,16 +138,21 @@ def list_all_users(order_by="created_at"):
     try:
         docs = list(db.collection("users").stream())
         users = [{"id": d.id, **d.to_dict()} for d in docs]
-        # ترتيب: الأحدث أولاً
+        # ترتيب: الأحدث أولاً (الذين ليس لديهم created_at يُوضعون في الآخر)
         def _key(u):
             v = u.get(order_by)
             try:
+                if v is None:
+                    return 0
                 if hasattr(v, "timestamp"):
                     return -v.timestamp()
             except Exception:
                 pass
             return 0
-        users.sort(key=_key)
+        try:
+            users.sort(key=_key)
+        except Exception:
+            pass
         return users
     except Exception as e:
         print(f"⚠️ list_all_users: {e}")

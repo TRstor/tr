@@ -855,7 +855,7 @@ def _user_line_short(u, idx=None):
     if (u.get("warnings") or 0) > 0:
         tags.append(f"⚠️{u.get('warnings')}")
     tag_str = (" " + "".join(tags)) if tags else ""
-    uname_str = f" @{uname}" if uname else ""
+    uname_str = f" `@{uname}`" if uname else ""
     prefix = f"{idx}. " if idx is not None else ""
     return f"{prefix}*{_md_escape(name)}*{tag_str}\n   🆔 `{uid_}` |{uname_str} | نقاط: *{pts}*"
 
@@ -872,20 +872,26 @@ def _send_users_page(uid, mid, page, edit=False):
         f"👥 *كل المستخدمين المسجّلين*\n"
         f"الإجمالي: *{total}* | الصفحة {page + 1}/{pages}\n\n"
     )
-    body = "\n\n".join(
-        _user_line_short(u, idx=start + i + 1) for i, u in enumerate(chunk)
-    ) if chunk else "_لا يوجد مستخدمون._"
+    parts = []
+    for i, u in enumerate(chunk):
+        try:
+            parts.append(_user_line_short(u, idx=start + i + 1))
+        except Exception as e:
+            parts.append(f"{start + i + 1}. _تعذر عرض المستخدم_ (`{u.get('id','?')}`)")
+            print(f"⚠️ user_line: {e}")
+    body = "\n\n".join(parts) if parts else "_لا يوجد مستخدمون._"
     text = header + body
+    # تقييد طول الرسالة (Telegram 4096)
+    if len(text) > 3800:
+        text = text[:3800] + "\n\n…"
 
     kb = types.InlineKeyboardMarkup(row_width=2)
-    # أزرار بروفايل لكل مستخدم
     for u in chunk:
         tid = u.get("user_id") or u.get("id")
         kb.add(types.InlineKeyboardButton(
-            f"👤 {u.get('name','لاعب')[:22]}",
+            f"👤 {(u.get('name') or 'لاعب')[:22]}",
             callback_data=f"admin_u_{tid}",
         ))
-    # تنقّل
     nav = []
     if page > 0:
         nav.append(types.InlineKeyboardButton("◀️ السابق", callback_data=f"admin_users_{page-1}"))
@@ -895,10 +901,23 @@ def _send_users_page(uid, mid, page, edit=False):
         kb.row(*nav)
     kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
 
-    if edit:
-        bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
-    else:
-        bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
+    try:
+        if edit:
+            bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+        else:
+            bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
+    except Exception as e:
+        # محاولة بدون Markdown لو فشل التحليل
+        print(f"⚠️ users_page Markdown fail: {e}")
+        plain = text.replace("*", "").replace("_", "").replace("`", "")
+        try:
+            if edit:
+                bot.edit_message_text(plain, uid, mid, reply_markup=kb)
+            else:
+                bot.send_message(uid, plain, reply_markup=kb)
+        except Exception as e2:
+            print(f"⚠️ users_page plain fail: {e2}")
+            bot.send_message(uid, f"❌ خطأ: {e2}")
 
 
 def _render_banned_list(banned):

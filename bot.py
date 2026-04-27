@@ -655,7 +655,8 @@ def require_not_banned_call(call):
 
 @bot.message_handler(commands=["help"])
 def cmd_help(message):
-    bot.send_message(message.chat.id, help_text(), parse_mode="Markdown")
+    bot.send_message(message.chat.id, help_text("rules"),
+                     reply_markup=help_kb("rules"), parse_mode="Markdown")
 
 
 @bot.message_handler(commands=["menu"])
@@ -1170,17 +1171,85 @@ def _do_full_reset():
     return len(top), n
 
 
-def help_text():
-    return (
-        "ℹ️ *كيف تلعب XO:*\n\n"
-        "- اللوحة 3×3، أول لاعب يكمل ثلاث خانات متتالية (أفقي/عمودي/قطري) يفوز.\n"
-        "- أنت دائماً ❌ وتبدأ أولاً ضد البوت.\n"
-        "- في التحدّي بين الأصدقاء: منشئ التحدّي ❌ والمنضم ⭕.\n\n"
-        "*الأوامر:*\n"
-        "/start - البداية\n"
-        "/menu - القائمة الرئيسية\n"
-        "/help - هذه الرسالة"
-    )
+def help_text(section="rules"):
+    if section == "modes":
+        return (
+            "🎮 *أنماط اللعب*\n\n"
+            "🤖 *ضد البوت — سهل*\n"
+            "  • مناسب للبداية والتجربة.\n"
+            "  • فوز = *1 نقطة*  ·  تعادل/خسارة = 0.\n\n"
+            "🤖 *ضد البوت — صعب*\n"
+            "  • البوت ذكي، يصعب التغلّب عليه.\n"
+            "  • فوز = *2 نقطة*  ·  تعادل = *1*  ·  خسارة = 0.\n\n"
+            "⚡ *Quick Match*\n"
+            "  • انضم للطابور وستُربط بأول خصم متاح.\n"
+            "  • مباراة عشوائية بين لاعبَين حقيقيين.\n\n"
+            "👥 *تحدّي صديق*\n"
+            "  • أنشئ رابطاً وأرسله لصديقك → ينضم ويلعبان معاً.\n"
+            "  • يعمل أيضاً عبر *الوضع المباشر (Inline)* في أي محادثة:\n"
+            "    اكتب `@اسم_البوت` ثم اختر «العب».\n"
+        )
+    if section == "points":
+        return (
+            "🏆 *النقاط والجوائز*\n\n"
+            "*جدول النقاط:*\n"
+            "🆚 PvP: فوز *10*  ·  تعادل *3*  ·  خسارة *1*\n"
+            "🤖 صعب: فوز *2*  ·  تعادل *1*  ·  خسارة 0\n"
+            "🤖 سهل: فوز *1*  ·  تعادل 0  ·  خسارة 0\n\n"
+            "*الموسم الأسبوعي:*\n"
+            "  • يبدأ كل جمعة 00:00 (بتوقيت الرياض).\n"
+            "  • تُؤرشف لوحة الشرف ثم تُصفَّر النقاط.\n\n"
+            "*جوائز Top 3:*\n"
+            "🥇 الأول: *120 UC*\n"
+            "🥈 الثاني: *60 UC*\n"
+            "🥉 الثالث: *60 UC*\n"
+        )
+    if section == "tips":
+        return (
+            "💡 *نصائح للفوز*\n\n"
+            "• ابدأ بالمركز الأوسط — أقوى مكان في اللوحة.\n"
+            "• الزوايا أفضل من الأطراف.\n"
+            "• راقب خصمك: لو أخذ خانتين على نفس الخط، اسدّها فوراً.\n"
+            "• اصنع *تهديدَين في وقت واحد* (شوكة) — لا يقدر يسدّهما معاً.\n"
+            "• ضد البوت الصعب: التعادل غالباً أفضل ما يمكن تحقيقه.\n\n"
+            "🎯 *لتحقيق نقاط أعلى:*\n"
+            "العب PvP — *10 نقاط* لكل فوز هي أسرع طريق للقمة 🚀\n"
+        )
+    if section == "rules":
+        return (
+            "📖 *قواعد لعبة XO*\n\n"
+            "• اللوحة *3×3* — تسع خانات.\n"
+            "• اللاعبان يضعان رمزيهما (❌ و ⭕) بالتناوب.\n"
+            "• يفوز من يكمل *3 خانات متتالية*:\n"
+            "  ↔️ أفقياً  ·  ↕️ عمودياً  ·  ↘️ قطرياً.\n"
+            "• امتلاء اللوحة دون فائز = *تعادل*.\n\n"
+            "🎯 *في التحدّي بين الأصدقاء:*\n"
+            "• المنشئ ❌ ويبدأ أولاً.\n"
+            "• المنضم ⭕.\n\n"
+            "⏱ *في Quick Match:*\n"
+            "• المنتظِر للخصم يحصل على ❌.\n"
+        )
+    return help_text("rules")
+
+
+def help_kb(active="rules"):
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    tabs = [
+        ("rules",  "📖 القواعد"),
+        ("modes",  "🎮 الأنماط"),
+        ("points", "🏆 النقاط"),
+        ("tips",   "💡 نصائح"),
+    ]
+    row = []
+    for key, label in tabs:
+        text = ("• " + label) if key == active else label
+        row.append(types.InlineKeyboardButton(text, callback_data=f"help_{key}"))
+        if len(row) == 2:
+            kb.row(*row); row = []
+    if row:
+        kb.row(*row)
+    kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_main"))
+    return kb
 
 
 # ============================
@@ -1614,9 +1683,23 @@ def _dispatch(call):
         return
 
     if data == "menu_help":
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_main"))
-        bot.edit_message_text(help_text(), uid, mid, reply_markup=kb, parse_mode="Markdown")
+        bot.edit_message_text(help_text("rules"), uid, mid,
+                              reply_markup=help_kb("rules"), parse_mode="Markdown")
+        return
+
+    if data.startswith("help_"):
+        section = data[len("help_"):]
+        if section not in ("rules", "modes", "points", "tips"):
+            section = "rules"
+        try:
+            bot.edit_message_text(help_text(section), uid, mid,
+                                  reply_markup=help_kb(section), parse_mode="Markdown")
+        except Exception:
+            pass
+        try:
+            bot.answer_callback_query(call.id)
+        except Exception:
+            pass
         return
 
     # === بدء لعبة ضد البوت ===

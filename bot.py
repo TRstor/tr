@@ -103,7 +103,7 @@ def pop_points(popularity):
 
 # جدول نقاط معركة الفريق
 TEAM_TIERS = [
-    (0,         5_000,     6),  # المدى 2,000 - 5,000
+    (2_000,     5_000,     6),
     (5_001,     12_000,    10),
     (12_001,    26_000,    14),
     (26_001,    48_000,    16),
@@ -119,6 +119,8 @@ TEAM_TIERS = [
 
 def team_points(popularity):
     """يرجع عدد نقاط معركة الفريق المقابل لمستوى شعبية."""
+    if popularity < TEAM_TIERS[0][0]:
+        return TEAM_TIERS[0][2]
     for lo, hi, pts in TEAM_TIERS:
         if lo <= popularity <= hi:
             return pts

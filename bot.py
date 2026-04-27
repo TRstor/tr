@@ -698,37 +698,54 @@ def cmd_admin(message):
 
 
 def admin_panel_text():
-    xo = "✅ مُفعّلة" if FEATURES["xo_enabled"] else "🔒 متوقفة"
-    pc = "✅ مُفعّلة" if FEATURES["popcalc_enabled"] else "🔒 متوقفة"
-    tc = "✅ مُفعّلة" if FEATURES["teamcalc_enabled"] else "🔒 متوقفة"
+    xo = "✅" if FEATURES["xo_enabled"] else "🔒"
+    pc = "✅" if FEATURES["popcalc_enabled"] else "🔒"
+    tc = "✅" if FEATURES["teamcalc_enabled"] else "🔒"
     return (
         "🛠 *لوحة المالك*\n\n"
-        f"• لعبة XO: {xo}\n"
-        f"• حاسبة المعركة الفردية: {pc}\n"
-        f"• حاسبة معركة الفريق: {tc}\n\n"
+        f"الميزات الحالية:\n"
+        f"  🎮 XO  ·  {xo}\n"
+        f"  🔥 الفردية  ·  {pc}\n"
+        f"  ⚔️ الفريق  ·  {tc}\n\n"
         "اختر إجراءً:"
     )
 
 
 def admin_panel_kb():
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    xo_btn = "🔒 تعطيل لعبة XO" if FEATURES["xo_enabled"] else "✅ تفعيل لعبة XO"
-    pc_btn = "🔒 تعطيل حاسبة المعركة الفردية" if FEATURES["popcalc_enabled"] else "✅ تفعيل حاسبة المعركة الفردية"
-    tc_btn = "🔒 تعطيل حاسبة معركة الفريق" if FEATURES["teamcalc_enabled"] else "✅ تفعيل حاسبة معركة الفريق"
-    kb.add(types.InlineKeyboardButton(xo_btn, callback_data="admin_toggle_xo"))
-    kb.add(types.InlineKeyboardButton(pc_btn, callback_data="admin_toggle_popcalc"))
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    xo_on = FEATURES["xo_enabled"]
+    pc_on = FEATURES["popcalc_enabled"]
+    tc_on = FEATURES["teamcalc_enabled"]
+    xo_btn = ("🔒 إيقاف XO" if xo_on else "✅ تفعيل XO")
+    pc_btn = ("🔒 إيقاف الفردية" if pc_on else "✅ تفعيل الفردية")
+    tc_btn = ("🔒 إيقاف الفريق" if tc_on else "✅ تفعيل الفريق")
+
+    # القسم 1: الميزات (3 أزرار صف واحد كل واحد + بصف ضيق)
+    kb.add(types.InlineKeyboardButton("━━━ ⚙️ الميزات ━━━", callback_data="admin_noop"))
+    kb.row(
+        types.InlineKeyboardButton(xo_btn, callback_data="admin_toggle_xo"),
+        types.InlineKeyboardButton(pc_btn, callback_data="admin_toggle_popcalc"),
+    )
     kb.add(types.InlineKeyboardButton(tc_btn, callback_data="admin_toggle_teamcalc"))
-    kb.add(types.InlineKeyboardButton("📦 نسخ احتياطي (Backup)", callback_data="admin_backup"))
-    kb.add(types.InlineKeyboardButton("📋 لوحة تفصيلية (IDs + يوزرات)",
-                                      callback_data="admin_leaderboard"))
-    kb.add(types.InlineKeyboardButton("👥 كل المستخدمين",
-                                      callback_data="admin_users_0"))
-    kb.add(types.InlineKeyboardButton("🔍 بحث عن لاعب",
-                                      callback_data="admin_search"))
-    kb.add(types.InlineKeyboardButton("🚫 قائمة المحظورين",
-                                      callback_data="admin_banned"))
-    kb.add(types.InlineKeyboardButton("🧹 إعادة تعيين كل النقاط فوراً",
-                                      callback_data="admin_reset_ask"))
+
+    # القسم 2: إدارة اللاعبين
+    kb.add(types.InlineKeyboardButton("━━━ 👥 اللاعبون ━━━", callback_data="admin_noop"))
+    kb.row(
+        types.InlineKeyboardButton("👥 الكل", callback_data="admin_users_0"),
+        types.InlineKeyboardButton("🔍 بحث", callback_data="admin_search"),
+    )
+    kb.row(
+        types.InlineKeyboardButton("🚫 المحظورون", callback_data="admin_banned"),
+        types.InlineKeyboardButton("📋 تفصيلية Top 25", callback_data="admin_leaderboard"),
+    )
+
+    # القسم 3: عمليات النظام
+    kb.add(types.InlineKeyboardButton("━━━ 🛠 النظام ━━━", callback_data="admin_noop"))
+    kb.row(
+        types.InlineKeyboardButton("📦 Backup", callback_data="admin_backup"),
+        types.InlineKeyboardButton("📊 الحالة", callback_data="admin_status"),
+    )
+    kb.add(types.InlineKeyboardButton("🧹 تصفير كل النقاط", callback_data="admin_reset_ask"))
     return kb
 
 
@@ -754,18 +771,13 @@ def _format_uptime(td):
     return " ".join(parts)
 
 
-@bot.message_handler(commands=["status"])
-def cmd_status(message):
-    uid = message.chat.id
-    if not is_admin(uid):
-        return
-
+def _build_status_text():
     now = datetime.now(timezone.utc)
     uptime = now - BOT_START_TIME
 
-    # اختبار اتصال Firestore + عدد المستخدمين
     fs_ok = False
     users_count = "-"
+    fs_ping_ms = -1
     try:
         from firebase_utils import db as _db
         t0 = time_mod.time()
@@ -774,22 +786,18 @@ def cmd_status(message):
         fs_ping_ms = int((time_mod.time() - t0) * 1000)
         fs_ok = True
     except Exception as e:
-        fs_ping_ms = -1
-        print(f"⚠️ /status firestore: {e}")
+        print(f"⚠️ status firestore: {e}")
 
-    # مباريات نشطة في الذاكرة + طابور
     bot_active = len(bot_games)
     try:
         qs = queue_size()
     except Exception:
         qs = "-"
 
-    # استخدام الذاكرة (اختياري — يعمل بدون مكتبات خارجية)
     mem_str = "-"
     try:
         import resource
         rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        # على Linux الرقم بالـ KB، على macOS بالـ bytes
         mem_mb = rss_kb / 1024
         mem_str = f"{mem_mb:.1f} MB"
     except Exception:
@@ -798,8 +806,9 @@ def cmd_status(message):
     fs_line = f"✅ متصل ({fs_ping_ms}ms)" if fs_ok else "❌ غير متصل"
     xo_line = "✅ مُفعّلة" if FEATURES["xo_enabled"] else "🔒 متوقفة"
     pc_line = "✅ مُفعّلة" if FEATURES["popcalc_enabled"] else "🔒 متوقفة"
+    tc_line = "✅ مُفعّلة" if FEATURES["teamcalc_enabled"] else "🔒 متوقفة"
 
-    text = (
+    return (
         "📊 *حالة البوت*\n\n"
         f"⏱ وقت التشغيل: *{_format_uptime(uptime)}*\n"
         f"🕒 منذ: `{BOT_START_TIME.strftime('%Y-%m-%d %H:%M UTC')}`\n"
@@ -809,9 +818,17 @@ def cmd_status(message):
         f"🎮 مباريات ضد البوت (نشطة): *{bot_active}*\n"
         f"📭 طابور Quick Match: *{qs}*\n\n"
         f"🎯 لعبة XO: {xo_line}\n"
-        f"🔥 حاسبة المعركة الفردية: {pc_line}"
+        f"🔥 حاسبة المعركة الفردية: {pc_line}\n"
+        f"⚔️ حاسبة معركة الفريق: {tc_line}"
     )
-    bot.send_message(uid, text, parse_mode="Markdown")
+
+
+@bot.message_handler(commands=["status"])
+def cmd_status(message):
+    uid = message.chat.id
+    if not is_admin(uid):
+        return
+    bot.send_message(uid, _build_status_text(), parse_mode="Markdown")
 
 
 def _send_backup(uid):
@@ -1361,6 +1378,26 @@ def _dispatch(call):
         if data == "admin_back":
             bot.edit_message_text(admin_panel_text(), uid, mid,
                                   reply_markup=admin_panel_kb(), parse_mode="Markdown")
+            return
+        if data == "admin_noop":
+            try:
+                bot.answer_callback_query(call.id)
+            except Exception:
+                pass
+            return
+        if data == "admin_status":
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("🔄 تحديث", callback_data="admin_status"))
+            kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_back"))
+            try:
+                bot.edit_message_text(_build_status_text(), uid, mid,
+                                      reply_markup=kb, parse_mode="Markdown")
+            except Exception:
+                pass
+            try:
+                bot.answer_callback_query(call.id, "✅ مُحدَّث")
+            except Exception:
+                pass
             return
         # قائمة كل المستخدمين مع تنقّل بالصفحات: admin_users_<page>
         if data.startswith("admin_users_"):

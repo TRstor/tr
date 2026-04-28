@@ -27,6 +27,7 @@ from firebase_utils import (
     queue_add, queue_remove, queue_in, queue_size, queue_try_match,
     get_last_season,
     get_flags, set_flag, export_all,
+    get_active_game_for_user,
 )
 from moderation import (
     is_banned, is_muted, ban_user, unban_user,
@@ -71,6 +72,36 @@ def _enforce_daily_limit(uid):
         except Exception:
             pass
     return allowed
+
+
+def _has_active_game_block(uid):
+    """يفحص هل لدى المستخدم مباراة PvP نشطة. إذا نعم، يُرسل له شاشة استئناف/استسلام
+    ويعيد True (يجب منع بدء مباراة جديدة). وإلا يعيد False."""
+    try:
+        active = get_active_game_for_user(uid)
+    except Exception as e:
+        print(f"⚠️ active game check: {e}")
+        return False
+    if not active:
+        return False
+    gid = active.get("id")
+    x_name = active.get("player_x_name", "X")
+    o_name = active.get("player_o_name") or "—"
+    text = (
+        "⚠️ *لديك مباراة نشطة بالفعل*\n\n"
+        f"❌ {x_name}  ⚔️  ⭕ {o_name}\n\n"
+        "لا يمكنك بدء مباراة جديدة قبل إنهاء الحالية.\n"
+        "اختر:"
+    )
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("▶️ متابعة المباراة", callback_data=f"resume_{gid}"))
+    kb.add(types.InlineKeyboardButton("🏳️ استسلام (تنتهي المباراة)",
+                                       callback_data=f"resign_{gid}"))
+    try:
+        bot.send_message(uid, text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        pass
+    return True
 
 # حالات بحث المالك (واحدة لكل مالك)
 admin_search_waiting = {}
@@ -1333,6 +1364,9 @@ def help_kb(active="rules"):
 # ============================
 
 def handle_join_game(uid, name, game_id):
+    # منع الانضمام إذا لدى اللاعب مباراة أخرى نشطة
+    if _has_active_game_block(uid):
+        return
     # حد المباريات اليومية
     if not _enforce_daily_limit(uid):
         return
@@ -1761,6 +1795,63 @@ def _dispatch(call):
         handle_quick_match_cancel(call)
         return
 
+    # استئناف مباراة قائمة
+    if data.startswith("resume_"):
+        gid = data[len("resume_"):]
+        g = get_game(gid)
+        if not g or g.get("status") != "playing":
+            try:
+                bot.send_message(uid, "⚠️ المباراة لم تعد متاحة.")
+            except Exception:
+                pass
+            return
+        # نُرسل اللوحة من جديد للاعب
+        try:
+            board = board_list(g["board"])
+            sent = bot.send_message(
+                uid,
+                fmt_pvp_game(g, uid),
+                reply_markup=board_kb(board, f"pvp:{gid}"),
+                parse_mode="Markdown",
+            )
+            # تحديث msg_id الخاص باللاعب
+            if uid == g.get("player_x_id"):
+                update_game(gid, {"x_chat_id": uid, "x_msg_id": sent.message_id})
+            elif uid == g.get("player_o_id"):
+                update_game(gid, {"o_chat_id": uid, "o_msg_id": sent.message_id})
+        except Exception as e:
+            print(f"⚠️ resume game: {e}")
+        return
+
+    # استسلام من شاشة "لديك مباراة نشطة"
+    if data.startswith("resign_"):
+        gid = data[len("resign_"):]
+        g = get_game(gid)
+        if not g or g.get("status") != "playing":
+            try:
+                bot.send_message(uid, "⚠️ المباراة لم تعد متاحة.")
+            except Exception:
+                pass
+            return
+        # تحديد الفائز = الخصم
+        if uid == g.get("player_x_id"):
+            winner = PLAYER_O
+        elif uid == g.get("player_o_id"):
+            winner = PLAYER_X
+        else:
+            try:
+                bot.send_message(uid, "⚠️ لست لاعباً في هذه المباراة.")
+            except Exception:
+                pass
+            return
+        try:
+            finalize_pvp(gid, winner, resigned=True)
+            bot.send_message(uid, "🏳️ تم الاستسلام. يمكنك الآن بدء مباراة جديدة.")
+        except Exception as e:
+            print(f"⚠️ resign: {e}")
+            bot.send_message(uid, "❌ تعذّر الاستسلام، حاول لاحقاً.")
+        return
+
     if data == "menu_stats":
         user = get_user_stats(uid) or get_or_create_user(uid, call.from_user.first_name or "")
         text = render_stats(user)
@@ -1973,6 +2064,10 @@ def handle_quick_match(call):
     name = call.from_user.first_name or "لاعب"
     get_or_create_user(uid, name)
 
+    # منع بدء مباراة جديدة إذا وجدت واحدة نشطة
+    if _has_active_game_block(uid):
+        return
+
     # حد المباريات اليومية (يتم فحص الحد فقط عند إدخال الطابور، ثم يزداد عند المطابقة).
     if not _enforce_daily_limit(uid):
         return
@@ -2157,6 +2252,10 @@ def handle_pvp_create(call):
     mid = call.message.message_id
     name = call.from_user.first_name or "لاعب"
     get_or_create_user(uid, name)
+
+    # منع بدء تحدٍّ جديد إذا وجدت مباراة نشطة
+    if _has_active_game_block(uid):
+        return
 
     username = get_bot_username() or "ht5edudstg_bot"
     text = (

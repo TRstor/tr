@@ -423,3 +423,25 @@ def update_game(game_id, data):
 
 def delete_game(game_id):
     db.collection("games").document(game_id).delete()
+
+
+def get_active_game_for_user(uid):
+    """يبحث عن أول مباراة PvP نشطة (playing) للمستخدم — يعيد dict أو None."""
+    try:
+        # بحث بصفته player_x
+        q1 = db.collection("games") \
+            .where(filter=FieldFilter("status", "==", "playing")) \
+            .where(filter=FieldFilter("player_x_id", "==", int(uid))) \
+            .limit(1).stream()
+        for d in q1:
+            return {"id": d.id, **d.to_dict()}
+        # بحث بصفته player_o
+        q2 = db.collection("games") \
+            .where(filter=FieldFilter("status", "==", "playing")) \
+            .where(filter=FieldFilter("player_o_id", "==", int(uid))) \
+            .limit(1).stream()
+        for d in q2:
+            return {"id": d.id, **d.to_dict()}
+    except Exception as e:
+        print(f"⚠️ get_active_game_for_user: {e}")
+    return None

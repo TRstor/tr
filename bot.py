@@ -35,6 +35,11 @@ from moderation import (
     list_all_users, list_banned_users, search_users,
     check_and_increment_daily_matches, record_pair_match, get_pair_count,
 )
+from security_utils import (
+    encrypt_field, decrypt_field,
+    totp_enabled, verify_totp, totp_provisioning_uri, generate_totp_secret,
+    request_2fa, get_pending_2fa, consume_2fa, cancel_2fa,
+)
 
 # إعدادات الإشراف (قابلة للتعديل لاحقاً من اللوحة)
 DAILY_MATCH_LIMIT = 50            # حد أقصى للمباريات اليومية للاعب (0 = بلا حد)
@@ -757,6 +762,53 @@ def cmd_backup(message):
     _send_backup(uid)
 
 
+@bot.message_handler(commands=["2fa_setup", "twofa", "2fa"])
+def cmd_2fa_setup(message):
+    """يعرض حالة 2FA + تعليمات الإعداد."""
+    uid = message.chat.id
+    if not is_admin(uid):
+        return
+    if totp_enabled():
+        uri = totp_provisioning_uri(account_name=str(uid), issuer="XO Bot")
+        text = (
+            "🔐 *المصادقة الثنائية مُفعّلة*\n\n"
+            "الأوامر الخطرة (تصفير النقاط) تتطلب رمز 6 أرقام.\n\n"
+            "لإعادة الربط بتطبيق Authenticator، استخدم الرابط:\n"
+            f"`{uri}`\n\n"
+            "أو ضع `TOTP_SECRET` نفسه يدوياً في التطبيق."
+        )
+    else:
+        new_secret = generate_totp_secret()
+        text = (
+            "⚠️ *2FA غير مفعّل*\n\n"
+            "لتفعيلها:\n"
+            "1️⃣ أضف هذا المتغيّر في Render:\n"
+            f"`TOTP_SECRET = {new_secret}`\n\n"
+            "2️⃣ في تطبيق Authenticator: اختر *إدخال يدوي* وألصق السرّ.\n"
+            "3️⃣ أعد تشغيل البوت.\n\n"
+            "بعدها سيتم طلب رمز 6 أرقام عند تنفيذ /reset أو تصفير النقاط."
+        )
+    bot.send_message(uid, text, parse_mode="Markdown")
+
+
+def _execute_2fa_action(uid, action):
+    """ينفّذ الإجراء الخطر بعد التحقق الثنائي الناجح."""
+    if action == "reset":
+        try:
+            archived, reset_n = _do_full_reset()
+            bot.send_message(
+                uid,
+                f"✅ *تم التحقق ونُفّذ الإجراء*\n\n"
+                f"• تمت أرشفة: *{archived}* لاعباً\n"
+                f"• تم تصفير نقاط: *{reset_n}* مستخدماً",
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            bot.send_message(uid, f"❌ فشل التنفيذ: {e}")
+    else:
+        bot.send_message(uid, "⚠️ إجراء غير معروف.")
+
+
 def _format_uptime(td):
     total = int(td.total_seconds())
     d, rem = divmod(total, 86400)
@@ -1389,6 +1441,17 @@ def _dispatch(call):
             bot.edit_message_text("❎ تم الإلغاء.", uid, mid)
             return
         if data == "admin_reset_confirm":
+            # 🔐 إذا كان TOTP مفعّلاً، نطلب رمز 2FA قبل التنفيذ
+            if totp_enabled():
+                request_2fa(uid, "reset")
+                bot.edit_message_text(
+                    "🔐 *مطلوب التحقق الثنائي*\n\n"
+                    "أرسل الآن *رمز 6 أرقام* من تطبيق Authenticator "
+                    "للموافقة على *تصفير كل النقاط*.\n\n"
+                    "_الصلاحية: دقيقتان. أرسل /cancel للإلغاء._",
+                    uid, mid, parse_mode="Markdown",
+                )
+                return
             try:
                 archived, reset_n = _do_full_reset()
                 bot.edit_message_text(
@@ -2943,6 +3006,25 @@ def fallback(message):
     # حارس الحظر/الكتم
     if not require_not_banned_msg(message):
         return
+    # 🔐 معالجة رمز 2FA المعلّق للمالك
+    if is_admin(uid):
+        pending = get_pending_2fa(uid)
+        if pending:
+            txt = (message.text or "").strip()
+            if txt.lower() in ("/cancel", "إلغاء"):
+                cancel_2fa(uid)
+                bot.send_message(uid, "❎ تم إلغاء طلب التحقق الثنائي.")
+                return
+            if verify_totp(txt):
+                action = pending.get("action")
+                consume_2fa(uid)
+                _execute_2fa_action(uid, action)
+            else:
+                bot.send_message(
+                    uid,
+                    "❌ رمز غير صحيح. أرسل الرمز الصحيح أو /cancel للإلغاء.",
+                )
+            return
     # معالجة إدخال بحث المالك إن كان بانتظاره
     if is_admin(uid) and admin_search_waiting.get(uid):
         admin_search_waiting.pop(uid, None)

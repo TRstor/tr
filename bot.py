@@ -637,18 +637,14 @@ def require_not_banned_call(call):
     if ADMIN_ID and int(uid) == int(ADMIN_ID):
         return True
     if is_muted(uid):
-        try:
-            bot.answer_callback_query(call.id)
-        except Exception:
-            pass
         return False
     banned, reason, until = is_banned(uid)
     if banned:
         msg = "🚫 محظور"
         if reason:
-            msg += f" — {reason[:40]}"
+            msg += f" — {reason[:60]}"
         try:
-            bot.answer_callback_query(call.id, msg, show_alert=True)
+            bot.send_message(uid, msg)
         except Exception:
             pass
         return False
@@ -1315,16 +1311,22 @@ def handle_join_game(uid, name, game_id):
 
 @bot.callback_query_handler(func=lambda c: True)
 def on_callback(call):
+    # ✅ Early ACK: نخبر تيليجرام فوراً أننا استلمنا الضغطة لمنع BOT_RESPONSE_TIMEOUT.
+    # المعالجات اللاحقة قد تستدعي answer_callback_query مرة أخرى — جميعها مغلّفة بـ try/except
+    # وستفشل بصمت دون تأثير على المنطق.
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
     try:
         _dispatch(call)
     except Exception as e:
         msg = str(e)
         if "message is not modified" in msg:
-            bot.answer_callback_query(call.id)
             return
         print(f"❌ خطأ: {e}")
         try:
-            bot.answer_callback_query(call.id, "❌ حدث خطأ، حاول مرة أخرى")
+            bot.send_message(call.from_user.id, "❌ حدث خطأ، حاول مرة أخرى")
         except Exception:
             pass
 
@@ -1542,7 +1544,7 @@ def _dispatch(call):
     if data == "open_xo":
         if not FEATURES["xo_enabled"] and not is_admin(uid):
             try:
-                bot.answer_callback_query(call.id, "🔒 لعبة XO متوقفة مؤقتاً", show_alert=True)
+                bot.send_message(uid, "🔒 لعبة XO متوقفة مؤقتاً")
             except Exception:
                 pass
             return
@@ -1560,7 +1562,7 @@ def _dispatch(call):
     if data == "open_popcalc":
         if not FEATURES["popcalc_enabled"] and not is_admin(uid):
             try:
-                bot.answer_callback_query(call.id, "🔒 حاسبة المعركة الفردية متوقفة مؤقتاً", show_alert=True)
+                bot.send_message(uid, "🔒 حاسبة المعركة الفردية متوقفة مؤقتاً")
             except Exception:
                 pass
             return
@@ -1600,7 +1602,7 @@ def _dispatch(call):
     if data == "open_teamcalc":
         if not FEATURES["teamcalc_enabled"] and not is_admin(uid):
             try:
-                bot.answer_callback_query(call.id, "🔒 حاسبة معركة الفريق متوقفة مؤقتاً", show_alert=True)
+                bot.send_message(uid, "🔒 حاسبة معركة الفريق متوقفة مؤقتاً")
             except Exception:
                 pass
             return

@@ -42,9 +42,35 @@ from security_utils import (
 )
 
 # إعدادات الإشراف (قابلة للتعديل لاحقاً من اللوحة)
-DAILY_MATCH_LIMIT = 5            # حد أقصى للمباريات اليومية للاعب (0 = بلا حد)
+DAILY_MATCH_LIMIT = 5             # حد أقصى للمباريات اليومية للاعب (0 = بلا حد)
 PAIR_MATCH_LIMIT_PER_DAY = 3      # أكثر من هذا العدد بين نفس اللاعبين = farming
 USERS_PAGE_SIZE = 10              # عدد المستخدمين في كل صفحة
+
+
+def _enforce_daily_limit(uid):
+    """يفحص الحد اليومي ويُزيده. يعيد True إذا مسموح، False إذا تجاوز.
+    المالك مستثنى. في حال False يُرسل رسالة للمستخدم."""
+    if ADMIN_ID and int(uid) == int(ADMIN_ID):
+        return True
+    if not DAILY_MATCH_LIMIT:
+        return True
+    try:
+        allowed, count_after, limit = check_and_increment_daily_matches(uid, DAILY_MATCH_LIMIT)
+    except Exception as e:
+        print(f"⚠️ daily limit check: {e}")
+        return True  # لا نمنع بسبب خطأ تقني
+    if not allowed:
+        try:
+            bot.send_message(
+                uid,
+                f"⛔ *وصلت الحد اليومي*\n\n"
+                f"الحد المسموح: *{limit}* مباريات/يوم.\n"
+                f"يُعاد التعيين عند منتصف الليل (UTC).",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+    return allowed
 
 # حالات بحث المالك (واحدة لكل مالك)
 admin_search_waiting = {}
@@ -1307,6 +1333,9 @@ def help_kb(active="rules"):
 # ============================
 
 def handle_join_game(uid, name, game_id):
+    # حد المباريات اليومية
+    if not _enforce_daily_limit(uid):
+        return
     game = get_game(game_id)
     if not game:
         bot.send_message(uid, "❌ التحدّي غير موجود أو انتهت صلاحيته.",
@@ -1321,6 +1350,15 @@ def handle_join_game(uid, name, game_id):
     if game["player_x_id"] == uid:
         bot.send_message(uid, "😅 لا يمكنك الانضمام لتحدٍّ أنشأته بنفسك. شارك الرابط مع صديق.",
                          reply_markup=main_menu_kb())
+        return
+
+    # احتساب مباراة اليوم لمنشئ التحدّي (X) أيضاً عند بدء اللعب
+    creator_id = game.get("player_x_id")
+    if creator_id and not _enforce_daily_limit(creator_id):
+        bot.send_message(
+            uid,
+            "⚠️ منشئ هذا التحدّي وصل الحد اليومي للمباريات. اطلب منه المحاولة لاحقاً.",
+        )
         return
 
     get_or_create_user(uid, name)
@@ -1935,6 +1973,10 @@ def handle_quick_match(call):
     name = call.from_user.first_name or "لاعب"
     get_or_create_user(uid, name)
 
+    # حد المباريات اليومية (يتم فحص الحد فقط عند إدخال الطابور، ثم يزداد عند المطابقة).
+    if not _enforce_daily_limit(uid):
+        return
+
     # إن كان اللاعب أصلاً في الطابور، أظهر له شاشة البحث
     try:
         opponent = queue_try_match(uid, name, uid)
@@ -2374,11 +2416,6 @@ def finalize_pvp(game_id, winner, resigned=False):
     # تحديث الإحصائيات — نتخطى منح النقاط عند farming
     def _rec(pid, mode, outcome):
         record_result(pid, mode, outcome, award_points=not farm_detected)
-        # زيادة عدّاد مباريات اليوم (بلا سقف — للعرض فقط)
-        try:
-            check_and_increment_daily_matches(pid, daily_limit=10**9)
-        except Exception:
-            pass
 
     if winner == "draw":
         if px: _rec(px, "pvp", "draw")

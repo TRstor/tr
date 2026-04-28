@@ -44,8 +44,11 @@ from security_utils import (
 
 # إعدادات الإشراف (قابلة للتعديل لاحقاً من اللوحة)
 DAILY_MATCH_LIMIT = 150             # حد أقصى للمباريات اليومية للاعب (0 = بلا حد)
-PAIR_MATCH_LIMIT_PER_DAY = 50      # أكثر من هذا العدد بين نفس اللاعبين = farming
+PAIR_MATCH_LIMIT_PER_DAY = 10      # بعد هذا العدد بين نفس الزوج، تُخفّض النقاط (5/3/1)
 USERS_PAGE_SIZE = 10              # عدد المستخدمين في كل صفحة
+
+# نقاط مخفّضة عند تجاوز PAIR_MATCH_LIMIT_PER_DAY (anti-farming لطيف)
+REDUCED_POINTS = {"win": 5, "draw": 3, "loss": 1}
 
 
 def _enforce_daily_limit(uid):
@@ -1303,6 +1306,9 @@ def help_text(section="rules"):
             "🆚 PvP: فوز *15*  ·  تعادل *5*  ·  خسارة *2*\n"
             "🤖 صعب: فوز *5*  ·  تعادل *2*  ·  خسارة 0\n"
             "🤖 سهل: فوز *2*  ·  تعادل *1*  ·  خسارة 0\n\n"
+            "⚠️ *تنبيه:* بعد *10 مباريات* بين نفس الزوج في اليوم،\n"
+            "تُخفّض نقاط PvP إلى: فوز *5*  ·  تعادل *3*  ·  خسارة *1*\n"
+            "_(لتشجيع التنوّع ومنع الفارمينج)._\n\n"
             "*الموسم الأسبوعي:*\n"
             "  • يبدأ كل جمعة 00:00 (بتوقيت الرياض).\n"
             "  • تُؤرشف لوحة الشرف ثم تُصفَّر النقاط.\n\n"
@@ -2490,31 +2496,38 @@ def finalize_pvp(game_id, winner, resigned=False):
     px = game.get("player_x_id")
     po = game.get("player_o_id")
 
-    # فحص farming: إذا هذا الزوج لعب اليوم أكثر من الحد — نسجّل إحصائياً لكن لا نمنح نقاطاً
+    # فحص farming: بعد تجاوز الحد بين نفس الزوج، تُخفّض النقاط (لا تُمنع)
     pair_count = 0
-    farm_detected = False
+    reduced = False
     if px and po:
-        pair_count = record_pair_match(px, po, PAIR_MATCH_LIMIT_PER_DAY)
+        # نمرّر حداً مرتفعاً جداً حتى لا يفعّل الإيقاف الكامل، نريد فقط العدّاد
+        pair_count = record_pair_match(px, po, 10**9)
         if pair_count > PAIR_MATCH_LIMIT_PER_DAY:
-            farm_detected = True
-            # تنبيه المالك
-            try:
-                if ADMIN_ID:
-                    bot.send_message(
-                        int(ADMIN_ID),
-                        "⚠️ *اكتشاف farming محتمل*\n\n"
-                        f"🆔 `{px}` × `{po}`\n"
-                        f"📊 المباراة رقم *{pair_count}* بينهما اليوم "
-                        f"(الحد: {PAIR_MATCH_LIMIT_PER_DAY})\n\n"
-                        "_لم تُحتسب النقاط لهذه المباراة._",
-                        parse_mode="Markdown",
-                    )
-            except Exception:
-                pass
+            reduced = True
+            # تنبيه المالك مرة واحدة فقط (عند المباراة الأولى في الوضع المخفّض)
+            if pair_count == PAIR_MATCH_LIMIT_PER_DAY + 1:
+                try:
+                    if ADMIN_ID:
+                        bot.send_message(
+                            int(ADMIN_ID),
+                            "⚠️ *تنبيه: نقاط مخفّضة*\n\n"
+                            f"🆔 `{px}` × `{po}`\n"
+                            f"📊 المباراة *{pair_count}* بينهما اليوم "
+                            f"(الحد العادي: {PAIR_MATCH_LIMIT_PER_DAY})\n\n"
+                            f"_من الآن: فوز {REDUCED_POINTS['win']} | "
+                            f"تعادل {REDUCED_POINTS['draw']} | "
+                            f"خسارة {REDUCED_POINTS['loss']}_",
+                            parse_mode="Markdown",
+                        )
+                except Exception:
+                    pass
 
-    # تحديث الإحصائيات — نتخطى منح النقاط عند farming
+    # تحديث الإحصائيات — مع نقاط مخفّضة عند تجاوز الحد
     def _rec(pid, mode, outcome):
-        record_result(pid, mode, outcome, award_points=not farm_detected)
+        if reduced and mode == "pvp":
+            record_result(pid, mode, outcome, points_override=REDUCED_POINTS[outcome])
+        else:
+            record_result(pid, mode, outcome)
 
     if winner == "draw":
         if px: _rec(px, "pvp", "draw")

@@ -96,11 +96,12 @@ POINTS_TABLE = {
 }
 
 
-def record_result(user_id, mode, result, award_points=True):
+def record_result(user_id, mode, result, award_points=True, points_override=None):
     """
     mode: 'bot_easy' | 'bot_hard' | 'pvp'
     result: 'win' | 'loss' | 'draw'
     award_points: لو False يُحتسب المباراة إحصائياً فقط بدون منح نقاط (farming).
+    points_override: لو رقم، يُستخدم بدلاً من جدول POINTS_TABLE (للنقاط المتدرّجة).
     """
     if mode not in ("bot_easy", "bot_hard", "pvp"):
         return
@@ -113,7 +114,10 @@ def record_result(user_id, mode, result, award_points=True):
     # حسب النمط
     mode_key = f"{mode}_{ {'win':'wins','loss':'losses','draw':'draws'}[result] }"
     # النقاط
-    pts = POINTS_TABLE.get((mode, result), 0)
+    if points_override is not None:
+        pts = int(points_override)
+    else:
+        pts = POINTS_TABLE.get((mode, result), 0)
 
     updates = {
         total_key: firestore.Increment(1),

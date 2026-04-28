@@ -43,8 +43,8 @@ from security_utils import (
 )
 
 # إعدادات الإشراف (قابلة للتعديل لاحقاً من اللوحة)
-DAILY_MATCH_LIMIT = 5             # حد أقصى للمباريات اليومية للاعب (0 = بلا حد)
-PAIR_MATCH_LIMIT_PER_DAY = 3      # أكثر من هذا العدد بين نفس اللاعبين = farming
+DAILY_MATCH_LIMIT = 150             # حد أقصى للمباريات اليومية للاعب (0 = بلا حد)
+PAIR_MATCH_LIMIT_PER_DAY = 50      # أكثر من هذا العدد بين نفس اللاعبين = farming
 USERS_PAGE_SIZE = 10              # عدد المستخدمين في كل صفحة
 
 

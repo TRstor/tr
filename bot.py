@@ -35,6 +35,7 @@ from moderation import (
     get_action_log, get_user_doc,
     list_all_users, list_banned_users, search_users,
     check_and_increment_daily_matches, record_pair_match, get_pair_count,
+    get_pair_points, add_pair_points,
 )
 from security_utils import (
     encrypt_field, decrypt_field,
@@ -44,11 +45,8 @@ from security_utils import (
 
 # إعدادات الإشراف (قابلة للتعديل لاحقاً من اللوحة)
 DAILY_MATCH_LIMIT = 150             # حد أقصى للمباريات اليومية للاعب (0 = بلا حد)
-PAIR_MATCH_LIMIT_PER_DAY = 10      # بعد هذا العدد بين نفس الزوج، تُخفّض النقاط (5/3/1)
+PAIR_DAILY_POINTS_CAP = 300       # حد أقصى للنقاط من نفس الخصم في اليوم
 USERS_PAGE_SIZE = 10              # عدد المستخدمين في كل صفحة
-
-# نقاط مخفّضة عند تجاوز PAIR_MATCH_LIMIT_PER_DAY (anti-farming لطيف)
-REDUCED_POINTS = {"win": 5, "draw": 3, "loss": 1}
 
 
 def _enforce_daily_limit(uid):
@@ -1306,8 +1304,8 @@ def help_text(section="rules"):
             "🆚 PvP: فوز *15*  ·  تعادل *5*  ·  خسارة *2*\n"
             "🤖 صعب: فوز *5*  ·  تعادل *2*  ·  خسارة 0\n"
             "🤖 سهل: فوز *2*  ·  تعادل *1*  ·  خسارة 0\n\n"
-            "⚠️ *تنبيه:* بعد *10 مباريات* بين نفس الزوج في اليوم،\n"
-            "تُخفّض نقاط PvP إلى: فوز *5*  ·  تعادل *3*  ·  خسارة *1*\n"
+            "⚠️ *تنبيه:* الحد الأقصى للنقاط بين نفس الزوج في اليوم: *300 نقطة*.\n"
+            "بعد بلوغها تُسجَّل المباريات بدون نقاط حتى منتصف الليل (UTC).\n"
             "_(لتشجيع التنوّع ومنع الفارمينج)._\n\n"
             "*الموسم الأسبوعي:*\n"
             "  • يبدأ كل جمعة 00:00 (بتوقيت الرياض).\n"
@@ -2496,36 +2494,43 @@ def finalize_pvp(game_id, winner, resigned=False):
     px = game.get("player_x_id")
     po = game.get("player_o_id")
 
-    # فحص farming: بعد تجاوز الحد بين نفس الزوج، تُخفّض النقاط (لا تُمنع)
-    pair_count = 0
-    reduced = False
+    # نقاط PvP الافتراضية
+    PVP_PTS = {"win": 15, "draw": 5, "loss": 2}
+
+    # حساب نقاط الزوج اليوم — لو وصلوا الحد الأقصى، النقاط = 0
+    pair_capped = False
+    pair_pts_today = 0
     if px and po:
-        # نمرّر حداً مرتفعاً جداً حتى لا يفعّل الإيقاف الكامل، نريد فقط العدّاد
-        pair_count = record_pair_match(px, po, 10**9)
-        if pair_count > PAIR_MATCH_LIMIT_PER_DAY:
-            reduced = True
-            # تنبيه المالك مرة واحدة فقط (عند المباراة الأولى في الوضع المخفّض)
-            if pair_count == PAIR_MATCH_LIMIT_PER_DAY + 1:
+        # نسجّل المباراة في العدّاد (للإحصاء فقط)
+        record_pair_match(px, po, 10**9)
+        pair_pts_today = get_pair_points(px, po)
+        if pair_pts_today >= PAIR_DAILY_POINTS_CAP:
+            pair_capped = True
+            # تنبيه المالك مرة واحدة عند بلوغ الحد
+            if pair_pts_today == PAIR_DAILY_POINTS_CAP:
                 try:
                     if ADMIN_ID:
                         bot.send_message(
                             int(ADMIN_ID),
-                            "⚠️ *تنبيه: نقاط مخفّضة*\n\n"
+                            "⚠️ *بلغ الزوج الحد الأقصى للنقاط اليومية*\n\n"
                             f"🆔 `{px}` × `{po}`\n"
-                            f"📊 المباراة *{pair_count}* بينهما اليوم "
-                            f"(الحد العادي: {PAIR_MATCH_LIMIT_PER_DAY})\n\n"
-                            f"_من الآن: فوز {REDUCED_POINTS['win']} | "
-                            f"تعادل {REDUCED_POINTS['draw']} | "
-                            f"خسارة {REDUCED_POINTS['loss']}_",
+                            f"📊 النقاط: *{pair_pts_today}/{PAIR_DAILY_POINTS_CAP}*\n\n"
+                            "_المباريات القادمة بينهما اليوم بلا نقاط._",
                             parse_mode="Markdown",
                         )
                 except Exception:
                     pass
 
-    # تحديث الإحصائيات — مع نقاط مخفّضة عند تجاوز الحد
+    # تحديث الإحصائيات (الإحصاء يُسجَّل دائماً، النقاط مع/بدون حسب الـ cap)
     def _rec(pid, mode, outcome):
-        if reduced and mode == "pvp":
-            record_result(pid, mode, outcome, points_override=REDUCED_POINTS[outcome])
+        if mode == "pvp" and pair_capped:
+            record_result(pid, mode, outcome, points_override=0)
+        elif mode == "pvp":
+            # نمنح نقاطاً جزئية لو سيتجاوز الحد بهذه المباراة
+            base = PVP_PTS[outcome]
+            remaining = max(0, PAIR_DAILY_POINTS_CAP - pair_pts_today)
+            granted = min(base, remaining)
+            record_result(pid, mode, outcome, points_override=granted)
         else:
             record_result(pid, mode, outcome)
 
@@ -2538,6 +2543,19 @@ def finalize_pvp(game_id, winner, resigned=False):
     elif winner == PLAYER_O:
         if po: _rec(po, "pvp", "win")
         if px: _rec(px, "pvp", "loss")
+
+    # تحديث عدّاد نقاط الزوج اليومي (مجموع نقاط المباراة كاملةً)
+    if px and po and not pair_capped:
+        if winner == "draw":
+            match_total = PVP_PTS["draw"] * 2
+        elif winner in (PLAYER_X, PLAYER_O):
+            match_total = PVP_PTS["win"] + PVP_PTS["loss"]
+        else:
+            match_total = 0
+        if match_total:
+            granted = min(match_total, max(0, PAIR_DAILY_POINTS_CAP - pair_pts_today))
+            if granted > 0:
+                add_pair_points(px, po, granted)
 
     # 1) الرسالة الـ inline
     if game.get("inline_message_id"):

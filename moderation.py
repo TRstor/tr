@@ -264,3 +264,45 @@ def get_pair_count(uid1, uid2):
         return int(data.get(key, 0) or 0)
     except Exception:
         return 0
+
+
+def get_pair_points(uid1, uid2):
+    """يُرجع مجموع النقاط الممنوحة لكل لاعب من الزوج اليوم."""
+    if not (uid1 and uid2):
+        return 0
+    a, b = sorted([str(uid1), str(uid2)])
+    key = f"{a}_{b}_pts"
+    today = _today_str()
+    try:
+        snap = db.collection("meta").document("pair_counts").get()
+        if not snap.exists:
+            return 0
+        data = snap.to_dict() or {}
+        if data.get("_date") != today:
+            return 0
+        return int(data.get(key, 0) or 0)
+    except Exception:
+        return 0
+
+
+def add_pair_points(uid1, uid2, pts):
+    """يضيف pts إلى عدّاد نقاط الزوج اليوم. يعيد المجموع بعد الإضافة."""
+    if not (uid1 and uid2) or int(uid1) == int(uid2):
+        return 0
+    a, b = sorted([str(uid1), str(uid2)])
+    key = f"{a}_{b}_pts"
+    today = _today_str()
+    ref = db.collection("meta").document("pair_counts")
+    try:
+        snap = ref.get()
+        data = snap.to_dict() if snap.exists else {}
+        if data.get("_date") != today:
+            data = {"_date": today}
+        new_total = int(data.get(key, 0) or 0) + int(pts)
+        data[key] = new_total
+        data["_date"] = today
+        ref.set(data, merge=True)
+        return new_total
+    except Exception as e:
+        print(f"⚠️ add_pair_points: {e}")
+        return 0

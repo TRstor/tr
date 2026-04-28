@@ -84,14 +84,14 @@ def get_or_create_user(user_id, name="", username=""):
 #   - ضد البوت سهل: فوز = 1، تعادل = 0
 #   - الخسارة ضد البوت = 0
 POINTS_TABLE = {
-    ("pvp", "win"): 10,
-    ("pvp", "draw"): 3,
-    ("pvp", "loss"): 1,
-    ("bot_hard", "win"): 2,
-    ("bot_hard", "draw"): 1,
+    ("pvp", "win"): 15,
+    ("pvp", "draw"): 5,
+    ("pvp", "loss"): 2,
+    ("bot_hard", "win"): 5,
+    ("bot_hard", "draw"): 2,
     ("bot_hard", "loss"): 0,
-    ("bot_easy", "win"): 1,
-    ("bot_easy", "draw"): 0,
+    ("bot_easy", "win"): 2,
+    ("bot_easy", "draw"): 1,
     ("bot_easy", "loss"): 0,
 }
 

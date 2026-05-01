@@ -603,6 +603,32 @@ def cmd_start(message):
     uid = message.chat.id
     name = message.from_user.first_name or "لاعب"
     username = message.from_user.username or ""
+
+    # 👥 في المجموعات: لا نفتح القائمة، فقط نوجّه للخاص.
+    if message.chat.type in ("group", "supergroup"):
+        try:
+            bot_username = get_bot_username() or "TR_XO_BOT"
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton(
+                "🎮 افتح البوت في الخاص",
+                url=f"https://t.me/{bot_username}?start=from_group"
+            ))
+            kb.add(types.InlineKeyboardButton(
+                "👥 العب مع شخص هنا",
+                switch_inline_query_current_chat=""
+            ))
+            bot.reply_to(
+                message,
+                "👋 *أهلاً بكم في TR | XO ❌⭕*\n\n"
+                "افتح البوت في الخاص للعب وعرض إحصائياتك،\n"
+                "أو ابدأ تحدّياً مباشراً في هذه المجموعة 👇",
+                reply_markup=kb,
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+        return
+
     get_or_create_user(uid, name, username)
 
     if not require_not_banned_msg(message):
@@ -3184,6 +3210,10 @@ def weekly_reset_checker():
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def fallback(message):
     uid = message.chat.id
+    # 👥 في المجموعات: تجاهل تام للرسائل العادية (ولا حتى نرد).
+    # المستخدمون يتفاعلون عبر الـ inline mode فقط.
+    if message.chat.type in ("group", "supergroup", "channel"):
+        return
     # حارس الحظر/الكتم
     if not require_not_banned_msg(message):
         return

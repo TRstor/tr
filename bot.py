@@ -2275,7 +2275,7 @@ def handle_pvp_create(call):
     if _has_active_game_block(uid):
         return
 
-    username = get_bot_username() or "ht5edudstg_bot"
+    username = get_bot_username() or "TR_XO_BOT"
     text = (
         "🎮 *العب مع صديقك*\n\n"
         "📤 اضغط الزر بالأسفل\n"

@@ -113,6 +113,59 @@ if not BOT_TOKEN:
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 
+# ============================
+# === قوائم أوامر البوت (Scopes) ===
+# ============================
+def setup_bot_commands():
+    """يضبط قوائم الأوامر بنطاقات مختلفة:
+    - الخاص: أوامر اللاعب الكاملة.
+    - المجموعات: أوامر مختصرة فقط.
+    - المالك (خاص): الأوامر العادية + أوامر إدارية.
+    """
+    try:
+        from telebot.types import (
+            BotCommand,
+            BotCommandScopeAllPrivateChats,
+            BotCommandScopeAllGroupChats,
+            BotCommandScopeChat,
+            BotCommandScopeDefault,
+        )
+
+        # 🔵 قائمة الخاص (للاعب العادي)
+        private_cmds = [
+            BotCommand("start",   "🎮 بدء البوت والقائمة الرئيسية"),
+            BotCommand("menu",    "🏠 القائمة الرئيسية"),
+            BotCommand("help",    "📖 كيفية اللعب والقواعد"),
+        ]
+
+        # 🟢 قائمة المجموعات (مختصرة جداً)
+        group_cmds = [
+            BotCommand("help", "📖 كيفية اللعب"),
+        ]
+
+        # 👑 قائمة المالك (خاص فقط) — كل شيء
+        admin_cmds = private_cmds + [
+            BotCommand("admin",     "👑 لوحة الإدارة"),
+            BotCommand("status",    "📊 حالة البوت"),
+            BotCommand("backup",    "💾 نسخة احتياطية"),
+            BotCommand("reset",     "♻️ إعادة الضبط (يتطلب 2FA)"),
+            BotCommand("2fa_setup", "🔐 إعداد التحقق الثنائي"),
+        ]
+
+        # تطبيق
+        bot.set_my_commands(private_cmds, scope=BotCommandScopeAllPrivateChats())
+        bot.set_my_commands(group_cmds,   scope=BotCommandScopeAllGroupChats())
+        bot.set_my_commands(private_cmds, scope=BotCommandScopeDefault())
+        if ADMIN_ID:
+            try:
+                bot.set_my_commands(admin_cmds, scope=BotCommandScopeChat(int(ADMIN_ID)))
+            except Exception as e:
+                print(f"⚠️ set admin commands: {e}")
+        print("✅ تم ضبط قوائم الأوامر (private/group/admin).")
+    except Exception as e:
+        print(f"⚠️ setup_bot_commands: {e}")
+
+
 # اسم البوت — يُجلب بشكل كسول أول مرة فقط
 _BOT_USERNAME_CACHE = {"value": None}
 
@@ -3373,6 +3426,9 @@ if __name__ == "__main__":
     # تحميل أعلام الميزات
     load_flags()
     print(f"🏁 FEATURES: {FEATURES}")
+
+    # ضبط قوائم الأوامر (خاص/مجموعات/مالك)
+    setup_bot_commands()
 
     # ثريد فحص انتهاء صلاحية التحدّيات
     threading.Thread(target=expiration_checker, daemon=True).start()

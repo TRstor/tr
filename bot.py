@@ -1614,6 +1614,11 @@ def _dispatch(call):
     if not require_not_banned_call(call):
         return
 
+    # === تحدّي مجموعة (نتعامل قبل حارس اليوزر) ===
+    if data.startswith("gchal:"):
+        handle_group_challenge(call, data)
+        return
+
     # === حارس اليوزر: لا سماح بدون username (ما عدا المالك) ===
     if not (call.from_user.username or "").strip():
         if not (ADMIN_ID and int(call.from_user.id) == int(ADMIN_ID)):
@@ -2506,6 +2511,17 @@ def handle_pvp_action(call, data):
             bot.answer_callback_query(call.id, "⏳ انتظر انضمام الخصم")
             return
 
+        # إذا كان التحدّي موجّهاً لشخص محدد (تحدّي مجموعة) — نسمح فقط للهدف
+        target_id = game.get("target_id")
+        if target_id and int(user_id) != int(target_id):
+            try:
+                bot.answer_callback_query(
+                    call.id, "هذا التحدّي موجّه لشخص آخر",
+                )
+            except Exception:
+                pass
+            return
+
         # المنضمّ يأخذ الرمز المعاكس
         get_or_create_user(user_id, user_name)
         deadline = datetime.now(timezone.utc) + timedelta(seconds=MOVE_TIMEOUT_SECONDS)
@@ -3295,6 +3311,201 @@ def weekly_reset_checker():
         except Exception as e:
             print(f"⚠️ weekly_reset_checker: {e}")
         time_mod.sleep(300)  # كل 5 دقائق
+
+
+# ============================
+# === تحدي XO في مجموعة (Reply Challenge) ===
+# ============================
+
+# عبارات التحدي المقبولة (بدون رموز ولا حالة أحرف)
+GROUP_CHALLENGE_TRIGGERS = {
+    "تحدي xo", "تحدّي xo", "تحديxo", "تحدي اكس او", "تحدّي اكس او",
+    "challenge xo", "xo challenge", "xo",
+}
+
+
+def _is_group_challenge_text(m):
+    if m.chat.type not in ("group", "supergroup"):
+        return False
+    if not m.reply_to_message:
+        return False
+    txt = (m.text or "").strip().lower()
+    # نسمح بـ "تحدي xo" أو "xo" فقط (كاملاً) لتجنب الإزعاج
+    return txt in GROUP_CHALLENGE_TRIGGERS
+
+
+@bot.message_handler(func=_is_group_challenge_text, content_types=["text"])
+def cmd_group_challenge(message):
+    """في المجموعة: عند الرد برسالة 'تحدي XO' على شخص → ينشئ تحدّياً بينهما."""
+    a = message.from_user
+    b = message.reply_to_message.from_user if message.reply_to_message else None
+    if not (a and b):
+        return
+    # رفض الحالات غير الصالحة
+    if b.is_bot:
+        try:
+            bot.reply_to(message, "🤖 لا يمكن تحدّي البوتات.")
+        except Exception:
+            pass
+        return
+    if int(a.id) == int(b.id):
+        try:
+            bot.reply_to(message, "🙂 لا يمكنك تحدّي نفسك.")
+        except Exception:
+            pass
+        return
+    # رفض المحظورين
+    try:
+        if is_banned(a.id):
+            return
+    except Exception:
+        pass
+
+    a_name = a.first_name or "لاعب"
+    b_name = b.first_name or "لاعب"
+    text = (
+        "🎮 *تحدّي XO*\n\n"
+        f"❌⭕ *{_md_escape(a_name)}* يتحدّى *{_md_escape(b_name)}*!\n\n"
+        f"اختر رمزك يا *{_md_escape(a_name)}*:"
+    )
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.row(
+        types.InlineKeyboardButton(
+            "❌ ألعب X (أبدأ أولاً)",
+            callback_data=f"gchal:pick:X:{a.id}:{b.id}",
+        ),
+        types.InlineKeyboardButton(
+            "⭕ ألعب O",
+            callback_data=f"gchal:pick:O:{a.id}:{b.id}",
+        ),
+    )
+    kb.row(
+        types.InlineKeyboardButton(
+            "❌ إلغاء التحدّي",
+            callback_data=f"gchal:cancel:{a.id}",
+        ),
+    )
+    try:
+        bot.send_message(
+            message.chat.id, text,
+            reply_markup=kb, parse_mode="Markdown",
+            reply_to_message_id=message.message_id,
+        )
+    except Exception as e:
+        print(f"⚠️ group_challenge send: {e}")
+
+
+def handle_group_challenge(call, data):
+    """يعالج callbacks: gchal:pick:<X|O>:<a_id>:<b_id>  و  gchal:cancel:<a_id>."""
+    parts = data.split(":")
+    if len(parts) < 2:
+        return
+    action = parts[1]
+    user_id = call.from_user.id
+
+    if action == "cancel" and len(parts) >= 3:
+        try:
+            creator_id = int(parts[2])
+        except Exception:
+            return
+        if user_id != creator_id:
+            try:
+                bot.answer_callback_query(call.id, "هذا التحدّي ليس لك")
+            except Exception:
+                pass
+            return
+        try:
+            bot.edit_message_text(
+                "❌ *أُلغي التحدّي.*",
+                call.message.chat.id, call.message.message_id,
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+        return
+
+    if action == "pick" and len(parts) >= 5:
+        symbol = parts[2].upper()
+        try:
+            creator_id = int(parts[3])
+            target_id = int(parts[4])
+        except Exception:
+            return
+        if symbol not in ("X", "O"):
+            return
+        if user_id != creator_id:
+            try:
+                bot.answer_callback_query(call.id, "فقط منشئ التحدّي يختار الرمز")
+            except Exception:
+                pass
+            return
+
+        creator_name = call.from_user.first_name or "لاعب"
+        # محاولة استرجاع اسم الخصم من رسالة الرد الأصلية (إن أمكن)
+        target_name = "لاعب"
+        try:
+            orig = call.message.reply_to_message
+            if orig and orig.reply_to_message and orig.reply_to_message.from_user:
+                target_name = orig.reply_to_message.from_user.first_name or "لاعب"
+        except Exception:
+            pass
+
+        try:
+            get_or_create_user(creator_id, creator_name,
+                               (call.from_user.username or ""))
+        except Exception:
+            pass
+
+        # إنشاء المباراة
+        game_id = secrets.token_urlsafe(8)
+        try:
+            create_game_symbol(game_id, creator_id, creator_name, symbol)
+        except Exception as e:
+            print(f"⚠️ create_game_symbol: {e}")
+            try:
+                bot.answer_callback_query(call.id, "فشل إنشاء المباراة")
+            except Exception:
+                pass
+            return
+
+        # نخزّن chat_id/msg_id لرسالة المجموعة في خانة المنشئ
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
+        updates = {"target_id": target_id, "target_name": target_name}
+        if symbol == "X":
+            updates["x_chat_id"] = chat_id
+            updates["x_msg_id"] = msg_id
+        else:
+            updates["o_chat_id"] = chat_id
+            updates["o_msg_id"] = msg_id
+        try:
+            update_game(game_id, updates)
+        except Exception as e:
+            print(f"⚠️ update_game gchal: {e}")
+
+        # رسم اللوحة في رسالة المجموعة
+        x_name = creator_name if symbol == "X" else target_name
+        o_name = creator_name if symbol == "O" else target_name
+        header = (
+            "🎮 *تحدّي XO*\n"
+            f"❌ {_md_escape(x_name)}  ⚔️  ⭕ {_md_escape(o_name)}\n\n"
+            f"⏳ بانتظار *{_md_escape(target_name)}* — اضغط أي خانة للانضمام."
+        )
+        board = board_list("---------")
+        kb = board_kb(board, f"pvp:{game_id}")
+        try:
+            bot.edit_message_text(
+                header,
+                chat_id, msg_id,
+                reply_markup=kb, parse_mode="Markdown",
+            )
+        except Exception as e:
+            print(f"⚠️ render group challenge board: {e}")
+        try:
+            bot.answer_callback_query(call.id, "تم اختيار رمزك ✅")
+        except Exception:
+            pass
+        return
 
 
 # ============================

@@ -3323,6 +3323,27 @@ GROUP_CHALLENGE_TRIGGERS = {
     "challenge xo", "xo challenge", "xo",
 }
 
+# ردود عشوائية لحالات التحدّي الخاطئ
+GCHAL_SELF_RESPONSES = [
+    "🙂 لا يمكنك تحدّي نفسك.",
+    "😄 فكرة عبقرية! لكن لا، حدّد خصمك.",
+    "🪞 المرآة لن تتحرّك بدورها!",
+    "🤔 تحاول تتحدّى نفسك؟ ابدأ مباراة ضد البوت من الخاص.",
+    "🌀 لا تستطيع تحدّي ظلّك.",
+    "🥱 وش راح تستفيد من تحدّي نفسك؟",
+    "🙃 الفائز سيكون أنت… والخاسر أيضاً!",
+    "🚫 الخصم نفسك؟ مرفوض.",
+]
+
+GCHAL_BOT_RESPONSES = [
+    "🤖 لا يمكن تحدّي البوتات.",
+    "🤖 البوتات لا تلعب XO، فقط تنشره.",
+    "🚫 هذا بوت — اختر إنساناً.",
+    "🛑 البوت ليس لاعباً، جرّب صديقاً حقيقياً.",
+    "😅 البوت مشغول بإدارة اللعبة، لا يلعبها.",
+    "🤖 ابحث عن خصم بشري!",
+]
+
 
 def _is_group_challenge_text(m):
     if m.chat.type not in ("group", "supergroup"):
@@ -3344,13 +3365,13 @@ def cmd_group_challenge(message):
     # رفض الحالات غير الصالحة
     if b.is_bot:
         try:
-            bot.reply_to(message, "🤖 لا يمكن تحدّي البوتات.")
+            bot.reply_to(message, random.choice(GCHAL_BOT_RESPONSES))
         except Exception:
             pass
         return
     if int(a.id) == int(b.id):
         try:
-            bot.reply_to(message, "🙂 لا يمكنك تحدّي نفسك.")
+            bot.reply_to(message, random.choice(GCHAL_SELF_RESPONSES))
         except Exception:
             pass
         return

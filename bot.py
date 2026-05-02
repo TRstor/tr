@@ -118,9 +118,9 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 # ============================
 def setup_bot_commands():
     """يضبط قوائم الأوامر بنطاقات مختلفة:
-    - الخاص: أوامر اللاعب الكاملة.
-    - المجموعات: أوامر مختصرة فقط.
-    - المالك (خاص): الأوامر العادية + أوامر إدارية.
+    - الخاص (لاعب عادي): أوامر اللعب الأساسية.
+    - المجموعات: أوامر مختصرة جداً.
+    - المالك (في خاصّه فقط): كل شيء + الأوامر الإدارية.
     """
     try:
         from telebot.types import (
@@ -131,37 +131,56 @@ def setup_bot_commands():
             BotCommandScopeDefault,
         )
 
-        # 🔵 قائمة الخاص (للاعب العادي)
+        # 🔵 قائمة الخاص (للاعبين العاديين)
         private_cmds = [
-            BotCommand("start",   "🎮 بدء البوت والقائمة الرئيسية"),
+            BotCommand("start",   "🎮 بدء البوت"),
             BotCommand("menu",    "🏠 القائمة الرئيسية"),
             BotCommand("help",    "📖 كيفية اللعب والقواعد"),
         ]
 
-        # 🟢 قائمة المجموعات (مختصرة جداً)
+        # 🟢 قائمة المجموعات (لكل أعضاء المجموعة)
         group_cmds = [
             BotCommand("help", "📖 كيفية اللعب"),
         ]
 
-        # 👑 قائمة المالك (خاص فقط) — كل شيء
-        admin_cmds = private_cmds + [
+        # 👑 قائمة المالك (في خاصّه فقط) — العادية + الإدارية
+        admin_cmds = [
+            BotCommand("start",     "🎮 بدء البوت"),
+            BotCommand("menu",      "🏠 القائمة الرئيسية"),
+            BotCommand("help",      "📖 كيفية اللعب"),
             BotCommand("admin",     "👑 لوحة الإدارة"),
             BotCommand("status",    "📊 حالة البوت"),
             BotCommand("backup",    "💾 نسخة احتياطية"),
-            BotCommand("reset",     "♻️ إعادة الضبط (يتطلب 2FA)"),
+            BotCommand("reset",     "♻️ إعادة الضبط (2FA)"),
             BotCommand("2fa_setup", "🔐 إعداد التحقق الثنائي"),
         ]
 
-        # تطبيق
+        # 1) امسح كل القوائم القديمة لتجنّب التداخل
+        for scope in (
+            BotCommandScopeDefault(),
+            BotCommandScopeAllPrivateChats(),
+            BotCommandScopeAllGroupChats(),
+        ):
+            try:
+                bot.delete_my_commands(scope=scope)
+            except Exception:
+                pass
+        if ADMIN_ID:
+            try:
+                bot.delete_my_commands(scope=BotCommandScopeChat(int(ADMIN_ID)))
+            except Exception:
+                pass
+
+        # 2) ضع القوائم الجديدة
+        bot.set_my_commands(private_cmds, scope=BotCommandScopeDefault())
         bot.set_my_commands(private_cmds, scope=BotCommandScopeAllPrivateChats())
         bot.set_my_commands(group_cmds,   scope=BotCommandScopeAllGroupChats())
-        bot.set_my_commands(private_cmds, scope=BotCommandScopeDefault())
         if ADMIN_ID:
             try:
                 bot.set_my_commands(admin_cmds, scope=BotCommandScopeChat(int(ADMIN_ID)))
             except Exception as e:
                 print(f"⚠️ set admin commands: {e}")
-        print("✅ تم ضبط قوائم الأوامر (private/group/admin).")
+        print("✅ تم ضبط قوائم الأوامر (default/private/group/admin).")
     except Exception as e:
         print(f"⚠️ setup_bot_commands: {e}")
 

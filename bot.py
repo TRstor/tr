@@ -200,6 +200,47 @@ def get_bot_username():
         _BOT_USERNAME_CACHE["value"] = ""
     return _BOT_USERNAME_CACHE["value"]
 
+
+# ============================
+# === حُرّاس مكان الأمر ===
+# ============================
+def private_only(func):
+    """ديكوريتر: يجعل الأمر يعمل في المحادثة الخاصة فقط.
+    في المجموعات/القنوات → صمت تام (لا رد ولا تنفيذ).
+    """
+    from functools import wraps
+
+    @wraps(func)
+    def wrapper(message, *args, **kwargs):
+        try:
+            chat_type = getattr(message.chat, "type", "private")
+        except Exception:
+            chat_type = "private"
+        if chat_type != "private":
+            return  # 🤐 صمت تام في غير الخاص
+        return func(message, *args, **kwargs)
+
+    return wrapper
+
+
+def group_only(func):
+    """ديكوريتر: يجعل الأمر يعمل في المجموعات فقط (group/supergroup).
+    في الخاص/القنوات → صمت تام.
+    """
+    from functools import wraps
+
+    @wraps(func)
+    def wrapper(message, *args, **kwargs):
+        try:
+            chat_type = getattr(message.chat, "type", "private")
+        except Exception:
+            chat_type = "private"
+        if chat_type not in ("group", "supergroup"):
+            return  # 🤐 صمت تام في غير المجموعات
+        return func(message, *args, **kwargs)
+
+    return wrapper
+
 # مباريات ضد البوت (بالذاكرة فقط)
 # {user_id: {"board": list[9], "difficulty": "easy"|"hard", "msg_id": int}}
 bot_games = {}
@@ -671,6 +712,7 @@ def board_str(board_list_):
 # ============================
 
 @bot.message_handler(commands=["start"])
+@private_only
 def cmd_start(message):
     uid = message.chat.id
     name = message.from_user.first_name or "لاعب"
@@ -787,17 +829,20 @@ def require_not_banned_call(call):
 
 
 @bot.message_handler(commands=["help"])
+@private_only
 def cmd_help(message):
     bot.send_message(message.chat.id, help_text("rules"),
                      reply_markup=help_kb("rules"), parse_mode="Markdown")
 
 
 @bot.message_handler(commands=["menu"])
+@private_only
 def cmd_menu(message):
     bot.send_message(message.chat.id, "القائمة الرئيسية:", reply_markup=main_menu_kb())
 
 
 @bot.message_handler(commands=["join"])
+@private_only
 def cmd_join(message):
     """الانضمام يدوياً لتحدٍّ عبر المعرّف: /join <game_id>"""
     uid = message.chat.id
@@ -823,6 +868,7 @@ def is_admin(uid):
 
 
 @bot.message_handler(commands=["admin"])
+@private_only
 def cmd_admin(message):
     uid = message.chat.id
     if not is_admin(uid):
@@ -884,6 +930,7 @@ def admin_panel_kb():
 
 
 @bot.message_handler(commands=["backup"])
+@private_only
 def cmd_backup(message):
     """تصدير Firestore كاملاً كملف JSON يُرسل للمالك."""
     uid = message.chat.id
@@ -893,6 +940,7 @@ def cmd_backup(message):
 
 
 @bot.message_handler(commands=["2fa_setup", "twofa", "2fa"])
+@private_only
 def cmd_2fa_setup(message):
     """يعرض حالة 2FA + تعليمات الإعداد."""
     uid = message.chat.id
@@ -1005,6 +1053,7 @@ def _build_status_text():
 
 
 @bot.message_handler(commands=["status"])
+@private_only
 def cmd_status(message):
     uid = message.chat.id
     if not is_admin(uid):
@@ -1320,6 +1369,7 @@ def _send_full_log(uid, mid, target_id):
 
 
 @bot.message_handler(commands=["reset"])
+@private_only
 def cmd_reset(message):
     """اختصار: /reset → يسأل المالك للتأكيد قبل تصفير النقاط."""
     uid = message.chat.id
@@ -3254,6 +3304,7 @@ def weekly_reset_checker():
 # ============================
 
 @bot.message_handler(func=lambda m: True, content_types=["text"])
+@private_only
 def fallback(message):
     uid = message.chat.id
     # حارس الحظر/الكتم

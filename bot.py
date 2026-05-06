@@ -3381,7 +3381,8 @@ def cmd_group_challenge(message):
         return
     # رفض المحظورين
     try:
-        if is_banned(a.id):
+        banned, reason, until = is_banned(a.id)
+        if banned:
             return
     except Exception:
         pass

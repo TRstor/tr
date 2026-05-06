@@ -643,11 +643,12 @@ def board_kb(board, prefix, disabled=False):
             kb.row(*row)
             row = []
     # أزرار تحكّم
-    kb.row(
-        types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
-    )
+    # (تعديل: إظهار القائمة فقط ضد البوت، أو إذا انتهت اللعبة disabled=True)
+    if prefix == "bot" or disabled:
+        kb.row(
+            types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
+        )
     return kb
-
 
 # ============================
 # === تنسيق الرسائل ===
@@ -1802,7 +1803,15 @@ def _dispatch(call):
 
     # === قوائم عامة ===
     if data == "back_main":
-        # عند الرجوع من لعبة جارية ضد البوت، نحذفها
+        # ✅ حماية المجموعات: منع زر القائمة من تحويل رسالة الجروب إلى قائمة
+        if call.message and call.message.chat.type != "private":
+            try:
+                bot.answer_callback_query(call.id, "🏠 زر القائمة مخصص للعودة في المحادثة الخاصة فقط", show_alert=True)
+            except:
+                pass
+            return
+
+        # عند الرجوع من لعبة جارية ضد البوت في الخاص، نحذفها
         bot_games.pop(uid, None)
         bot.edit_message_text("🎮 *لعبة XO*\n\nاختر:", uid, mid,
                               reply_markup=main_menu_kb(), parse_mode="Markdown")

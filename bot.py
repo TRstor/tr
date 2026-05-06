@@ -662,7 +662,7 @@ def fmt_bot_game(game):
     )
 
 
-def fmt_pvp_game(game, viewer_id):
+def fmt_pvp_game(game, viewer_id, is_group=False):
     x_name = game.get("player_x_name", "X")
     o_name = game.get("player_o_name") or "بانتظار لاعب..."
     turn = game.get("turn", PLAYER_X)
@@ -684,18 +684,22 @@ def fmt_pvp_game(game, viewer_id):
         return header
 
     # playing
-    your_turn = (
-        (turn == PLAYER_X and viewer_id == game.get("player_x_id")) or
-        (turn == PLAYER_O and viewer_id == game.get("player_o_id"))
-    )
     turn_symbol = "❌" if turn == PLAYER_X else "⭕"
     turn_name = x_name if turn == PLAYER_X else o_name
-    if your_turn:
-        header += f"\n👉 دورك الآن! ({turn_symbol})"
-    else:
+    
+    # ✅ إذا كانت اللعبة في مجموعة، نلغي صيغة المتكلم (دورك) ونستخدم الأسماء
+    if is_group:
         header += f"\n⏳ دور {turn_name} ({turn_symbol})"
+    else:
+        your_turn = (
+            (turn == PLAYER_X and viewer_id == game.get("player_x_id")) or
+            (turn == PLAYER_O and viewer_id == game.get("player_o_id"))
+        )
+        if your_turn:
+            header += f"\n👉 دورك الآن! ({turn_symbol})"
+        else:
+            header += f"\n⏳ دور {turn_name} ({turn_symbol})"
     return header
-
 
 def board_list(board_str):
     return list(board_str)
@@ -2601,11 +2605,11 @@ def refresh_pvp_messages(game_id):
     if not game:
         return
 
-    # 1) الرسالة الـ inline (الأهم الآن)
+    # 1) الرسالة الـ inline
     if game.get("inline_message_id"):
         render_inline_board(game_id)
 
-    # 2) رسائل DM للاعبين (نمط /join القديم)
+    # 2) رسائل DM للاعبين والجروبات
     board = board_list(game["board"])
     kb = board_kb(board, f"pvp:{game_id}")
 
@@ -2621,16 +2625,19 @@ def refresh_pvp_messages(game_id):
         # إذا المنشئ شارك التحدّي عبر inline، رسالة X في DM ما عادت لوحة لعب — نتجاهلها
         if player_key == "player_x_id" and game.get("inline_message_id"):
             continue
+            
+        # ✅ نتحقق هل الرسالة في مجموعة؟ (الـ ID الخاص بالمجموعات يبدأ بـ سالب)
+        is_group = str(chat_id).startswith("-")
+        
         try:
             bot.edit_message_text(
-                fmt_pvp_game(game, viewer),
+                fmt_pvp_game(game, viewer, is_group),
                 chat_id=chat_id, message_id=msg_id,
                 reply_markup=kb, parse_mode="Markdown",
             )
         except Exception as e:
             if "message is not modified" not in str(e):
                 print(f"⚠️ فشل تحديث رسالة {player_key}: {e}")
-
 
 def finalize_pvp(game_id, winner, resigned=False):
     """إنهاء مباراة PvP وتحديث الإحصائيات ورسائل اللاعبين"""
@@ -2647,16 +2654,13 @@ def finalize_pvp(game_id, winner, resigned=False):
     # نقاط PvP الافتراضية
     PVP_PTS = {"win": 15, "draw": 5, "loss": 2}
 
-    # حساب نقاط الزوج اليوم — لو وصلوا الحد الأقصى، النقاط = 0
     pair_capped = False
     pair_pts_today = 0
     if px and po:
-        # نسجّل المباراة في العدّاد (للإحصاء فقط)
         record_pair_match(px, po, 10**9)
         pair_pts_today = get_pair_points(px, po)
         if pair_pts_today >= PAIR_DAILY_POINTS_CAP:
             pair_capped = True
-            # تنبيه المالك مرة واحدة عند بلوغ الحد
             if pair_pts_today == PAIR_DAILY_POINTS_CAP:
                 try:
                     if ADMIN_ID:
@@ -2671,12 +2675,10 @@ def finalize_pvp(game_id, winner, resigned=False):
                 except Exception:
                     pass
 
-    # تحديث الإحصائيات (الإحصاء يُسجَّل دائماً، النقاط مع/بدون حسب الـ cap)
     def _rec(pid, mode, outcome):
         if mode == "pvp" and pair_capped:
             record_result(pid, mode, outcome, points_override=0)
         elif mode == "pvp":
-            # نمنح نقاطاً جزئية لو سيتجاوز الحد بهذه المباراة
             base = PVP_PTS[outcome]
             remaining = max(0, PAIR_DAILY_POINTS_CAP - pair_pts_today)
             granted = min(base, remaining)
@@ -2694,7 +2696,6 @@ def finalize_pvp(game_id, winner, resigned=False):
         if po: _rec(po, "pvp", "win")
         if px: _rec(px, "pvp", "loss")
 
-    # تحديث عدّاد نقاط الزوج اليومي (مجموع نقاط المباراة كاملةً)
     if px and po and not pair_capped:
         if winner == "draw":
             match_total = PVP_PTS["draw"] * 2
@@ -2707,11 +2708,9 @@ def finalize_pvp(game_id, winner, resigned=False):
             if granted > 0:
                 add_pair_points(px, po, granted)
 
-    # 1) الرسالة الـ inline
     if game.get("inline_message_id"):
         render_inline_board(game_id)
 
-    # 2) رسائل DM للاعبين (نمط /join القديم)
     board = board_list(game["board"])
     final_board_kb = board_kb(board, f"pvp:{game_id}", disabled=True)
 
@@ -2724,12 +2723,16 @@ def finalize_pvp(game_id, winner, resigned=False):
         viewer = game.get(player_key)
         if not (chat_id and msg_id and viewer):
             continue
-        # إذا المباراة كانت inline، تجاهل رسالة X في DM
         if player_key == "player_x_id" and game.get("inline_message_id"):
             continue
 
+        # ✅ منع إرسال رسائل "فزت" و "خسرت" في الجروب
+        is_group = str(chat_id).startswith("-")
         suffix = ""
-        if resigned:
+        
+        if is_group:
+            pass # في المجموعة نكتفي بإعلان الفائز من الدالة السابقة
+        elif resigned:
             if winner == PLAYER_X and viewer == po:
                 suffix = "\n🏳️ لقد انسحبت."
             elif winner == PLAYER_O and viewer == px:
@@ -2748,14 +2751,13 @@ def finalize_pvp(game_id, winner, resigned=False):
 
         try:
             bot.edit_message_text(
-                fmt_pvp_game(game, viewer) + suffix,
+                fmt_pvp_game(game, viewer, is_group) + suffix,
                 chat_id=chat_id, message_id=msg_id,
                 reply_markup=final_board_kb, parse_mode="Markdown",
             )
         except Exception as e:
             if "message is not modified" not in str(e):
                 print(f"⚠️ فشل تحديث رسالة النهاية {player_key}: {e}")
-
 
 # ============================
 # === عرض الإحصائيات ولوحة الشرف ===

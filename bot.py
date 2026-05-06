@@ -3080,6 +3080,11 @@ def _notify_creator_opponent_joined(game_id):
     game = get_game(game_id)
     if not game:
         return
+        
+    # ✅ [الحل هنا] نمنع الدالة من تخريب لوحة اللعب إذا كان التحدي داخل مجموعة
+    if game.get("target_id") or str(game.get("x_chat_id", "")).startswith("-"):
+        return
+
     chat_id = game.get("x_chat_id")
     msg_id = game.get("x_msg_id")
     if not (chat_id and msg_id):
@@ -3093,7 +3098,7 @@ def _notify_creator_opponent_joined(game_id):
     )
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(
-        types.InlineKeyboardButton(" القائمة", callback_data="back_main"),
+        types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"),
     )
     try:
         bot.edit_message_text(
@@ -3103,7 +3108,6 @@ def _notify_creator_opponent_joined(game_id):
     except Exception as e:
         if "message is not modified" not in str(e):
             print(f"⚠️ notify creator: {e}")
-
 
 def render_inline_board(game_id):
     """رسم لوحة اللعبة في الرسالة الـ inline المنشورة في محادثة صديقك."""

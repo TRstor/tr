@@ -3363,9 +3363,14 @@ def _is_group_challenge_text(m):
 def cmd_group_challenge(message):
     """في المجموعة: عند الرد برسالة 'تحدي XO' على شخص → ينشئ تحدّياً بينهما."""
     a = message.from_user
-    b = message.reply_to_message.from_user if message.reply_to_message else None
-    if not (a and b):
+    
+    if not message.reply_to_message:
         return
+        
+    b = message.reply_to_message.from_user
+    if not b:
+        return
+
     # رفض الحالات غير الصالحة
     if b.is_bot:
         try:
@@ -3373,14 +3378,15 @@ def cmd_group_challenge(message):
         except Exception:
             pass
         return
+        
     if int(a.id) == int(b.id):
         try:
             bot.reply_to(message, random.choice(GCHAL_SELF_RESPONSES))
         except Exception:
             pass
         return
-    
-    # [تم تصحيح الخطأ هنا] رفض المحظورين 
+        
+    # رفض المحظورين
     try:
         banned, reason, until = is_banned(a.id)
         if banned:
@@ -3388,39 +3394,35 @@ def cmd_group_challenge(message):
     except Exception:
         pass
 
-    a_name = a.first_name or "لاعب"
-    b_name = b.first_name or "لاعب"
+    # تنظيف الأسماء تماماً لتفادي مشاكل التنسيق (Parse Error) في تيليجرام
+    a_name = (a.first_name or "لاعب").replace("*", "").replace("_", "").replace("`", "").replace("[", "")
+    b_name = (b.first_name or "لاعب").replace("*", "").replace("_", "").replace("`", "").replace("[", "")
+    
     text = (
-        "🎮 *تحدّي XO*\n\n"
-        f"❌⭕ *{_md_escape(a_name)}* يتحدّى *{_md_escape(b_name)}*!\n\n"
-        f"اختر رمزك يا *{_md_escape(a_name)}*:"
+        f"🎮 تحدّي XO\n\n"
+        f"❌⭕ {a_name} يتحدّى {b_name}!\n\n"
+        f"اختر رمزك يا {a_name}:"
     )
+    
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.row(
-        types.InlineKeyboardButton(
-            "❌ ألعب X (أبدأ أولاً)",
-            callback_data=f"gchal:pick:X:{a.id}:{b.id}",
-        ),
-        types.InlineKeyboardButton(
-            "⭕ ألعب O",
-            callback_data=f"gchal:pick:O:{a.id}:{b.id}",
-        ),
+        types.InlineKeyboardButton("❌ ألعب X (أبدأ أولاً)", callback_data=f"gchal:pick:X:{a.id}:{b.id}"),
+        types.InlineKeyboardButton("⭕ ألعب O", callback_data=f"gchal:pick:O:{a.id}:{b.id}")
     )
     kb.row(
-        types.InlineKeyboardButton(
-            "❌ إلغاء التحدّي",
-            callback_data=f"gchal:cancel:{a.id}",
-        ),
+        types.InlineKeyboardButton("❌ إلغاء التحدّي", callback_data=f"gchal:cancel:{a.id}")
     )
+    
     try:
-        bot.send_message(
-            message.chat.id, text,
-            reply_markup=kb, parse_mode="Markdown",
-            reply_to_message_id=message.message_id,
-        )
+        # إرسال كنص عادي (بدون Markdown) لضمان وصول الرسالة بنسبة 100%
+        bot.reply_to(message, text, reply_markup=kb)
     except Exception as e:
         print(f"⚠️ group_challenge send: {e}")
-
+        try:
+            # في حال وجود خطأ آخر غريب، يرسل البوت رسالة توضح المشكلة ولا يسكت
+            bot.reply_to(message, f"❌ حدث خطأ داخلي يمنع إرسال التحدي: {e}")
+        except:
+            pass
 
 def handle_group_challenge(call, data):
     """يعالج callbacks: gchal:pick:<X|O>:<a_id>:<b_id>  و  gchal:cancel:<a_id>."""

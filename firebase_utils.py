@@ -5,12 +5,16 @@
 """
 
 import json
+import time  # تمت الإضافة هنا
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from config import FIREBASE_CREDENTIALS
 
+# متغيرات نظام التخزين المؤقت لتقليل الضغط
+_user_cache = {}
+CACHE_TTL_SECONDS = 60  # مدة بقاء البيانات في الذاكرة بالثواني
 
 def init_firebase():
     """تهيئة اتصال Firebase"""
@@ -38,23 +42,46 @@ db = init_firebase()
 
 def get_or_create_user(user_id, name="", username=""):
     """جلب مستخدم أو إنشاؤه بسجل إحصائيات صفري"""
-    ref = db.collection("users").document(str(user_id))
+    uid_str = str(user_id)
+    current_time = time.time()
+    
+    # 1. فحص الكاش أولاً
+    if uid_str in _user_cache:
+        cached = _user_cache[uid_str]
+        if (current_time - cached['timestamp']) < CACHE_TTL_SECONDS:
+            data = cached['data']
+            updates = {}
+            if name and data.get("name") != name:
+                updates["name"] = name
+                data["name"] = name
+            if username != data.get("username", ""):
+                updates["username"] = username
+                data["username"] = username
+            if updates:
+                db.collection("users").document(uid_str).update(updates)
+                _user_cache[uid_str]['timestamp'] = current_time
+            return {"id": uid_str, **data}
+
+    # 2. الجلب من Firebase
+    ref = db.collection("users").document(uid_str)
     doc = ref.get()
+    
     if doc.exists:
         data = doc.to_dict()
         updates = {}
-        # تحديث الاسم إذا تغيّر
         if name and data.get("name") != name:
             updates["name"] = name
             data["name"] = name
-        # تحديث اليوزر إذا تغيّر
         if username != data.get("username", ""):
             updates["username"] = username
             data["username"] = username
         if updates:
             ref.update(updates)
+            
+        _user_cache[uid_str] = {'data': data, 'timestamp': current_time}
         return {"id": doc.id, **data}
 
+    # 3. مستخدم جديد
     new_data = {
         "user_id": int(user_id),
         "name": name or "لاعب",
@@ -75,7 +102,8 @@ def get_or_create_user(user_id, name="", username=""):
         "created_at": firestore.SERVER_TIMESTAMP,
     }
     ref.set(new_data)
-    return {"id": str(user_id), **new_data}
+    _user_cache[uid_str] = {'data': new_data, 'timestamp': current_time}
+    return {"id": uid_str, **new_data}
 
 
 # جدول النقاط:
@@ -108,12 +136,12 @@ def record_result(user_id, mode, result, award_points=True, points_override=None
     if result not in ("win", "loss", "draw"):
         return
 
-    ref = db.collection("users").document(str(user_id))
-    # الإجمالي
+    uid_str = str(user_id)
+    ref = db.collection("users").document(uid_str)
+    
     total_key = {"win": "wins", "loss": "losses", "draw": "draws"}[result]
-    # حسب النمط
     mode_key = f"{mode}_{ {'win':'wins','loss':'losses','draw':'draws'}[result] }"
-    # النقاط
+    
     if points_override is not None:
         pts = int(points_override)
     else:
@@ -123,16 +151,39 @@ def record_result(user_id, mode, result, award_points=True, points_override=None
         total_key: firestore.Increment(1),
         mode_key: firestore.Increment(1),
     }
+    
+    points_to_add = 0
     if pts and award_points:
         updates["points"] = firestore.Increment(pts)
+        points_to_add = pts
+        
     ref.update(updates)
+    
+    # تحديث الكاش لتجنب عرض نقاط قديمة
+    if uid_str in _user_cache:
+        cache_data = _user_cache[uid_str]['data']
+        cache_data[total_key] = cache_data.get(total_key, 0) + 1
+        cache_data[mode_key] = cache_data.get(mode_key, 0) + 1
+        if points_to_add:
+            cache_data["points"] = cache_data.get("points", 0) + points_to_add
+        _user_cache[uid_str]['timestamp'] = time.time()
 
 
 def get_user_stats(user_id):
     """جلب إحصائيات مستخدم"""
-    doc = db.collection("users").document(str(user_id)).get()
+    uid_str = str(user_id)
+    current_time = time.time()
+    
+    if uid_str in _user_cache:
+        cached = _user_cache[uid_str]
+        if (current_time - cached['timestamp']) < CACHE_TTL_SECONDS:
+            return {"id": uid_str, **cached['data']}
+
+    doc = db.collection("users").document(uid_str).get()
     if doc.exists:
-        return {"id": doc.id, **doc.to_dict()}
+        data = doc.to_dict()
+        _user_cache[uid_str] = {'data': data, 'timestamp': current_time}
+        return {"id": doc.id, **data}
     return None
 
 

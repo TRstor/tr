@@ -731,6 +731,9 @@ def cmd_start(message):
         game_id = parts[1][len("join_"):]
         if not require_username(message):
             return
+        if not FEATURES["xo_enabled"] and not is_admin(uid):
+            bot.send_message(uid, "🔒 لعبة XO متوقفة مؤقتاً")
+            return
         handle_join_game(uid, name, game_id)
         return
 
@@ -834,14 +837,25 @@ def require_not_banned_call(call):
 @bot.message_handler(commands=["help"])
 @private_only
 def cmd_help(message):
-    bot.send_message(message.chat.id, help_text("rules"),
+    uid = message.chat.id
+    # --- حارس إيقاف اللعبة ---
+    if not FEATURES["xo_enabled"] and not is_admin(uid):
+        bot.send_message(uid, "🔒 لعبة XO متوقفة مؤقتاً")
+        return
+    # -----------------------
+    bot.send_message(uid, help_text("rules"),
                      reply_markup=help_kb("rules"), parse_mode="Markdown")
 
 
 @bot.message_handler(commands=["menu"])
 @private_only
 def cmd_menu(message):
-    bot.send_message(message.chat.id, "القائمة الرئيسية:", reply_markup=main_menu_kb())
+    uid = message.chat.id
+    if not FEATURES["xo_enabled"] and not is_admin(uid):
+        bot.send_message(uid, "🔒 لعبة XO متوقفة مؤقتاً")
+        return
+    bot.send_message(uid, "القائمة الرئيسية:", reply_markup=main_menu_kb())
+
 
 
 @bot.message_handler(commands=["join"])
@@ -849,6 +863,9 @@ def cmd_menu(message):
 def cmd_join(message):
     """الانضمام يدوياً لتحدٍّ عبر المعرّف: /join <game_id>"""
     uid = message.chat.id
+    if not FEATURES["xo_enabled"] and not is_admin(uid):
+        bot.send_message(uid, "🔒 لعبة XO متوقفة مؤقتاً")
+        return
     name = message.from_user.first_name or "لاعب"
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
@@ -1619,6 +1636,22 @@ def _dispatch(call):
     if not require_not_banned_call(call):
         return
 
+    # === حارس إيقاف اللعبة للأزرار ===
+    # أضفنا أزرار الإحصائيات والشرف والمساعدة للقائمة
+    game_actions = [
+        "menu_bot", "menu_pvp", "quick_match", "pvp_create", 
+        "bot_start_easy", "bot_start_hard", "qm_cancel",
+        "menu_stats", "menu_leaderboard", "menu_last_season", "menu_help"
+    ]
+    # أضفنا "help_" لمنع أزرار التنقل داخل صفحة المساعدة
+    if data in game_actions or data.startswith(("bot:", "pvp:", "gchal:", "resume_", "resign_", "help_")):
+        if not FEATURES["xo_enabled"] and not is_admin(call.from_user.id):
+            try:
+                bot.answer_callback_query(call.id, "🔒 الميزة متوقفة مؤقتاً", show_alert=True)
+            except Exception:
+                pass
+            return
+
     # === تحدّي مجموعة (نتعامل قبل حارس اليوزر) ===
     if data.startswith("gchal:"):
         handle_group_challenge(call, data)
@@ -1810,6 +1843,17 @@ def _dispatch(call):
             except:
                 pass
             return
+
+        # --- حارس إيقاف اللعبة لزر الرجوع ---
+        if not FEATURES["xo_enabled"] and not is_admin(uid):
+            try:
+                bot.answer_callback_query(call.id, "🔒 لعبة XO متوقفة مؤقتاً")
+            except:
+                pass
+            # توجيه اللاعب لقائمة البداية (الحاسبات) بدلاً من قائمة اللعبة
+            bot.edit_message_text("🏠 القائمة الرئيسية:\n(لعبة XO متوقفة حالياً)", uid, mid, reply_markup=start_menu_kb())
+            return
+        # ----------------------------------
 
         # عند الرجوع من لعبة جارية ضد البوت في الخاص، نحذفها
         bot_games.pop(uid, None)
@@ -2942,6 +2986,24 @@ def on_inline_query(inline_query):
     name = inline_query.from_user.first_name or "لاعب"
     q = (inline_query.query or "").strip()
 
+    # --- حارس إيقاف اللعبة للإنلاين ---
+    if not FEATURES["xo_enabled"] and not is_admin(uid):
+        results = [
+            types.InlineQueryResultArticle(
+                id="disabled",
+                title="🔒 لعبة XO متوقفة",
+                description="اللعبة متوقفة مؤقتاً من قبل الإدارة.",
+                input_message_content=types.InputTextMessageContent(
+                    message_text="🔒 لعبة XO متوقفة مؤقتاً. تابعنا لمعرفة وقت العودة!",
+                ),
+            )
+        ]
+        try:
+            bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+        except Exception:
+            pass
+        return
+
     results = []
 
     # --- (أ) استعلام بمعرّف مباراة قائمة ---
@@ -3378,6 +3440,14 @@ def _is_group_challenge_text(m):
 def cmd_group_challenge(message):
     """في المجموعة: عند الرد برسالة 'تحدي XO' على شخص → ينشئ تحدّياً بينهما."""
     a = message.from_user
+    
+    # --- حارس إيقاف اللعبة للمجموعات ---
+    if not FEATURES["xo_enabled"] and not is_admin(a.id):
+        try:
+            bot.reply_to(message, "🔒 لعبة XO متوقفة مؤقتاً في الوقت الحالي.")
+        except Exception:
+            pass
+        return
     
     if not message.reply_to_message:
         return

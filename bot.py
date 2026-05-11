@@ -3082,8 +3082,8 @@ def on_inline_query(inline_query):
             except: pass
             return
 
-    # (ب) استعلام فاضي أو "xo" → اعرض بطاقتي اختيار الرمز
-    if q == "" or "xo" in q_lower or "اكس" in q or "او" in q:
+    # (ب) طلب تحدي XO بالاسم → اعرض بطاقتي اختيار الرمز
+    if q_lower == "xo" or "اكس" in q or "او" in q:
         get_or_create_user(uid, name)
 
         gid_x = secrets.token_urlsafe(8)

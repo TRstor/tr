@@ -2975,22 +2975,77 @@ def render_last_season(season):
 
 @bot.inline_handler(func=lambda q: True)
 def on_inline_query(inline_query):
-    """
-    حالتان:
-      (أ) الاستعلام = game_id موجود أنشأه المستخدم من DM (زر مشاركة التحدّي)
-          → نرجع بطاقة واحدة بلوحة اللعب.
-      (ب) الاستعلام فاضي أو 'xo' → نرجع بطاقتين: "ألعب كـ ❌" و "ألعب كـ ⭕".
-          عند اختيار المستخدم واحدة، نُنشئ مباراة جديدة ونعلنها فوراً في المحادثة.
-    """
     uid = inline_query.from_user.id
     name = inline_query.from_user.first_name or "لاعب"
     q = (inline_query.query or "").strip()
+    q_lower = q.lower()
+    parts = q_lower.split()
 
-    # --- حارس إيقاف اللعبة للإنلاين ---
-    if not FEATURES["xo_enabled"] and not is_admin(uid):
+    # ==========================================
+    # 1. حاسبة الشعبية السريعة (Inline Calculator)
+    # ==========================================
+    pop1, pop2 = None, None
+    if len(parts) >= 2:
+        pop1 = _parse_popularity(parts[-2])
+        pop2 = _parse_popularity(parts[-1])
+
+    if pop1 is not None and pop2 is not None:
+        # حارس إيقاف الحاسبة
+        if not FEATURES.get("popcalc_enabled", True) and not is_admin(uid):
+            results = [
+                types.InlineQueryResultArticle(
+                    id="disabled_calc",
+                    title="🔒 الحاسبة متوقفة",
+                    description="حاسبة الشعبية متوقفة مؤقتاً من الإدارة.",
+                    input_message_content=types.InputTextMessageContent(
+                        message_text="🔒 حاسبة الشعبية متوقفة مؤقتاً.",
+                    ),
+                )
+            ]
+            try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+            except: pass
+            return
+
+        # تحديد نوع الحاسبة (فريق أو فردي)
+        mode = "team" if "team" in parts or "فريق" in parts else "pop"
+        points_fn = team_points if mode == "team" else pop_points
+        title_prefix = "⚔️ معركة الفريق:" if mode == "team" else "🔥 المعركة الفردية:"
+
+        own_pts = points_fn(pop1)
+        opp_pts = points_fn(pop2)
+        win_gain = own_pts + opp_pts // 2
+        loss = own_pts // 2
+
+        text = (
+            f"🧮 *حاسبة الشعبية ({'فريق' if mode == 'team' else 'فردي'})*\n\n"
+            f"🟢 شعبيتك: *{pop1:,}* ⟵ `({own_pts} نقطة)`\n"
+            f"🔴 الخصم: *{pop2:,}* ⟵ `({opp_pts} نقطة)`\n\n"
+            f"✅ فوزك يعطيك: *+{win_gain}* نقطة\n"
+            f"❌ خسارتك تخصم: *-{loss}* نقطة"
+        )
+
         results = [
             types.InlineQueryResultArticle(
-                id="disabled",
+                id=f"calc_{pop1}_{pop2}_{mode}",
+                title=f"{title_prefix} فوز +{win_gain} | خسارة -{loss}",
+                description=f"شعبيتك: {pop1:,} | الخصم: {pop2:,}",
+                input_message_content=types.InputTextMessageContent(
+                    message_text=text, parse_mode="Markdown"
+                )
+            )
+        ]
+        try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+        except: pass
+        return
+
+    # ==========================================
+    # 2. لعبة XO (الإنلاين)
+    # ==========================================
+    # حارس إيقاف اللعبة للإنلاين
+    if not FEATURES.get("xo_enabled", True) and not is_admin(uid):
+        results = [
+            types.InlineQueryResultArticle(
+                id="disabled_xo",
                 title="🔒 لعبة XO متوقفة",
                 description="اللعبة متوقفة مؤقتاً من قبل الإدارة.",
                 input_message_content=types.InputTextMessageContent(
@@ -2998,15 +3053,13 @@ def on_inline_query(inline_query):
                 ),
             )
         ]
-        try:
-            bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-        except Exception:
-            pass
+        try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+        except: pass
         return
 
     results = []
 
-    # --- (أ) استعلام بمعرّف مباراة قائمة ---
+    # (أ) استعلام بمعرّف مباراة قائمة
     if q:
         existing = get_game(q)
         if existing and existing.get("status") in ("waiting", "posted") \
@@ -3025,82 +3078,56 @@ def on_inline_query(inline_query):
                 ),
                 reply_markup=kb,
             ))
-            try:
-                bot.answer_inline_query(
-                    inline_query.id, results, cache_time=0, is_personal=True,
-                )
-            except Exception as e:
-                print(f"⚠️ answer_inline_query (existing): {e}")
+            try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+            except: pass
             return
 
-    # --- (ب) استعلام فاضي أو "xo" → اعرض بطاقتي اختيار الرمز ---
-    q_lower = q.lower()
+    # (ب) استعلام فاضي أو "xo" → اعرض بطاقتي اختيار الرمز
     if q == "" or "xo" in q_lower or "اكس" in q or "او" in q:
         get_or_create_user(uid, name)
 
-        # ننشئ مباراتين جاهزتين (واحدة لكل خيار). غير المستعملة ستُلغى تلقائياً.
         gid_x = secrets.token_urlsafe(8)
         gid_o = secrets.token_urlsafe(8)
         create_game_symbol(gid_x, uid, name, "X")
         create_game_symbol(gid_o, uid, name, "O")
 
-        # بطاقة: ألعب كـ ❌
-        text_x = (
-            f"🎮 *لعبة XO*\n❌ {name}  ⚔️  ⭕ بانتظار لاعب...\n\n"
-            "⭕ اضغط أي مربع للانضمام كـ ⭕!"
-        )
+        text_x = f"🎮 *لعبة XO*\n❌ {name}  ⚔️  ⭕ بانتظار لاعب...\n\n⭕ اضغط أي مربع للانضمام كـ ⭕!"
         kb_x = board_kb([EMPTY] * 9, f"pvp:{gid_x}")
 
-        # بطاقة: ألعب كـ ⭕
-        text_o = (
-            f"🎮 *لعبة XO*\n❌ بانتظار لاعب...  ⚔️  ⭕ {name}\n\n"
-            "❌ اضغط أي مربع للانضمام كـ ❌ (وتبدأ أولاً)!"
-        )
+        text_o = f"🎮 *لعبة XO*\n❌ بانتظار لاعب...  ⚔️  ⭕ {name}\n\n❌ اضغط أي مربع للانضمام كـ ❌ (وتبدأ أولاً)!"
         kb_o = board_kb([EMPTY] * 9, f"pvp:{gid_o}")
 
         results.append(types.InlineQueryResultArticle(
             id=gid_x,
             title="❌ ألعب كـ X (أبدأ أولاً)",
             description="إرسال تحدّي وأنت تلعب بالـ ❌",
-            input_message_content=types.InputTextMessageContent(
-                message_text=text_x, parse_mode="Markdown",
-            ),
+            input_message_content=types.InputTextMessageContent(message_text=text_x, parse_mode="Markdown"),
             reply_markup=kb_x,
         ))
         results.append(types.InlineQueryResultArticle(
             id=gid_o,
             title="⭕ ألعب كـ O",
             description="إرسال تحدّي وأنت تلعب بالـ ⭕ (الخصم يبدأ)",
-            input_message_content=types.InputTextMessageContent(
-                message_text=text_o, parse_mode="Markdown",
-            ),
+            input_message_content=types.InputTextMessageContent(message_text=text_o, parse_mode="Markdown"),
             reply_markup=kb_o,
         ))
 
-        try:
-            bot.answer_inline_query(
-                inline_query.id, results, cache_time=0, is_personal=True,
-            )
-        except Exception as e:
-            print(f"⚠️ answer_inline_query (choice): {e}")
+        try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+        except: pass
         return
 
-    # --- حالة مجهولة: رسالة إرشادية ---
+    # حالة مجهولة: رسالة إرشادية
     results.append(types.InlineQueryResultArticle(
-        id="help",
-        title="اكتب XO لبدء تحدٍّ",
-        description="اكتب 'XO' بعد اسم البوت لعرض خياري ❌ و ⭕",
+        id="help_inline",
+        title="✨ حاسبة الشعبية و تحديات XO",
+        description="للحساب اكتب الأرقام (مثال: 50k 20k) | للتحدي اكتب XO",
         input_message_content=types.InputTextMessageContent(
-            message_text="اكتب XO بعد اسم البوت لبدء تحدٍّ.",
+            message_text="💡 *دليل الاستخدام السريع:*\n\nلإرسال تحدي XO اكتب:\n`@يوزر_البوت XO`\n\nلحساب الشعبية بسرعة اكتب رقمين:\n`@يوزر_البوت 50000 12000`\n\nلحساب فريق اكتب كلمة فريق ورقمين:\n`@يوزر_البوت فريق 50k 10k`",
+            parse_mode="Markdown"
         ),
     ))
-    try:
-        bot.answer_inline_query(
-            inline_query.id, results, cache_time=0, is_personal=True,
-        )
-    except Exception as e:
-        print(f"⚠️ answer_inline_query (help): {e}")
-
+    try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+    except: pass
 
 @bot.chosen_inline_handler(func=lambda c: True)
 def on_chosen_inline(chosen):
@@ -3251,48 +3278,79 @@ def render_inline_board(game_id):
 # ============================
 
 def expire_game(game_id, reason):
-    """إنهاء تحدٍّ قسرياً (انتهاء مهلة / إلغاء / إلخ) وإبلاغ الأطراف."""
+    """إنهاء تحدٍّ قسرياً (انتهاء مهلة / إلغاء / إلخ) وإبلاغ الأطراف مع مراعاة المجموعات."""
     game = get_game(game_id)
     if not game:
         return
 
-    # تحديث الرسالة المنشورة في محادثة الصديق (إن وُجدت)
+    # 1. تحديث الرسالة المنشورة عبر وضع الإنلاين (Inline)
     if game.get("inline_message_id"):
         try:
             bot.edit_message_text(
                 f"🎮 *تحدّي XO*\n\n{reason}",
                 inline_message_id=game["inline_message_id"],
                 parse_mode="Markdown",
+                reply_markup=None  # مسح الأزرار
             )
         except Exception as e:
             if "message is not modified" not in str(e):
                 print(f"⚠️ expire inline: {e}")
 
-    # تحديث رسالة المنشئ في DM
+    # 2. تحديث رسالة اللاعب الأول (X) - قد تكون في الخاص أو المجموعة
     if game.get("x_chat_id") and game.get("x_msg_id"):
+        chat_id = game["x_chat_id"]
+        msg_id = game["x_msg_id"]
+        is_group = str(chat_id).startswith("-")  # التحقق مما إذا كانت مجموعة
+        
         try:
-            bot.edit_message_text(
-                f"{reason}\n\nأرسل /menu للبدء من جديد.",
-                chat_id=game["x_chat_id"],
-                message_id=game["x_msg_id"],
-                reply_markup=main_menu_kb(),
-            )
+            if is_group:
+                # في المجموعة: نص بسيط بدون أزرار لتجنب الإزعاج
+                bot.edit_message_text(
+                    f"{reason}",
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    parse_mode="Markdown",
+                    reply_markup=None  # مسح الأزرار تماماً
+                )
+            else:
+                # في الخاص: وضع أزرار القائمة الرئيسية للعب من جديد
+                bot.edit_message_text(
+                    f"{reason}\n\nأرسل /menu للبدء من جديد.",
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reply_markup=main_menu_kb(),
+                    parse_mode="Markdown",
+                )
         except Exception as e:
             if "message is not modified" not in str(e):
-                print(f"⚠️ expire DM X: {e}")
+                print(f"⚠️ expire DM/Group X: {e}")
 
-    # تحديث رسالة اللاعب O (إن وُجدت بنمط /join القديم)
+    # 3. تحديث رسالة اللاعب الثاني (O) إن وجدت
     if game.get("o_chat_id") and game.get("o_msg_id"):
+        chat_id = game["o_chat_id"]
+        msg_id = game["o_msg_id"]
+        is_group = str(chat_id).startswith("-")
+        
         try:
-            bot.edit_message_text(
-                f"{reason}",
-                chat_id=game["o_chat_id"],
-                message_id=game["o_msg_id"],
-                reply_markup=main_menu_kb(),
-            )
+            if is_group:
+                bot.edit_message_text(
+                    f"{reason}",
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    parse_mode="Markdown",
+                    reply_markup=None
+                )
+            else:
+                bot.edit_message_text(
+                    f"{reason}\n\nأرسل /menu للبدء من جديد.",
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reply_markup=main_menu_kb(),
+                    parse_mode="Markdown",
+                )
         except Exception as e:
             if "message is not modified" not in str(e):
-                print(f"⚠️ expire DM O: {e}")
+                print(f"⚠️ expire DM/Group O: {e}")
 
     delete_game(game_id)
 

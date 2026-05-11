@@ -2982,14 +2982,19 @@ def on_inline_query(inline_query):
     parts = q_lower.split()
 
     # ==========================================
-    # 1. حاسبة الشعبية السريعة (Inline Calculator)
+    # 1. حاسبة الشعبية السريعة الذكية (Inline Calculator)
     # ==========================================
-    pop1, pop2 = None, None
-    if len(parts) >= 2:
-        pop1 = _parse_popularity(parts[-2])
-        pop2 = _parse_popularity(parts[-1])
+    numbers = []
+    # اصطياد الأرقام من أي مكان في النص
+    for word in parts:
+        val = _parse_popularity(word)
+        if val is not None:
+            numbers.append(val)
 
-    if pop1 is not None and pop2 is not None:
+    # إذا وجد رقمين، سيبدأ بحساب الشعبية
+    if len(numbers) >= 2:
+        pop1, pop2 = numbers[0], numbers[1]
+        
         # حارس إيقاف الحاسبة
         if not FEATURES.get("popcalc_enabled", True) and not is_admin(uid):
             results = [
@@ -3007,7 +3012,7 @@ def on_inline_query(inline_query):
             return
 
         # تحديد نوع الحاسبة (فريق أو فردي)
-        mode = "team" if "team" in parts or "فريق" in parts else "pop"
+        mode = "team" if "فريق" in q_lower or "team" in q_lower else "pop"
         points_fn = team_points if mode == "team" else pop_points
         title_prefix = "⚔️ معركة الفريق:" if mode == "team" else "🔥 المعركة الفردية:"
 
@@ -3017,7 +3022,7 @@ def on_inline_query(inline_query):
         loss = own_pts // 2
 
         text = (
-            f"🧮 *حاسبة الشعبية ({'فريق' if mode == 'team' else 'فردي'})*\n\n"
+            f"🧮 *حاسبة الشعبية ({'فريق' if mode == 'team' else 'فردية'})*\n\n"
             f"🟢 شعبيتك: *{pop1:,}* ⟵ `({own_pts} نقطة)`\n"
             f"🔴 الخصم: *{pop2:,}* ⟵ `({opp_pts} نقطة)`\n\n"
             f"✅ فوزك يعطيك: *+{win_gain}* نقطة\n"
@@ -3060,7 +3065,7 @@ def on_inline_query(inline_query):
     results = []
 
     # (أ) استعلام بمعرّف مباراة قائمة
-    if q:
+    if q and len(q) > 4 and q_lower not in ("xo", "اكس", "او", "فريق"):
         existing = get_game(q)
         if existing and existing.get("status") in ("waiting", "posted") \
                 and existing.get("player_x_id") == uid:
@@ -3116,7 +3121,9 @@ def on_inline_query(inline_query):
         except: pass
         return
 
-    # حالة مجهولة: رسالة إرشادية
+    # ==========================================
+    # 3. دليل الاستخدام السريع (يظهر افتراضياً)
+    # ==========================================
     bot_user = get_bot_username() or "يوزر_البوت"
     results.append(types.InlineQueryResultArticle(
         id="help_inline",

@@ -788,12 +788,48 @@ def _fmt_ban_until(until):
         return "—"
 
 
+# ==========================================
+# --- نظام الحماية التلقائي من السبام (Anti-Spam) ---
+# ==========================================
+user_spam_tracker = {}
+SPAM_LIMIT = 7        # الحد الأقصى للرسائل/الضغطات
+SPAM_WINDOW = 3.0     # خلال هذه المدة (بالثواني)
+AUTO_BAN_HOURS = 0.25 # مدة الحظر التلقائي (15 دقيقة = 0.25 ساعة)
+
+def _is_spamming(uid):
+    """يتحقق مما إذا كان المستخدم يرسل طلبات بشكل مزعج وسريع جداً."""
+    if ADMIN_ID and int(uid) == int(ADMIN_ID):
+        return False  # المالك مستثنى دائماً لكي لا يُحظر بالخطأ
+    
+    now = time_mod.time()
+    times = user_spam_tracker.get(uid, [])
+    # تنظيف الأوقات القديمة (التي تجاوزت 3 ثواني)
+    times = [t for t in times if now - t < SPAM_WINDOW]
+    times.append(now)
+    user_spam_tracker[uid] = times
+    
+    if len(times) >= SPAM_LIMIT:
+        user_spam_tracker[uid] = []  # تصفير العداد بعد اكتشاف السبام
+        return True
+    return False
+
+
 def require_not_banned_msg(message):
     """حارس الحظر/الكتم لمعالجات الرسائل — يعيد True إذا مسموح."""
     uid = message.chat.id
     # المالك مستثنى
     if ADMIN_ID and int(uid) == int(ADMIN_ID):
         return True
+        
+    # --- فحص السبام للرسائل ---
+    if _is_spamming(uid):
+        try:
+            ban_user(uid, reason="نظام الحماية: سبام (إرسال رسائل سريعة)", duration_hours=AUTO_BAN_HOURS, by="Auto-System")
+            bot.send_message(uid, "🚫 *نظام الحماية التلقائي*\n\nتم حظرك مؤقتاً لمدة 15 دقيقة بسبب إرسال رسائل بسرعة غير طبيعية (سبام).\nالرجاء التوقف عن الإزعاج.", parse_mode="Markdown")
+        except Exception:
+            pass
+        return False
+        
     # كتم: تجاهل بصمت
     if is_muted(uid):
         return False
@@ -819,6 +855,17 @@ def require_not_banned_call(call):
     uid = call.from_user.id
     if ADMIN_ID and int(uid) == int(ADMIN_ID):
         return True
+        
+    # --- فحص السبام لضغط الأزرار ---
+    if _is_spamming(uid):
+        try:
+            ban_user(uid, reason="نظام الحماية: سبام (نقر سريع جداً)", duration_hours=AUTO_BAN_HOURS, by="Auto-System")
+            bot.answer_callback_query(call.id, "🚫 تم حظرك 15 دقيقة بسبب الضغط العشوائي والسريع!", show_alert=True)
+            bot.send_message(uid, "🚫 *نظام الحماية التلقائي*\n\nتم حظرك مؤقتاً لمدة 15 دقيقة بسبب استخدام برامج النقر التلقائي أو الضغط السريع (سبام).", parse_mode="Markdown")
+        except Exception:
+            pass
+        return False
+
     if is_muted(uid):
         return False
     banned, reason, until = is_banned(uid)
@@ -3134,14 +3181,17 @@ def on_inline_query(inline_query):
                 "✨ *دليل الاستخدام الذكي والسريع* ✨\n\n"
                 "🎮 *لإرسال تحدي XO لأصدقائك:*\n"
                 "اكتب يوزر البوت وبعده كلمة `XO`\n"
-                f"مثال: `@{bot_user} xo`\n\n"
+                f"• `@{bot_user} xo`\n"
+                f"• `@{bot_user} اكس`\n"
+                f"• `@{bot_user} او`\n\n"
                 "🧮 *لحساب الشعبية (الفردية):*\n"
                 "اكتب أي رقمين وسيفهمها البوت فوراً!\n"
-                f"مثال: `@{bot_user} انا 50k خصمي 20k`\n"
-                f"أو كاختصار: `@{bot_user} 50000 20000`\n\n"
+                f"• `@{bot_user} انا 2M خصمي 1M`\n"
+                f"• `@{bot_user} 50000 20000`\n\n"
                 "⚔️ *لحساب معركة الفريق:*\n"
                 "فقط أضف كلمة `فريق` مع الأرقام:\n"
-                f"مثال: `@{bot_user} فريق 150k 80k`\n\n"
+                f"• `@{bot_user} فريق 150k 80k`\n"
+                f"• `@{bot_user} فريق 80000 60000`\n\n"
                 "👇 *انسخ أحد الأمثلة وجربها الآن في الشات!*"
             ),
             parse_mode="Markdown"

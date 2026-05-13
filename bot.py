@@ -28,6 +28,9 @@ from firebase_utils import (
     get_last_season,
     get_flags, set_flag, export_all,
     get_active_game_for_user,
+    get_help_sections,  # مضاف
+    set_help_section,   # مضاف
+    delete_help_section, # مضاف
 )
 from moderation import (
     is_banned, is_muted, ban_user, unban_user,
@@ -106,6 +109,7 @@ def _has_active_game_block(uid):
 
 # حالات بحث المالك (واحدة لكل مالك)
 admin_search_waiting = {}
+admin_help_state = {}  
 
 if not BOT_TOKEN:
     print("❌ يرجى تعيين BOT_TOKEN في متغيرات البيئة")
@@ -134,8 +138,6 @@ def setup_bot_commands():
         # 🔵 قائمة الخاص (للاعبين العاديين)
         private_cmds = [
             BotCommand("start",   "🎮 بدء البوت"),
-            BotCommand("menu",    "🏠 القائمة الرئيسية"),
-            BotCommand("help",    "📖 كيفية اللعب والقواعد"),
         ]
 
         # 🟢 قائمة المجموعات (فارغة — لا أوامر للبوت في المجموعات حالياً)
@@ -144,8 +146,6 @@ def setup_bot_commands():
         # 👑 قائمة المالك (في خاصّه فقط) — العادية + الإدارية
         admin_cmds = [
             BotCommand("start",     "🎮 بدء البوت"),
-            BotCommand("menu",      "🏠 القائمة الرئيسية"),
-            BotCommand("help",      "📖 كيفية اللعب"),
             BotCommand("admin",     "👑 لوحة الإدارة"),
             BotCommand("status",    "📊 حالة البوت"),
             BotCommand("backup",    "💾 نسخة احتياطية"),
@@ -881,51 +881,6 @@ def require_not_banned_call(call):
     return True
 
 
-@bot.message_handler(commands=["help"])
-@private_only
-def cmd_help(message):
-    uid = message.chat.id
-    # --- حارس إيقاف اللعبة ---
-    if not FEATURES["xo_enabled"] and not is_admin(uid):
-        bot.send_message(uid, "🔒 لعبة XO متوقفة مؤقتاً")
-        return
-    # -----------------------
-    bot.send_message(uid, help_text("rules"),
-                     reply_markup=help_kb("rules"), parse_mode="Markdown")
-
-
-@bot.message_handler(commands=["menu"])
-@private_only
-def cmd_menu(message):
-    uid = message.chat.id
-    if not FEATURES["xo_enabled"] and not is_admin(uid):
-        bot.send_message(uid, "🔒 لعبة XO متوقفة مؤقتاً")
-        return
-    bot.send_message(uid, "القائمة الرئيسية:", reply_markup=main_menu_kb())
-
-
-
-@bot.message_handler(commands=["join"])
-@private_only
-def cmd_join(message):
-    """الانضمام يدوياً لتحدٍّ عبر المعرّف: /join <game_id>"""
-    uid = message.chat.id
-    if not FEATURES["xo_enabled"] and not is_admin(uid):
-        bot.send_message(uid, "🔒 لعبة XO متوقفة مؤقتاً")
-        return
-    name = message.from_user.first_name or "لاعب"
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip():
-        bot.send_message(
-            uid,
-            "❌ استخدم الصيغة: `/join CODE`\n(استبدل CODE بمعرّف التحدّي الذي أعطاك إياه صديقك)",
-            parse_mode="Markdown",
-        )
-        return
-    game_id = parts[1].strip()
-    handle_join_game(uid, name, game_id)
-
-
 # ============================
 # === أوامر المالك ===
 # ============================
@@ -993,6 +948,7 @@ def admin_panel_kb():
         types.InlineKeyboardButton("📊 الحالة", callback_data="admin_status"),
     )
     kb.add(types.InlineKeyboardButton("🧹 تصفير كل النقاط", callback_data="admin_reset_ask"))
+    kb.add(types.InlineKeyboardButton("📖 إدارة أقسام المساعدة", callback_data="admin_help_list")) # مضاف
     return kb
 
 
@@ -1468,82 +1424,36 @@ def _do_full_reset():
     return len(top), n
 
 
-def help_text(section="rules"):
-    if section == "modes":
-        return (
-            "🎮 *أنماط اللعب*\n\n"
-            "🤖 *ضد البوت — سهل*\n"
-            "  • مناسب للبداية والتجربة.\n"
-            "  • فوز = *1 نقطة*  ·  تعادل/خسارة = 0.\n\n"
-            "🤖 *ضد البوت — صعب*\n"
-            "  • البوت ذكي، يصعب التغلّب عليه.\n"
-            "  • فوز = *2 نقطة*  ·  تعادل = *1*  ·  خسارة = 0.\n\n"
-            "⚡ *Quick Match*\n"
-            "  • انضم للطابور وستُربط بأول خصم متاح.\n"
-            "  • مباراة عشوائية بين لاعبَين حقيقيين.\n\n"
-            "👥 *تحدّي صديق*\n"
-            "  • أنشئ رابطاً وأرسله لصديقك → ينضم ويلعبان معاً.\n"
-            "  • يعمل أيضاً عبر *الوضع المباشر (Inline)* في أي محادثة:\n"
-            "    اكتب `@اسم_البوت` ثم اختر «العب».\n"
-        )
-    if section == "points":
-        return (
-            "🏆 *النقاط والجوائز*\n\n"
-            "*جدول النقاط:*\n"
-            "🆚 PvP: فوز *15*  ·  تعادل *5*  ·  خسارة *2*\n"
-            "🤖 صعب: فوز *5*  ·  تعادل *2*  ·  خسارة 0\n"
-            "🤖 سهل: فوز *2*  ·  تعادل *1*  ·  خسارة 0\n\n"
-            "⚠️ *تنبيه:* الحد الأقصى للنقاط بين نفس الزوج في اليوم: *300 نقطة*.\n"
-            "بعد بلوغها تُسجَّل المباريات بدون نقاط حتى منتصف الليل (UTC).\n"
-            "_(لتشجيع التنوّع ومنع الفارمينج)._\n\n"
-            "*الموسم الأسبوعي:*\n"
-            "  • يبدأ كل جمعة 00:00 (بتوقيت الرياض).\n"
-            "  • تُؤرشف لوحة الشرف ثم تُصفَّر النقاط.\n\n"
-            "*جوائز Top 3:*\n"
-            "🥇 الأول: *120 UC*\n"
-            "🥈 الثاني: *60 UC*\n"
-            "🥉 الثالث: *60 UC*\n"
-        )
-    if section == "tips":
-        return (
-            "💡 *نصائح للفوز*\n\n"
-            "• ابدأ بالمركز الأوسط — أقوى مكان في اللوحة.\n"
-            "• الزوايا أفضل من الأطراف.\n"
-            "• راقب خصمك: لو أخذ خانتين على نفس الخط، اسدّها فوراً.\n"
-            "• اصنع *تهديدَين في وقت واحد* (شوكة) — لا يقدر يسدّهما معاً.\n"
-            "• ضد البوت الصعب: التعادل غالباً أفضل ما يمكن تحقيقه.\n\n"
-            "🎯 *لتحقيق نقاط أعلى:*\n"
-            "العب PvP — *10 نقاط* لكل فوز هي أسرع طريق للقمة 🚀\n"
-        )
-    if section == "rules":
-        return (
-            "📖 *كيفية اللعب*\n\n"
-            "*1) اللوحة:*\n"
-            "  • شبكة *3×3* = تسع خانات فارغة.\n"
-            "  • كل لاعب له رمز: ❌ أو ⭕.\n\n"
-            "*2) دورك في اللعب:*\n"
-            "  • اللاعبان يلعبان *بالتناوب* — حركة واحدة لكل دور.\n"
-            "  • اضغط على أي *خانة فارغة* لوضع رمزك فيها.\n"
-            "  • لا يمكن تغيير الخانة بعد اختيارها.\n\n"
-            "*3) كيف تفوز؟*\n"
-            "  • اجمع *3 رموز متتالية* لك على خط واحد:\n"
-            "     ↔️ أفقياً  ·  ↕️ عمودياً  ·  ↘️ قطرياً.\n"
-            "  • أوّل من يُكمل الخط = الفائز 🏆.\n"
-            "  • امتلاء اللوحة بلا فائز = *تعادل* 🤝.\n\n"
-            "*4) من يبدأ؟*\n"
-            "  • 👥 *تحدّي صديق:* المنشئ يأخذ ❌ ويبدأ أولاً، المنضم ⭕.\n"
-            "  • ⚡ *Quick Match:* اللاعب المنتظِر يأخذ ❌ ويبدأ أولاً.\n"
-            "  • 🤖 *ضد البوت:* أنت ❌ وتبدأ أولاً.\n\n"
-            "*5) الوقت والاستسلام:*\n"
-            "  • لكل دور وقت محدود — تجاوُزه يخسرك المباراة.\n"
-            "  • زر *🏳️ استسلام* متاح في أي وقت.\n"
-            "  • الانسحاب أو ترك المباراة = خسارة.\n\n"
-            "*6) بعد المباراة:*\n"
-            "  • تُحسب نقاطك تلقائياً (راجع تبويب 🏆 *النقاط*).\n"
-            "  • تظهر النتيجة في لوحة الشرف الأسبوعية.\n\n"
-            "🚀 ابدأ من القائمة الرئيسية واختر النمط المناسب لك."
-        )
-    return help_text("rules")
+def render_dynamic_help(active_tab="default"):
+    sections = get_help_sections()
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    
+    if not sections:
+        kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_main"))
+        return "📖 *كيفية اللعب*\n\nلا توجد شروحات حالياً. سيقوم المالك بإضافتها قريباً.", kb
+
+    # تحويل البيانات لقائمة مرتبة (الأحدث أولاً أو حسب المفتاح)
+    tabs = sorted(sections.items())
+    if active_tab == "default" and tabs:
+        active_tab = tabs[0][0]
+
+    row = []
+    text = "📖 *كيفية اللعب*\n\n"
+    for tab_id, data in tabs:
+        label = data.get("title", "قسم")
+        btn_text = ("• " + label) if tab_id == active_tab else label
+        row.append(types.InlineKeyboardButton(btn_text, callback_data=f"help_{tab_id}"))
+        
+        if tab_id == active_tab:
+            text += f"*{label}*\n\n{data.get('content', '')}"
+            
+        if len(row) == 2:
+            kb.row(*row)
+            row = []
+    if row: kb.row(*row)
+        
+    kb.add(types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"))
+    return text, kb
 
 
 def help_kb(active="rules"):
@@ -1881,6 +1791,50 @@ def _dispatch(call):
             _handle_admin_action(call, data)
             return
 
+         # --- إدارة أقسام المساعدة (للمالك) ---
+        if data == "admin_help_list":
+            sections = get_help_sections()
+            text = "📖 *إدارة أقسام المساعدة*\n\nاختر قسماً لتعديله/حذفه، أو أضف قسماً جديداً:"
+            kb = types.InlineKeyboardMarkup(row_width=1)
+            for tid, sec in sections.items():
+                kb.add(types.InlineKeyboardButton(f"✏️ {sec.get('title')}", callback_data=f"admin_help_edit_{tid}"))
+            kb.add(types.InlineKeyboardButton("➕ إضافة قسم جديد", callback_data="admin_help_new"))
+            kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
+            bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+            return
+            
+        if data == "admin_help_new":
+            admin_help_state[uid] = {"action": "wait_title", "msg_id": mid}
+            bot.edit_message_text("➕ *إضافة قسم جديد*\n\nأرسل الآن **عنوان الزر** (مثال: القوانين 📜):", uid, mid, 
+                                  reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("❌ إلغاء", callback_data="admin_help_list")), parse_mode="Markdown")
+            return
+            
+        if data.startswith("admin_help_edit_"):
+            tid = data.replace("admin_help_edit_", "")
+            sec = get_help_sections().get(tid, {})
+            text = f"✏️ *تعديل قسم:* {sec.get('title')}\n\nماذا تريد أن تفعل؟"
+            kb = types.InlineKeyboardMarkup(row_width=2)
+            kb.add(types.InlineKeyboardButton("📝 تعديل المحتوى", callback_data=f"admin_help_settext_{tid}"))
+            kb.add(types.InlineKeyboardButton("❌ حذف القسم", callback_data=f"admin_help_del_{tid}"))
+            kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_help_list"))
+            bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+            return
+            
+        if data.startswith("admin_help_settext_"):
+            tid = data.replace("admin_help_settext_", "")
+            admin_help_state[uid] = {"action": "wait_content", "tab_id": tid, "msg_id": mid}
+            bot.edit_message_text("📝 *تعديل المحتوى*\n\nأرسل الآن **النص الجديد** لهذا القسم:", uid, mid,
+                                  reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("❌ إلغاء", callback_data=f"admin_help_list")), parse_mode="Markdown")
+            return
+            
+        if data.startswith("admin_help_del_"):
+            tid = data.replace("admin_help_del_", "")
+            delete_help_section(tid)
+            bot.answer_callback_query(call.id, "✅ تم الحذف")
+            # إعادة توجيه للوحة القائمة
+            call.data = "admin_help_list"
+            return _dispatch(call)
+
     # === قوائم عامة ===
     if data == "back_main":
         # ✅ حماية المجموعات: منع زر القائمة من تحويل رسالة الجروب إلى قائمة
@@ -2125,24 +2079,17 @@ def _dispatch(call):
         bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
         return
 
-    if data == "menu_help":
-        bot.edit_message_text(help_text("rules"), uid, mid,
-                              reply_markup=help_kb("rules"), parse_mode="Markdown")
+   if data == "menu_help":
+        text, kb = render_dynamic_help("default")
+        bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
         return
 
     if data.startswith("help_"):
         section = data[len("help_"):]
-        if section not in ("rules", "modes", "points", "tips"):
-            section = "rules"
+        text, kb = render_dynamic_help(section)
         try:
-            bot.edit_message_text(help_text(section), uid, mid,
-                                  reply_markup=help_kb(section), parse_mode="Markdown")
-        except Exception:
-            pass
-        try:
-            bot.answer_callback_query(call.id)
-        except Exception:
-            pass
+            bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+        except Exception: pass
         return
 
     # === بدء لعبة ضد البوت ===
@@ -3781,12 +3728,25 @@ def fallback(message):
                     "❌ رمز غير صحيح. أرسل الرمز الصحيح أو /cancel للإلغاء.",
                 )
             return
-    # معالجة إدخال بحث المالك إن كان بانتظاره
-    if is_admin(uid) and admin_search_waiting.get(uid):
-        admin_search_waiting.pop(uid, None)
-        query = (message.text or "").strip()
-        results = search_users(query)
-        _send_admin_search_results(uid, query, results)
+    # التقاط نصوص المساعدة من المالك
+    if is_admin(uid) and uid in admin_help_state:
+        state = admin_help_state[uid]
+        txt = (message.text or "").strip()
+        admin_help_state.pop(uid, None)
+        try: bot.delete_message(uid, message.message_id)
+        except: pass
+        
+        if state["action"] == "wait_title":
+            tab_id = f"t_{int(time_mod.time())}"
+            set_help_section(tab_id, txt, "يرجى تعديل هذا المحتوى..")
+            bot.edit_message_text(f"✅ تم إنشاء القسم: {txt}", uid, state["msg_id"],
+                reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("✏️ اكتب المحتوى الآن", callback_data=f"admin_help_settext_{tab_id}")))
+        elif state["action"] == "wait_content":
+            tid = state["tab_id"]
+            title = get_help_sections().get(tid, {}).get("title", "قسم")
+            set_help_section(tid, title, txt)
+            bot.edit_message_text("✅ تم تحديث المحتوى بنجاح!", uid, state["msg_id"],
+                reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_help_list")))
         return
     # حارس اليوزر (ما عدا المالك)
     if not is_admin(uid) and not require_username(message):

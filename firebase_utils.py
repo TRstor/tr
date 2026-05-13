@@ -500,3 +500,44 @@ def get_active_game_for_user(uid):
     except Exception as e:
         print(f"⚠️ get_active_game_for_user: {e}")
     return None
+
+# ==========================================
+# === نظام أقسام المساعدة المرنة (Dynamic Help) ===
+# ==========================================
+
+def get_help_sections():
+    """يجلب جميع أقسام المساعدة من قاعدة البيانات."""
+    try:
+        doc = db.collection("meta").document("help_sections").get()
+        if doc.exists:
+            return doc.to_dict() or {}
+        return {}
+    except Exception as e:
+        print(f"⚠️ get_help_sections error: {e}")
+        return {}
+
+def set_help_section(tab_id, title, content):
+    """يضيف أو يحدّث قسماً معيناً في المساعدة."""
+    try:
+        db.collection("meta").document("help_sections").set({
+            tab_id: {
+                "title": title,
+                "content": content
+            }
+        }, merge=True)
+        return True
+    except Exception as e:
+        print(f"⚠️ set_help_section error: {e}")
+        return False
+
+def delete_help_section(tab_id):
+    """يحذف قسماً معيناً من المساعدة."""
+    from google.cloud import firestore
+    try:
+        db.collection("meta").document("help_sections").update({
+            tab_id: firestore.DELETE_FIELD
+        })
+        return True
+    except Exception as e:
+        print(f"⚠️ delete_help_section error: {e}")
+        return False

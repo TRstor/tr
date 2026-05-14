@@ -695,14 +695,15 @@ def cmd_start(message):
     default_text = "👋 أهلاً *{name}*!\n\n🆔 ID: `{uid}`\n👤 اليوزر: `@{username}`\n\nاختر من القائمة:"
     custom_text = config.get("start_msg", default_text)
     
-    text = custom_text.replace("{name}", _md_escape(name)).replace("{uid}", str(uid)).replace("{username}", username)
+    # حل احترافي: تشفير اليوزر نيم لتفادي أخطاء الماركداون (الشرطة السفلية)، وكتابة "لا يوجد" إن كان فارغاً
+    user_display = _md_escape(username) if username else "لا يوجد"
+    text = custom_text.replace("{name}", _md_escape(name)).replace("{uid}", str(uid)).replace("{username}", user_display)
     
     quest = config.get("daily_quest")
     if quest:
         text += f"\n\n🎯 *المهمة اليومية:*\n_{quest}_"
 
     bot.send_message(uid, text, reply_markup=start_menu_kb(), parse_mode="Markdown")
-
 
 def require_username(message):
     username = (message.from_user.username or "").strip()

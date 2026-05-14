@@ -29,6 +29,7 @@ from firebase_utils import (
     get_flags, set_flag, export_all,
     get_active_game_for_user,
     get_help_sections, set_help_section, delete_help_section,
+    get_bot_config, set_bot_config,
 )
 from moderation import (
     is_banned, is_muted, ban_user, unban_user,
@@ -51,13 +52,17 @@ USERS_PAGE_SIZE = 10                # عدد المستخدمين في كل صف
 
 
 def _enforce_daily_limit(uid):
-    """يفحص الحد اليومي ويُزيده. يعيد True إذا مسموح، False إذا تجاوز."""
+    """يفحص الحد اليومي ويُزيده بناءً على الإعدادات الديناميكية."""
     if ADMIN_ID and int(uid) == int(ADMIN_ID):
         return True
-    if not DAILY_MATCH_LIMIT:
+        
+    config = get_bot_config()
+    current_limit = config.get("daily_limit", DAILY_MATCH_LIMIT)
+    
+    if not current_limit:
         return True
     try:
-        allowed, count_after, limit = check_and_increment_daily_matches(uid, DAILY_MATCH_LIMIT)
+        allowed, count_after, limit = check_and_increment_daily_matches(uid, current_limit)
     except Exception as e:
         print(f"⚠️ daily limit check: {e}")
         return True
@@ -686,12 +691,16 @@ def cmd_start(message):
     if not require_username(message):
         return
 
-    text = (
-        f"👋 أهلاً *{_md_escape(name)}*!\n\n"
-        f"🆔 ID: `{uid}`\n"
-        f"👤 اليوزر: `@{username}`\n\n"
-        "اختر من القائمة:"
-    )
+    config = get_bot_config()
+    default_text = "👋 أهلاً *{name}*!\n\n🆔 ID: `{uid}`\n👤 اليوزر: `@{username}`\n\nاختر من القائمة:"
+    custom_text = config.get("start_msg", default_text)
+    
+    text = custom_text.replace("{name}", _md_escape(name)).replace("{uid}", str(uid)).replace("{username}", username)
+    
+    quest = config.get("daily_quest")
+    if quest:
+        text += f"\n\n🎯 *المهمة اليومية:*\n_{quest}_"
+
     bot.send_message(uid, text, reply_markup=start_menu_kb(), parse_mode="Markdown")
 
 
@@ -868,6 +877,16 @@ def admin_panel_kb():
     kb.row(
         types.InlineKeyboardButton("🚫 المحظورون", callback_data="admin_banned"),
         types.InlineKeyboardButton("📋 تفصيلية Top 25", callback_data="admin_leaderboard"),
+    )
+
+    kb.add(types.InlineKeyboardButton("━━━ ✨ أزرار جديدة ━━━", callback_data="admin_noop"))
+    kb.row(
+        types.InlineKeyboardButton("👋 رسالة الترحيب", callback_data="admin_cfg_start"),
+        types.InlineKeyboardButton("🎁 نص الجوائز", callback_data="admin_cfg_prizes"),
+    )
+    kb.row(
+        types.InlineKeyboardButton("🔢 حد المباريات", callback_data="admin_cfg_limit"),
+        types.InlineKeyboardButton("🎯 المهام اليومية", callback_data="admin_cfg_quest"),
     )
 
     kb.add(types.InlineKeyboardButton("━━━ 🛠 النظام ━━━", callback_data="admin_noop"))
@@ -1749,6 +1768,23 @@ def _dispatch(call):
             kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
             try:
                 bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
+            except Exception:
+                pass
+            return
+
+        # --- معالجة أزرار الإعدادات الجديدة ---
+        cfg_map = {
+            "admin_cfg_start": ("start_msg", "أرسل الآن نص **رسالة الترحيب** الجديد:\n(استخدم `{name}` لاسم اللاعب، و `{uid}` للآيدي)"),
+            "admin_cfg_prizes": ("prizes_text", "أرسل الآن نص **الجوائز** التي تظهر في لوحة الشرف:"),
+            "admin_cfg_limit": ("daily_limit", "أرسل الآن **رقم** الحد اليومي للمباريات (مثال: 100):"),
+            "admin_cfg_quest": ("daily_quest", "أرسل الآن نص **المهمة اليومية** (ستظهر للجميع في البداية):")
+        }
+        if data in cfg_map:
+            key, msg = cfg_map[data]
+            admin_help_state[uid] = {"action": "wait_config", "key": key, "msg_id": mid}
+            kb = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("❌ إلغاء", callback_data="admin_back"))
+            try:
+                bot.edit_message_text(msg, uid, mid, reply_markup=kb, parse_mode="Markdown")
             except Exception:
                 pass
             return
@@ -3614,6 +3650,14 @@ def fallback(message):
             bot.edit_message_text(
                 "✅ تم تحديث المحتوى بنجاح!", uid, state["msg_id"],
                 reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_help_list"))
+            )
+        elif state["action"] == "wait_config":
+            key = state["key"]
+            val = txt if key != "daily_limit" else int(txt if txt.isdigit() else 150)
+            set_bot_config(key, val)
+            bot.edit_message_text(
+                f"✅ تم تحديث الإعداد بنجاح!", uid, state["msg_id"], 
+                reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
             )
         return
 

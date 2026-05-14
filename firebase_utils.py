@@ -541,3 +541,25 @@ def delete_help_section(tab_id):
     except Exception as e:
         print(f"⚠️ delete_help_section error: {e}")
         return False
+    
+    # ==========================================
+# === إعدادات النظام الديناميكية (Config) ===
+# ==========================================
+
+def get_bot_config():
+    try:
+        doc = db.collection("meta").document("config").get()
+        if doc.exists:
+            return doc.to_dict() or {}
+        return {}
+    except Exception as e:
+        print(f"⚠️ get_bot_config error: {e}")
+        return {}
+
+def set_bot_config(key, value):
+    try:
+        db.collection("meta").document("config").set({key: value}, merge=True)
+        return True
+    except Exception as e:
+        print(f"⚠️ set_bot_config error: {e}")
+        return False

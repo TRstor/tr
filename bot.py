@@ -1482,13 +1482,12 @@ def _dispatch(call):
     if not require_not_banned_call(call):
         return
 
-    # === حارس إيقاف اللعبة — المساعدة مستثناة (إصلاح #3) ===
+    # === حارس إيقاف اللعبة — المساعدة مستثناة ===
     game_actions = [
         "menu_bot", "menu_pvp", "quick_match", "pvp_create",
         "bot_start_easy", "bot_start_hard", "qm_cancel",
         "menu_stats", "menu_leaderboard", "menu_last_season",
     ]
-    # ملاحظة: أزلنا "menu_help" و "help_" من الحارس كي تعمل المساعدة حتى لو XO متوقفة
     if data in game_actions or data.startswith(("bot:", "pvp:", "gchal:", "resume_", "resign_")):
         if not FEATURES["xo_enabled"] and not is_admin(call.from_user.id):
             try:
@@ -1970,8 +1969,34 @@ def _dispatch(call):
         return
 
     if data == "menu_leaderboard":
-        board = get_leaderboard(25)
-        text = render_leaderboard(board, uid)
+        # 1. جلب التوب 5 فقط
+        board = get_leaderboard(5)
+        
+        # 2. جلب بيانات المستخدم الحالي لأسفل القائمة
+        viewer_stats = get_user_stats(uid) or {}
+        viewer_pts = viewer_stats.get("points", 0)
+        viewer_rank = "غير مصنف"
+        
+        if viewer_pts > 0:
+            found = False
+            for i, u in enumerate(board):
+                if str(u.get("user_id", "")) == str(uid) or str(u.get("id", "")) == str(uid):
+                    viewer_rank = str(i + 1)
+                    found = True
+                    break
+            
+            if not found:
+                try:
+                    from firebase_utils import db
+                    # حساب عدد الأشخاص اللي نقاطهم أعلى من المستخدم لنجيب تصنيفه بدقة
+                    count_query = db.collection("users").where("points", ">", viewer_pts).count().get()
+                    higher_users = count_query[0][0].value
+                    viewer_rank = str(higher_users + 1)
+                except Exception as e:
+                    print(f"⚠️ error getting rank: {e}")
+                    viewer_rank = "خارج التوب 5"
+                    
+        text = render_leaderboard(board, uid, viewer_pts, viewer_rank)
         kb = types.InlineKeyboardMarkup(row_width=1)
         kb.add(types.InlineKeyboardButton("🏅 الأسبوع السابق", callback_data="menu_last_season"))
         kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="back_main"))
@@ -1987,7 +2012,6 @@ def _dispatch(call):
         bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
         return
 
-    # FIX #1: إصلاح المسافة البادئة (كانت 3 مسافات بدل 4)
     if data == "menu_help":
         text, kb = render_dynamic_help("default")
         bot.edit_message_text(text, uid, mid, reply_markup=kb, parse_mode="Markdown")
@@ -2002,7 +2026,6 @@ def _dispatch(call):
             pass
         return
 
-    # === بدء لعبة ضد البوت ===
     if data in ("bot_start_easy", "bot_start_hard"):
         diff = "easy" if data == "bot_start_easy" else "hard"
         board = [EMPTY] * 9
@@ -2015,17 +2038,14 @@ def _dispatch(call):
         )
         return
 
-    # === حركات ضد البوت ===
     if data.startswith("bot:"):
         handle_bot_move(call, data)
         return
 
-    # === PvP: إنشاء تحدٍّ ===
     if data == "pvp_create":
         handle_pvp_create(call)
         return
 
-    # === حركات PvP ===
     if data.startswith("pvp:"):
         handle_pvp_action(call, data)
         return
@@ -2731,8 +2751,7 @@ def _mention(u):
         return f"[{name}](tg://user?id={int(uid)})"
     return name
 
-
-def render_leaderboard(users, viewer_id):
+def render_leaderboard(users, viewer_id, viewer_pts=0, viewer_rank="غير مصنف"):
     try:
         time_left = format_time_left(
             next_scheduled_reset(datetime.now(timezone.utc)) - datetime.now(timezone.utc)
@@ -2744,7 +2763,7 @@ def render_leaderboard(users, viewer_id):
 
     if not users or all_zero:
         head = [
-            "🏆 *لوحة الشرف*",
+            "🏆 *لوحة الشرف (أفضل 5)*",
             f"⏳ يُعاد التصفير خلال: *{time_left}*",
             "",
             "🎁 *الجوائز:*",
@@ -2766,10 +2785,14 @@ def render_leaderboard(users, viewer_id):
             for i, u in enumerate(season.get("top", [])[:3]):
                 pts = u.get("points", 0)
                 head.append(f"{medals[i]} *{_md_escape(u.get('name','لاعب'))}* — {pts} نقطة — 🎁 {prizes[i]}")
+        
+        # إضافة حالة المستخدم في الأسفل
+        head.append("\n━━━━━━━━━━━━━━")
+        head.append(f"👤 *أنت:* غير مصنف (0 نقطة)")
         return "\n".join(head)
 
     lines = [
-        "🏆 *لوحة الشرف - أعلى 25 لاعباً بالنقاط*",
+        "🏆 *لوحة الشرف (أفضل 5)*",
         f"⏳ يُعاد التصفير خلال: *{time_left}*",
         "",
         "🎁 *الجوائز:*",
@@ -2778,14 +2801,24 @@ def render_leaderboard(users, viewer_id):
         "🥉 المركز الثالث: *60 UC*",
         "",
     ]
-    medals = ["🥇", "🥈", "🥉"]
+    
+    # تحديد السمايلات للمراكز الخمسة
+    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
     for i, u in enumerate(users):
-        prefix = medals[i] if i < 3 else f"{i+1}."
-        me = " 👈 أنت" if str(u.get("user_id")) == str(viewer_id) else ""
+        prefix = medals[i] if i < len(medals) else f"{i+1}."
+        me = " 👈 أنت" if str(u.get("user_id")) == str(viewer_id) or str(u.get("id")) == str(viewer_id) else ""
         pts = u.get("points", 0)
         lines.append(f"{prefix} {_md_escape(u.get('name','لاعب'))} — *{pts}* نقطة{me}")
-    return "\n".join(lines)
+    
+    # إضافة تصنيف المستخدم الحالي
+    lines.append("")
+    lines.append("━━━━━━━━━━━━━━")
+    if viewer_rank == "غير مصنف" or viewer_pts == 0:
+        lines.append(f"👤 *أنت:* غير مصنف (0 نقطة)")
+    else:
+        lines.append(f"👤 *أنت:* المركز #{viewer_rank} | ⭐️ نقاطك: {viewer_pts}")
 
+    return "\n".join(lines)
 
 def render_admin_leaderboard(users):
     try:
@@ -2871,10 +2904,8 @@ def on_inline_query(inline_query):
                     ),
                 )
             ]
-            try:
-                bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-            except Exception:
-                pass
+            try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+            except: pass
             return
 
         mode = "team" if "فريق" in q_lower or "team" in q_lower else "pop"
@@ -2904,10 +2935,8 @@ def on_inline_query(inline_query):
                 )
             )
         ]
-        try:
-            bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-        except Exception:
-            pass
+        try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+        except: pass
         return
 
     if not FEATURES.get("xo_enabled", True) and not is_admin(uid):
@@ -2921,10 +2950,8 @@ def on_inline_query(inline_query):
                 ),
             )
         ]
-        try:
-            bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-        except Exception:
-            pass
+        try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+        except: pass
         return
 
     results = []
@@ -2947,10 +2974,8 @@ def on_inline_query(inline_query):
                 ),
                 reply_markup=kb,
             ))
-            try:
-                bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-            except Exception:
-                pass
+            try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+            except: pass
             return
 
     if q_lower == "xo" or "اكس" in q or "او" in q:
@@ -2982,10 +3007,8 @@ def on_inline_query(inline_query):
             reply_markup=kb_o,
         ))
 
-        try:
-            bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-        except Exception:
-            pass
+        try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+        except: pass
         return
 
     bot_user = get_bot_username() or "يوزر_البوت"
@@ -3014,11 +3037,8 @@ def on_inline_query(inline_query):
             parse_mode="Markdown"
         ),
     ))
-    try:
-        bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-    except Exception:
-        pass
-
+    try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+    except: pass
 
 @bot.chosen_inline_handler(func=lambda c: True)
 def on_chosen_inline(chosen):
@@ -3168,7 +3188,7 @@ def expire_game(game_id, reason):
                 f"🎮 *تحدّي XO*\n\n{reason}",
                 inline_message_id=game["inline_message_id"],
                 parse_mode="Markdown",
-                reply_markup=None
+                reply_markup=None  
             )
         except Exception as e:
             if "message is not modified" not in str(e):
@@ -3177,7 +3197,8 @@ def expire_game(game_id, reason):
     if game.get("x_chat_id") and game.get("x_msg_id"):
         chat_id = game["x_chat_id"]
         msg_id = game["x_msg_id"]
-        is_group = str(chat_id).startswith("-")
+        is_group = str(chat_id).startswith("-")  
+        
         try:
             if is_group:
                 bot.edit_message_text(
@@ -3185,7 +3206,7 @@ def expire_game(game_id, reason):
                     chat_id=chat_id,
                     message_id=msg_id,
                     parse_mode="Markdown",
-                    reply_markup=None
+                    reply_markup=None  
                 )
             else:
                 bot.edit_message_text(
@@ -3203,6 +3224,7 @@ def expire_game(game_id, reason):
         chat_id = game["o_chat_id"]
         msg_id = game["o_msg_id"]
         is_group = str(chat_id).startswith("-")
+        
         try:
             if is_group:
                 bot.edit_message_text(
@@ -3247,6 +3269,8 @@ def move_timeout_checker():
                     continue
                 turn = g.get("turn", PLAYER_X)
                 winner = PLAYER_O if turn == PLAYER_X else PLAYER_X
+                loser_name = (g.get("player_x_name") if turn == PLAYER_X
+                              else g.get("player_o_name")) or "اللاعب"
                 print(f"[move_timeout] game_id={g.get('id')} loser={turn} winner={winner}")
                 try:
                     update_game(g["id"], {"end_reason": "timeout"})
@@ -3308,11 +3332,11 @@ def weekly_reset_checker():
                     print(f"⚠️ weekly_reset execute: {e}")
         except Exception as e:
             print(f"⚠️ weekly_reset_checker: {e}")
-        time_mod.sleep(300)
+        time_mod.sleep(300)  
 
 
 # ============================
-# === تحدي XO في مجموعة ===
+# === تحدي XO في مجموعة (Reply Challenge) ===
 # ============================
 
 GROUP_CHALLENGE_TRIGGERS = {
@@ -3357,17 +3381,17 @@ def _is_group_challenge_text(m):
 @bot.message_handler(func=_is_group_challenge_text, content_types=["text"])
 def cmd_group_challenge(message):
     a = message.from_user
-
+    
     if not FEATURES["xo_enabled"] and not is_admin(a.id):
         try:
             bot.reply_to(message, "🔒 لعبة XO متوقفة مؤقتاً في الوقت الحالي.")
         except Exception:
             pass
         return
-
+    
     if not message.reply_to_message:
         return
-
+        
     b = message.reply_to_message.from_user
     if not b:
         return
@@ -3378,14 +3402,14 @@ def cmd_group_challenge(message):
         except Exception:
             pass
         return
-
+        
     if int(a.id) == int(b.id):
         try:
             bot.reply_to(message, random.choice(GCHAL_SELF_RESPONSES))
         except Exception:
             pass
         return
-
+        
     try:
         banned, reason, until = is_banned(a.id)
         if banned:
@@ -3395,13 +3419,13 @@ def cmd_group_challenge(message):
 
     a_name = (a.first_name or "لاعب").replace("*", "").replace("_", "").replace("`", "").replace("[", "")
     b_name = (b.first_name or "لاعب").replace("*", "").replace("_", "").replace("`", "").replace("[", "")
-
+    
     text = (
         f"🎮 تحدّي XO\n\n"
         f"❌⭕ {a_name} يتحدّى {b_name}!\n\n"
         f"اختر رمزك يا {a_name}:"
     )
-
+    
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.row(
         types.InlineKeyboardButton("❌ ألعب X (أبدأ أولاً)", callback_data=f"gchal:pick:X:{a.id}:{b.id}"),
@@ -3410,16 +3434,15 @@ def cmd_group_challenge(message):
     kb.row(
         types.InlineKeyboardButton("❌ إلغاء التحدّي", callback_data=f"gchal:cancel:{a.id}")
     )
-
+    
     try:
         bot.reply_to(message, text, reply_markup=kb)
     except Exception as e:
         print(f"⚠️ group_challenge send: {e}")
         try:
             bot.reply_to(message, f"❌ حدث خطأ داخلي يمنع إرسال التحدي: {e}")
-        except Exception:
+        except:
             pass
-
 
 def handle_group_challenge(call, data):
     parts = data.split(":")
@@ -3561,7 +3584,6 @@ def fallback(message):
                 )
             return
 
-    # FIX #2: إصلاح المسافة البادئة للتعليق والكتلة
     # معالجة إدخال بحث المالك إن كان بانتظاره
     if is_admin(uid) and admin_search_waiting.get(uid):
         admin_search_waiting.pop(uid, None)
@@ -3575,47 +3597,35 @@ def fallback(message):
         state = admin_help_state[uid]
         txt = (message.text or "").strip()
         admin_help_state.pop(uid, None)
-        try:
-            bot.delete_message(uid, message.message_id)
-        except Exception:
-            pass
-
+        try: bot.delete_message(uid, message.message_id)
+        except: pass
+        
         if state["action"] == "wait_title":
             tab_id = f"t_{int(time_mod.time())}"
             set_help_section(tab_id, txt, "يرجى تعديل هذا المحتوى..")
-            kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton(
-                "✏️ اكتب المحتوى الآن",
-                callback_data=f"admin_help_settext_{tab_id}",
-            ))
             bot.edit_message_text(
-                f"✅ تم إنشاء القسم: {txt}",
-                uid, state["msg_id"],
-                reply_markup=kb,
+                f"✅ تم إنشاء القسم: {txt}", uid, state["msg_id"],
+                reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("✏️ اكتب المحتوى الآن", callback_data=f"admin_help_settext_{tab_id}"))
             )
         elif state["action"] == "wait_content":
             tid = state["tab_id"]
             title = get_help_sections().get(tid, {}).get("title", "قسم")
             set_help_section(tid, title, txt)
-            kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_help_list"))
             bot.edit_message_text(
-                "✅ تم تحديث المحتوى بنجاح!",
-                uid, state["msg_id"],
-                reply_markup=kb,
+                "✅ تم تحديث المحتوى بنجاح!", uid, state["msg_id"],
+                reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 رجوع", callback_data="admin_help_list"))
             )
         return
 
     # حارس اليوزر (ما عدا المالك)
     if not is_admin(uid) and not require_username(message):
         return
-
-    # حاسبة الشعبية — التقاط الإدخال أثناء الجلسة
+        
     sess = popcalc_sessions.get(uid)
     if sess:
         handle_popcalc_input(message, sess)
         return
-
+        
     bot.send_message(
         uid,
         "استخدم القائمة 👇",
@@ -3676,7 +3686,7 @@ def handle_popcalc_input(message, sess):
         try:
             bot.edit_message_text(
                 f"{title}\n\n"
-                f"✅ شعبيتك: *{value:,}*  ({sess['own_pts']} نقطة)\n\n"
+                f"✅ شعبيتك: *{value:,}* ({sess['own_pts']} نقطة)\n\n"
                 f"2️⃣ الآن أرسل شعبية الخصم كرقم:",
                 uid, msg_id,
                 reply_markup=cancel_kb, parse_mode="Markdown",

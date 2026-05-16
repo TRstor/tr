@@ -2198,15 +2198,13 @@ def finish_bot_game(uid, mid, game, board, result):
 # === العب الآن (Quick Match) ===
 # ============================
 
-def _qm_search_text(elapsed_sec, q_size):
-    m, s = divmod(max(0, elapsed_sec), 60)
+# التوثيق: قمنا بإزالة متغير الوقت (elapsed_sec) لنجعل الرسالة ثابتة وتعتمد على العد الصامت
+def _qm_search_text(q_size):
     return (
-        "🔍 *البحث عن خصم...*\n\n"
-        f"⏱️ {m}:{s:02d}\n"
-        f"👥 في الطابور: *{q_size}* لاعب\n\n"
-        f"_سيُلغى البحث تلقائياً بعد {QUICK_MATCH_TIMEOUT_SECONDS} ثانية._"
+        "🔍 *جاري البحث عن خصم...*\n\n"
+        f"👥 اللاعبون في الطابور: *{q_size}*\n\n"
+        f"⏳ _الرجاء الانتظار، سيتم إلغاء البحث تلقائياً بعد {QUICK_MATCH_TIMEOUT_SECONDS} ثانية._"
     )
-
 
 def _qm_cancel_kb():
     kb = types.InlineKeyboardMarkup()
@@ -2232,21 +2230,29 @@ def handle_quick_match(call):
         bot.answer_callback_query(call.id, "تعذّر الاتصال، حاول مجدداً")
         return
 
+    # تم تصحيح المسافات وحذف الكود المكرر أدناه
     if opponent is None:
         try:
             qsz = queue_size()
         except Exception:
             qsz = 1
-        bot.edit_message_text(
-            _qm_search_text(0, qsz), uid, mid,
-            reply_markup=_qm_cancel_kb(), parse_mode="Markdown",
-        )
+            
+        # التوثيق: استدعاء رسالة البحث الثابتة
+        try:
+            bot.edit_message_text(
+                _qm_search_text(qsz), uid, mid,
+                reply_markup=_qm_cancel_kb(), parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+
         with _qs_lock:
             quick_search_sessions[uid] = {
                 "chat_id": uid, "msg_id": mid,
                 "joined_at": datetime.now(timezone.utc),
                 "name": name,
             }
+            
         try:
             bot.answer_callback_query(call.id, "🔍 يبحث عن خصم...")
         except Exception:
@@ -2257,11 +2263,11 @@ def handle_quick_match(call):
         x_player={"id": opponent["user_id"], "name": opponent["name"], "chat_id": opponent["chat_id"]},
         o_player={"id": uid, "name": name, "chat_id": uid, "msg_id": mid},
     )
+    
     try:
         bot.answer_callback_query(call.id, "✅ وُجد خصم!")
     except Exception:
         pass
-
 
 def handle_quick_match_cancel(call):
     uid = call.message.chat.id
@@ -2333,54 +2339,60 @@ def _start_quick_match(x_player, o_player):
 
 
 def quick_match_checker():
+    """
+    التوثيق: فاحص الطابور (العد الصامت). يتحقق من الوقت المنقضي في الذاكرة فقط،
+    ولا يرسل أي تعديلات لتيليجرام إلا عند حدوث (حدث الانتهاء).
+    """
     while True:
         try:
             now = datetime.now(timezone.utc)
             with _qs_lock:
                 sessions = list(quick_search_sessions.items())
+                
             for uid, s in sessions:
+                # التأكد من أن اللاعب لا يزال في الطابور ولم يتم حذفه مسبقاً
+                with _qs_lock:
+                    if uid not in quick_search_sessions:
+                        continue
+
+                # حساب الوقت المنقضي بصمت في الذاكرة
                 elapsed = int((now - s["joined_at"]).total_seconds())
 
+                # الحدث الوحيد: انتهاء الوقت المحدد للبحث
                 if elapsed >= QUICK_MATCH_TIMEOUT_SECONDS:
-                    queue_remove(uid)
+                    # 1. إزالة اللاعب من قاعدة البيانات
+                    try:
+                        queue_remove(uid)
+                    except Exception:
+                        pass
+                    
+                    # 2. إزالة اللاعب من الذاكرة المؤقتة بأمان
                     with _qs_lock:
                         quick_search_sessions.pop(uid, None)
+                        
+                    # 3. إرسال التحديث لمرة واحدة فقط لإخبار المستخدم بانتهاء الوقت
                     try:
                         kb = types.InlineKeyboardMarkup(row_width=1)
-                        kb.add(types.InlineKeyboardButton(
-                            "🤖 العب ضد البوت بدلاً من ذلك",
-                            callback_data="menu_bot",
-                        ))
+                        kb.add(types.InlineKeyboardButton("🤖 العب ضد البوت", callback_data="menu_bot"))
                         kb.add(types.InlineKeyboardButton("🏠 القائمة", callback_data="back_main"))
+                        
                         bot.edit_message_text(
-                            "😔 *لم نجد لك خصماً الآن.*\n\n"
-                            "جرّب مرة أخرى بعد قليل أو العب ضد البوت.",
+                            "😔 *لم نجد لك خصماً الآن.*\n\nانتهى وقت البحث المخصص.",
                             s["chat_id"], s["msg_id"],
                             reply_markup=kb, parse_mode="Markdown",
                         )
                     except Exception as e:
                         if "message is not modified" not in str(e):
-                            print(f"⚠️ qm timeout edit: {e}")
+                            print(f"⚠️ فشل تحديث رسالة انتهاء البحث: {e}")
                     continue
+                    
+                # التوثيق: تم حذف الكود الذي كان يقوم بتحديث الرسالة كل 3 ثوانٍ بالكامل.
 
-                try:
-                    qsz = queue_size()
-                except Exception:
-                    qsz = 1
-                try:
-                    bot.edit_message_text(
-                        _qm_search_text(elapsed, qsz),
-                        s["chat_id"], s["msg_id"],
-                        reply_markup=_qm_cancel_kb(),
-                        parse_mode="Markdown",
-                    )
-                except Exception as e:
-                    if "message is not modified" not in str(e):
-                        print(f"⚠️ qm refresh: {e}")
         except Exception as e:
-            print(f"⚠️ quick_match_checker: {e}")
+            print(f"⚠️ خطأ في فاحص اللعب العشوائي: {e}")
+            
+        # إراحة الخادم وتقليل استهلاك المعالج
         time_mod.sleep(3)
-
 
 # ============================
 # === PvP ===

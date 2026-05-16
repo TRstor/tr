@@ -853,6 +853,46 @@ def admin_panel_text():
         "اختر إجراءً:"
     )
 
+# --- دوال نظام النقاط الديناميكي ---
+def get_dynamic_points(mode):
+    config = get_bot_config()
+    multiplier = 2 if config.get("x2_event_enabled", False) else 1
+    defaults = {
+        "pvp": {"win": 15, "draw": 5, "loss": -5},
+        "bot_easy": {"win": 5, "draw": 0, "loss": 0},
+        "bot_hard": {"win": 10, "draw": 5, "loss": -10},
+    }
+    pts = config.get(f"pts_{mode}", defaults.get(mode, {"win": 0, "draw": 0, "loss": 0}))
+    return {k: int(v * multiplier) for k, v in pts.items()}
+
+def admin_points_menu_kb():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    config = get_bot_config()
+    x2_btn = "🔥 إيقاف حدث X2" if config.get("x2_event_enabled", False) else "🔥 تفعيل حدث X2"
+    kb.add(types.InlineKeyboardButton(x2_btn, callback_data="admin_toggle_x2"))
+    kb.add(types.InlineKeyboardButton("👥 نقاط (ضد صديق / عشوائي)", callback_data="admin_cfg_pts_pvp"))
+    kb.add(types.InlineKeyboardButton("🤖 نقاط البوت (صعب)", callback_data="admin_cfg_pts_bot_hard"))
+    kb.add(types.InlineKeyboardButton("🟢 نقاط البوت (سهل)", callback_data="admin_cfg_pts_bot_easy"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
+    return kb
+
+def admin_points_menu_text():
+    config = get_bot_config()
+    x2 = "✅ مفعل (النقاط مضاعفة)" if config.get("x2_event_enabled", False) else "❌ متوقف"
+    
+    def fmt_pts(mode, default):
+        p = config.get(f"pts_{mode}", default)
+        return f"فوز: {p['win']} | تعادل: {p['draw']} | خسارة: {p['loss']}"
+        
+    return (
+        "⭐️ *إعدادات النظام التنافسي (النقاط)*\n\n"
+        f"🔥 حدث المضاعفة (X2): {x2}\n\n"
+        f"👥 *تحدي الأشخاص:* {fmt_pts('pvp', {'win': 15, 'draw': 5, 'loss': -5})}\n"
+        f"🤖 *البوت الصعب:* {fmt_pts('bot_hard', {'win': 10, 'draw': 5, 'loss': -10})}\n"
+        f"🟢 *البوت السهل:* {fmt_pts('bot_easy', {'win': 5, 'draw': 0, 'loss': 0})}\n\n"
+        "اختر النمط لتعديل نقاطه:"
+    )
+# ------------------------------------
 
 def admin_panel_kb():
     kb = types.InlineKeyboardMarkup(row_width=2)
@@ -897,6 +937,7 @@ def admin_panel_kb():
     )
     kb.add(types.InlineKeyboardButton("🧹 تصفير كل النقاط", callback_data="admin_reset_ask"))
     kb.add(types.InlineKeyboardButton("📖 إدارة أقسام المساعدة", callback_data="admin_help_list"))
+    kb.add(types.InlineKeyboardButton("⭐️ إعدادات النقاط المتقدمة", callback_data="admin_points_menu"))
     return kb
 
 
@@ -1774,10 +1815,27 @@ def _dispatch(call):
             return
 
         # --- معالجة أزرار الإعدادات الجديدة ---
+       # --- أوامر لوحة النقاط الجديدة ---
+        if data == "admin_points_menu":
+            bot.edit_message_text(admin_points_menu_text(), uid, mid, reply_markup=admin_points_menu_kb(), parse_mode="Markdown")
+            return
+            
+        if data == "admin_toggle_x2":
+            config = get_bot_config()
+            current = config.get("x2_event_enabled", False)
+            set_bot_config("x2_event_enabled", not current)
+            bot.edit_message_text(admin_points_menu_text(), uid, mid, reply_markup=admin_points_menu_kb(), parse_mode="Markdown")
+            return
+
+        # --- معالجة أزرار الإعدادات والنقاط ---
         cfg_map = {
-"admin_cfg_start": ("start_msg", "أرسل الآن نص **رسالة الترحيب** الجديد:\n(استخدم `{name}` للاسم، `{uid}` للآيدي، `{username}` لليوزر)"),            "admin_cfg_prizes": ("prizes_text", "أرسل الآن نص **الجوائز** التي تظهر في لوحة الشرف:"),
+            "admin_cfg_start": ("start_msg", "أرسل الآن نص **رسالة الترحيب** الجديد:\n(استخدم `{name}` للاسم، `{uid}` للآيدي، `{username}` لليوزر)"),
+            "admin_cfg_prizes": ("prizes_text", "أرسل الآن نص **الجوائز** التي تظهر في لوحة الشرف:"),
             "admin_cfg_limit": ("daily_limit", "أرسل الآن **رقم** الحد اليومي للمباريات (مثال: 100):"),
-            "admin_cfg_quest": ("daily_quest", "أرسل الآن نص **المهمة اليومية** (ستظهر للجميع في البداية):")
+            "admin_cfg_quest": ("daily_quest", "أرسل الآن نص **المهمة اليومية**:"),
+            "admin_cfg_pts_pvp": ("pts_pvp", "أرسل نقاط (الأشخاص) بهذا التنسيق (فوز,تعادل,خسارة):\nمثال: `15,5,-5`"),
+            "admin_cfg_pts_bot_hard": ("pts_bot_hard", "أرسل نقاط (البوت الصعب) بهذا التنسيق (فوز,تعادل,خسارة):\nمثال: `10,5,-10`"),
+            "admin_cfg_pts_bot_easy": ("pts_bot_easy", "أرسل نقاط (البوت السهل) بهذا التنسيق (فوز,تعادل,خسارة):\nمثال: `5,0,0`"),
         }
         if data in cfg_map:
             key, msg = cfg_map[data]
@@ -2173,7 +2231,22 @@ def finish_bot_game(uid, mid, game, board, result):
         outcome = "draw"
         txt = "🤝 *تعادل!*"
 
-    record_result(uid, mode, outcome)
+    # جلب النقاط من الإعدادات الحية
+    pts_config = get_dynamic_points(mode)
+    points_to_give = pts_config[outcome]
+    
+    record_result(uid, mode, outcome, points_override=points_to_give)
+    
+    # عرض إشعار الحدث أو النقاط المسحوبة
+    config = get_bot_config()
+    if config.get("x2_event_enabled", False):
+        txt += "\n🔥 *(حدث النقاط المضاعفة X2 فعال)*"
+        
+    if points_to_give > 0:
+        txt += f"\n⭐️ حصلت على: {points_to_give}+"
+    elif points_to_give < 0:
+        txt += f"\n💔 تم خصم: {abs(points_to_give)}-"
+
     bot_games.pop(uid, None)
 
     final_text = (
@@ -2648,7 +2721,8 @@ def finalize_pvp(game_id, winner, resigned=False):
     px = game.get("player_x_id")
     po = game.get("player_o_id")
 
-    PVP_PTS = {"win": 15, "draw": 5, "loss": 2}
+    # جلب النقاط الديناميكية من الإعدادات
+    PVP_PTS = get_dynamic_points("pvp")
 
     pair_capped = False
     pair_pts_today = 0
@@ -2672,12 +2746,16 @@ def finalize_pvp(game_id, winner, resigned=False):
                     pass
 
     def _rec(pid, mode, outcome):
-        if mode == "pvp" and pair_capped:
+        if mode == "pvp" and pair_capped and PVP_PTS[outcome] > 0:
             record_result(pid, mode, outcome, points_override=0)
         elif mode == "pvp":
             base = PVP_PTS[outcome]
-            remaining = max(0, PAIR_DAILY_POINTS_CAP - pair_pts_today)
-            granted = min(base, remaining)
+            if base < 0:
+                # الخصم يطبق دائماً حتى لو تجاوز الحد اليومي
+                granted = base
+            else:
+                remaining = max(0, PAIR_DAILY_POINTS_CAP - pair_pts_today)
+                granted = min(base, remaining)
             record_result(pid, mode, outcome, points_override=granted)
         else:
             record_result(pid, mode, outcome)
@@ -2696,10 +2774,14 @@ def finalize_pvp(game_id, winner, resigned=False):
         if winner == "draw":
             match_total = PVP_PTS["draw"] * 2
         elif winner in (PLAYER_X, PLAYER_O):
-            match_total = PVP_PTS["win"] + PVP_PTS["loss"]
+            # نجمع الإجمالي فقط إذا كانت الأرقام موجبة لتسجيلها في حد اللاعبين
+            w_pts = PVP_PTS["win"] if PVP_PTS["win"] > 0 else 0
+            l_pts = PVP_PTS["loss"] if PVP_PTS["loss"] > 0 else 0
+            match_total = w_pts + l_pts
         else:
             match_total = 0
-        if match_total:
+            
+        if match_total > 0:
             granted = min(match_total, max(0, PAIR_DAILY_POINTS_CAP - pair_pts_today))
             if granted > 0:
                 add_pair_points(px, po, granted)
@@ -2753,7 +2835,6 @@ def finalize_pvp(game_id, winner, resigned=False):
         except Exception as e:
             if "message is not modified" not in str(e):
                 print(f"⚠️ فشل تحديث رسالة النهاية {player_key}: {e}")
-
 
 def get_user_rank(points):
     """
@@ -3702,12 +3783,27 @@ def fallback(message):
             )
         elif state["action"] == "wait_config":
             key = state["key"]
-            val = txt if key != "daily_limit" else int(txt if txt.isdigit() else 150)
-            set_bot_config(key, val)
-            bot.edit_message_text(
-                f"✅ تم تحديث الإعداد بنجاح!", uid, state["msg_id"], 
-                reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
-            )
+            if key.startswith("pts_"):
+                try:
+                    # تحويل النص المدخل (15,5,-5) إلى أرقام مفصولة
+                    w, d, l = map(int, txt.replace("،", ",").split(","))
+                    set_bot_config(key, {"win": w, "draw": d, "loss": l})
+                    bot.edit_message_text(
+                        "✅ تم تحديث النقاط بنجاح!", uid, state["msg_id"],
+                        reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 رجوع لإعدادات النقاط", callback_data="admin_points_menu"))
+                    )
+                except Exception:
+                    bot.edit_message_text(
+                        "❌ تنسيق خاطئ! أرسل أرقاماً فقط يفصل بينها فاصلة.\nمثال: `15,5,-5`", uid, state["msg_id"],
+                        reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 رجوع للإعدادات", callback_data="admin_points_menu")), parse_mode="Markdown"
+                    )
+            else:
+                val = txt if key != "daily_limit" else int(txt if txt.isdigit() else 150)
+                set_bot_config(key, val)
+                bot.edit_message_text(
+                    f"✅ تم تحديث الإعداد بنجاح!", uid, state["msg_id"], 
+                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
+                )
         return
 
     # حارس اليوزر (ما عدا المالك)

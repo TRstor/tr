@@ -1548,6 +1548,15 @@ def _dispatch(call):
     data = call.data or ""
 
     if call.message is None:
+        # أمر إخفاء الدليل
+        if data == "hide_guide":
+            try:
+                bot.edit_message_text("❌ *تم إخفاء الدليل.*", inline_message_id=call.inline_message_id, parse_mode="Markdown")
+                bot.answer_callback_query(call.id, "تم الإخفاء ✅")
+            except Exception:
+                pass
+            return
+
         if data.startswith("pvp:"):
             handle_pvp_action(call, data)
         else:
@@ -1835,8 +1844,7 @@ def _dispatch(call):
                 pass
             return
 
-        # --- معالجة أزرار الإعدادات الجديدة ---
-       # --- أوامر لوحة النقاط الجديدة ---
+        # --- أوامر لوحة النقاط الجديدة ---
         if data == "admin_points_menu":
             bot.edit_message_text(admin_points_menu_text(), uid, mid, reply_markup=admin_points_menu_kb(), parse_mode="Markdown")
             return
@@ -1848,8 +1856,7 @@ def _dispatch(call):
             bot.edit_message_text(admin_points_menu_text(), uid, mid, reply_markup=admin_points_menu_kb(), parse_mode="Markdown")
             return
 
-        # --- معالجة أزرار الإعدادات والنقاط ---
-       # --- معالجة أوامر لوحة المهام الفرعية ---
+        # --- معالجة أوامر لوحة المهام الفرعية ---
         if data == "admin_quest_menu":
             bot.edit_message_text(admin_quest_menu_text(), uid, mid, reply_markup=admin_quest_menu_kb(), parse_mode="Markdown")
             return
@@ -1872,7 +1879,7 @@ def _dispatch(call):
             )
             return
 
-       # --- معالجة أزرار الإعدادات والنقاط ---
+        # --- معالجة أزرار الإعدادات والنقاط ---
         cfg_map = {
             "admin_cfg_start": ("start_msg", "أرسل الآن نص **رسالة الترحيب** الجديد:\n(استخدم `{name}` للاسم، `{uid}` للآيدي، `{username}` لليوزر)"),
             "admin_cfg_prizes": ("prizes_text", "أرسل الآن نص **الجوائز** التي تظهر في لوحة الشرف:"),
@@ -2316,7 +2323,6 @@ def finish_bot_game(uid, mid, game, board, result):
 # === العب الآن (Quick Match) ===
 # ============================
 
-# التوثيق: قمنا بإزالة متغير الوقت (elapsed_sec) لنجعل الرسالة ثابتة وتعتمد على العد الصامت
 def _qm_search_text(q_size):
     return (
         "🔍 *جاري البحث عن خصم...*\n\n"
@@ -2354,7 +2360,6 @@ def handle_quick_match(call):
         except Exception:
             qsz = 1
             
-        # التوثيق: استدعاء رسالة البحث الثابتة
         try:
             bot.edit_message_text(
                 _qm_search_text(qsz), uid, mid,
@@ -2385,6 +2390,7 @@ def handle_quick_match(call):
         bot.answer_callback_query(call.id, "✅ وُجد خصم!")
     except Exception:
         pass
+
 
 def handle_quick_match_cancel(call):
     uid = call.message.chat.id
@@ -2467,27 +2473,21 @@ def quick_match_checker():
                 sessions = list(quick_search_sessions.items())
                 
             for uid, s in sessions:
-                # التأكد من أن اللاعب لا يزال في الطابور ولم يتم حذفه مسبقاً
                 with _qs_lock:
                     if uid not in quick_search_sessions:
                         continue
 
-                # حساب الوقت المنقضي بصمت في الذاكرة
                 elapsed = int((now - s["joined_at"]).total_seconds())
 
-                # الحدث الوحيد: انتهاء الوقت المحدد للبحث
                 if elapsed >= QUICK_MATCH_TIMEOUT_SECONDS:
-                    # 1. إزالة اللاعب من قاعدة البيانات
                     try:
                         queue_remove(uid)
                     except Exception:
                         pass
                     
-                    # 2. إزالة اللاعب من الذاكرة المؤقتة بأمان
                     with _qs_lock:
                         quick_search_sessions.pop(uid, None)
                         
-                    # 3. إرسال التحديث لمرة واحدة فقط لإخبار المستخدم بانتهاء الوقت
                     try:
                         kb = types.InlineKeyboardMarkup(row_width=1)
                         kb.add(types.InlineKeyboardButton("🤖 العب ضد البوت", callback_data="menu_bot"))
@@ -2503,12 +2503,9 @@ def quick_match_checker():
                             print(f"⚠️ فشل تحديث رسالة انتهاء البحث: {e}")
                     continue
                     
-                # التوثيق: تم حذف الكود الذي كان يقوم بتحديث الرسالة كل 3 ثوانٍ بالكامل.
-
         except Exception as e:
             print(f"⚠️ خطأ في فاحص اللعب العشوائي: {e}")
             
-        # إراحة الخادم وتقليل استهلاك المعالج
         time_mod.sleep(3)
 
 # ============================
@@ -3222,30 +3219,32 @@ def on_inline_query(inline_query):
         return
 
     bot_user = get_bot_username() or "يوزر_البوت"
+    
+    # إنشاء أزرار الدليل (الترتيب الشبكي الأنيق والتوجيه التلقائي)
+    kb_guide = types.InlineKeyboardMarkup(row_width=2)
+    # الصف الأول: لعبة XO
+    kb_guide.row(types.InlineKeyboardButton("🎮 العب XO", switch_inline_query_current_chat="xo"))
+    # الصف الثاني: حاسبة فردي وحاسبة فريق بجوار بعضهما
+    kb_guide.row(
+        types.InlineKeyboardButton("🔥 فردي", switch_inline_query_current_chat="50000 20000"),
+        types.InlineKeyboardButton("⚔️ فريق", switch_inline_query_current_chat="فريق ")
+    )
+    # الصف الثالث: زر الإخفاء الأحمر
+    kb_guide.row(types.InlineKeyboardButton("❌ إخفاء الدليل", callback_data="hide_guide"))
+
     results.append(types.InlineQueryResultArticle(
         id="help_inline",
-        title="✨ حاسبة الشعبية وتحديات XO",
-        description="اضغط هنا لعرض دليل الاستخدام السريع 💡",
+        title="📖 الدليل الشامل والذكي",
+        description="اضغط هنا لعرض أزرار الاختصارات السريعة 💡",
         input_message_content=types.InputTextMessageContent(
             message_text=(
                 "✨ *دليل الاستخدام الذكي والسريع* ✨\n\n"
-                "🎮 *لإرسال تحدي XO لأصدقائك:*\n"
-                "اكتب يوزر البوت وبعده كلمة `XO`\n"
-                f"• `@{bot_user} xo`\n"
-                f"• `@{bot_user} اكس`\n"
-                f"• `@{bot_user} او`\n\n"
-                "🧮 *لحساب الشعبية (الفردية):*\n"
-                "اكتب أي رقمين وسيفهمها البوت فوراً!\n"
-                f"• `@{bot_user} انا 2M خصمي 1M`\n"
-                f"• `@{bot_user} 50000 20000`\n\n"
-                "⚔️ *لحساب معركة الفريق:*\n"
-                "فقط أضف كلمة `فريق` مع الأرقام:\n"
-                f"• `@{bot_user} فريق 150k 80k`\n"
-                f"• `@{bot_user} فريق 80000 60000`\n\n"
-                "👇 *انسخ أحد الأمثلة وجربها الآن في الشات!*"
+                "اضغط على أحد الأزرار بالأسفل، وسيقوم البوت بتعبئة صندوق الدردشة تلقائياً نيابة عنك لتسهيل اللعب والحساب!\n\n"
+                "👇 *اختر ما تريد:* "
             ),
             parse_mode="Markdown"
         ),
+        reply_markup=kb_guide # ربط الأزرار بالرسالة
     ))
     try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
     except: pass

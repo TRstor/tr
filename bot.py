@@ -927,7 +927,8 @@ def admin_panel_kb():
     )
     kb.row(
         types.InlineKeyboardButton("🔢 حد المباريات", callback_data="admin_cfg_limit"),
-        types.InlineKeyboardButton("🎯 المهام اليومية", callback_data="admin_cfg_quest"),
+        # التوثيق: تم تغيير مسار الزر ليفتح القائمة الفرعية (admin_quest_menu)
+        types.InlineKeyboardButton("🎯 المهام اليومية", callback_data="admin_quest_menu"),
     )
 
     kb.add(types.InlineKeyboardButton("━━━ 🛠 النظام ━━━", callback_data="admin_noop"))
@@ -939,6 +940,26 @@ def admin_panel_kb():
     kb.add(types.InlineKeyboardButton("📖 إدارة أقسام المساعدة", callback_data="admin_help_list"))
     kb.add(types.InlineKeyboardButton("⭐️ إعدادات النقاط المتقدمة", callback_data="admin_points_menu"))
     return kb
+
+    # --- دوال لوحة المهام اليومية الفرعية ---
+def admin_quest_menu_text():
+    config = get_bot_config()
+    current_quest = config.get("daily_quest")
+    quest_text = f"_{current_quest}_" if current_quest else "لا توجد مهمة حالياً."
+    
+    return (
+        "🎯 *إدارة المهمة اليومية*\n\n"
+        f"📌 *المهمة الحالية:*\n{quest_text}\n\n"
+        "ماذا تريد أن تفعل؟"
+    )
+
+def admin_quest_menu_kb():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("➕ إضافة / تعديل المهمة", callback_data="admin_quest_add"))
+    kb.add(types.InlineKeyboardButton("🗑️ حذف المهمة الحالية", callback_data="admin_quest_del"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة", callback_data="admin_back"))
+    return kb
+# ----------------------------------------
 
 
 @bot.message_handler(commands=["backup"])
@@ -1828,15 +1849,39 @@ def _dispatch(call):
             return
 
         # --- معالجة أزرار الإعدادات والنقاط ---
+       # --- معالجة أوامر لوحة المهام الفرعية ---
+        if data == "admin_quest_menu":
+            bot.edit_message_text(admin_quest_menu_text(), uid, mid, reply_markup=admin_quest_menu_kb(), parse_mode="Markdown")
+            return
+            
+        if data == "admin_quest_del":
+            set_bot_config("daily_quest", "") # حذف المهمة برمجياً
+            try:
+                bot.answer_callback_query(call.id, "✅ تم حذف المهمة بنجاح!")
+            except Exception:
+                pass
+            bot.edit_message_text(admin_quest_menu_text(), uid, mid, reply_markup=admin_quest_menu_kb(), parse_mode="Markdown")
+            return
+            
+        if data == "admin_quest_add":
+            admin_help_state[uid] = {"action": "wait_config", "key": "daily_quest", "msg_id": mid}
+            kb = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("❌ إلغاء", callback_data="admin_quest_menu"))
+            bot.edit_message_text(
+                "📝 أرسل الآن نص **المهمة اليومية** الجديد:", 
+                uid, mid, reply_markup=kb, parse_mode="Markdown"
+            )
+            return
+
+       # --- معالجة أزرار الإعدادات والنقاط ---
         cfg_map = {
             "admin_cfg_start": ("start_msg", "أرسل الآن نص **رسالة الترحيب** الجديد:\n(استخدم `{name}` للاسم، `{uid}` للآيدي، `{username}` لليوزر)"),
             "admin_cfg_prizes": ("prizes_text", "أرسل الآن نص **الجوائز** التي تظهر في لوحة الشرف:"),
             "admin_cfg_limit": ("daily_limit", "أرسل الآن **رقم** الحد اليومي للمباريات (مثال: 100):"),
-            "admin_cfg_quest": ("daily_quest", "أرسل الآن نص **المهمة اليومية**:"),
             "admin_cfg_pts_pvp": ("pts_pvp", "أرسل نقاط (الأشخاص) بهذا التنسيق (فوز,تعادل,خسارة):\nمثال: `15,5,-5`"),
             "admin_cfg_pts_bot_hard": ("pts_bot_hard", "أرسل نقاط (البوت الصعب) بهذا التنسيق (فوز,تعادل,خسارة):\nمثال: `10,5,-10`"),
             "admin_cfg_pts_bot_easy": ("pts_bot_easy", "أرسل نقاط (البوت السهل) بهذا التنسيق (فوز,تعادل,خسارة):\nمثال: `5,0,0`"),
         }
+    
         if data in cfg_map:
             key, msg = cfg_map[data]
             admin_help_state[uid] = {"action": "wait_config", "key": key, "msg_id": mid}
@@ -2303,7 +2348,6 @@ def handle_quick_match(call):
         bot.answer_callback_query(call.id, "تعذّر الاتصال، حاول مجدداً")
         return
 
-    # تم تصحيح المسافات وحذف الكود المكرر أدناه
     if opponent is None:
         try:
             qsz = queue_size()

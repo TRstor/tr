@@ -3097,6 +3097,7 @@ def on_inline_query(inline_query):
         if val is not None:
             numbers.append(val)
 
+    # 1. حالة حساب الشعبية (إذا أرسل اللاعب أرقاماً)
     if len(numbers) >= 2:
         pop1, pop2 = numbers[0], numbers[1]
 
@@ -3106,6 +3107,7 @@ def on_inline_query(inline_query):
                     id="disabled_calc",
                     title="🔒 الحاسبة متوقفة",
                     description="حاسبة الشعبية متوقفة مؤقتاً من الإدارة.",
+                    thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
                     input_message_content=types.InputTextMessageContent(
                         message_text="🔒 حاسبة الشعبية متوقفة مؤقتاً.",
                     ),
@@ -3137,6 +3139,7 @@ def on_inline_query(inline_query):
                 id=f"calc_{pop1}_{pop2}_{mode}",
                 title=f"{title_prefix} فوز +{win_gain} | خسارة -{loss}",
                 description=f"شعبيتك: {pop1:,} | الخصم: {pop2:,}",
+                thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
                 input_message_content=types.InputTextMessageContent(
                     message_text=text, parse_mode="Markdown"
                 )
@@ -3146,12 +3149,14 @@ def on_inline_query(inline_query):
         except: pass
         return
 
+    # 2. فحص تعطيل لعبة XO
     if not FEATURES.get("xo_enabled", True) and not is_admin(uid):
         results = [
             types.InlineQueryResultArticle(
                 id="disabled_xo",
                 title="🔒 لعبة XO متوقفة",
                 description="اللعبة متوقفة مؤقتاً من قبل الإدارة.",
+                thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
                 input_message_content=types.InputTextMessageContent(
                     message_text="🔒 لعبة XO متوقفة مؤقتاً. تابعنا لمعرفة وقت العودة!",
                 ),
@@ -3163,7 +3168,8 @@ def on_inline_query(inline_query):
 
     results = []
 
-    if q and len(q) > 4 and q_lower not in ("xo", "اكس", "او", "فريق"):
+    # 3. حالة استئناف لعبة موجودة مسبقاً
+    if q and len(q) > 4 and q_lower not in ("xo", "اكس", "او", "فريق", "لعب"):
         existing = get_game(q)
         if existing and existing.get("status") in ("waiting", "posted") \
                 and existing.get("player_x_id") == uid:
@@ -3176,6 +3182,7 @@ def on_inline_query(inline_query):
                 id=q,
                 title="🎮 إرسال تحدّي XO (أنشأته مسبقاً)",
                 description=f"لعبة ضد {name}",
+                thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
                 input_message_content=types.InputTextMessageContent(
                     message_text=board_text, parse_mode="Markdown",
                 ),
@@ -3185,7 +3192,10 @@ def on_inline_query(inline_query):
             except: pass
             return
 
-    if q_lower == "xo" or "اكس" in q or "او" in q:
+    bot_user = get_bot_username() or "يوزر_البوت"
+
+    # 4. خيارات التحدي (تظهر إذا كان النص فارغاً أو به كلمات التحدي)
+    if q_lower in ("", "xo", "اكس", "او", "لعب"):
         get_or_create_user(uid, name)
 
         gid_x = secrets.token_urlsafe(8)
@@ -3201,22 +3211,49 @@ def on_inline_query(inline_query):
 
         results.append(types.InlineQueryResultArticle(
             id=gid_x,
-            title="❌ ألعب كـ X (أبدأ أولاً)",
-            description="إرسال تحدّي وأنت تلعب بالـ ❌",
+            title="🎮 إرسال تحدّي XO (أنت ❌ وتلعب أولاً)",
+            description="اضغط هنا لإرسال اللوحة في الشات وبدء التحدي",
+            thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
             input_message_content=types.InputTextMessageContent(message_text=text_x, parse_mode="Markdown"),
             reply_markup=kb_x,
         ))
         results.append(types.InlineQueryResultArticle(
             id=gid_o,
-            title="⭕ ألعب كـ O",
-            description="إرسال تحدّي وأنت تلعب بالـ ⭕ (الخصم يبدأ)",
+            title="🎮 إرسال تحدّي XO (أنت ⭕ والخصم يبدأ)",
+            description="اضغط هنا لإرسال اللوحة، وسيبدأ الخصم باللعب",
+            thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
             input_message_content=types.InputTextMessageContent(message_text=text_o, parse_mode="Markdown"),
             reply_markup=kb_o,
         ))
 
-        try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-        except: pass
-        return
+    # 5. عرض الدليل الشامل (يظهر فقط في البداية عندما لا يكتب اللاعب شيئاً)
+    if q_lower == "":
+        kb_guide = types.InlineKeyboardMarkup(row_width=2)
+        kb_guide.row(types.InlineKeyboardButton("🎮 العب XO", switch_inline_query_current_chat="xo"))
+        kb_guide.row(
+            types.InlineKeyboardButton("🔥 فردي", switch_inline_query_current_chat="50000 20000"),
+            types.InlineKeyboardButton("⚔️ فريق", switch_inline_query_current_chat="فريق ")
+        )
+        kb_guide.row(types.InlineKeyboardButton("❌ إخفاء الدليل", callback_data="hide_guide"))
+
+        results.append(types.InlineQueryResultArticle(
+            id="help_inline",
+            title="📖 الدليل الشامل والذكي",
+            description="اضغط هنا لعرض أزرار الاختصارات السريعة 💡",
+            thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
+            input_message_content=types.InputTextMessageContent(
+                message_text=(
+                    "✨ *دليل الاستخدام الذكي والسريع* ✨\n\n"
+                    "اضغط على أحد الأزرار بالأسفل، وسيقوم البوت بتعبئة صندوق الدردشة تلقائياً نيابة عنك لتسهيل اللعب والحساب!\n\n"
+                    "👇 *اختر ما تريد:* "
+                ),
+                parse_mode="Markdown"
+            ),
+            reply_markup=kb_guide
+        ))
+
+    try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
+    except: pass
 
     bot_user = get_bot_username() or "يوزر_البوت"
     

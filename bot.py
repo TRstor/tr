@@ -421,7 +421,7 @@ def start_menu_kb():
     kb = types.InlineKeyboardMarkup(row_width=1)
     xo_lbl = "🎮 لعبة XO" if FEATURES["xo_enabled"] else "🎮 لعبة XO  🔒"
     kb.add(types.InlineKeyboardButton(xo_lbl, callback_data="open_xo"))
-    kb.add(types.InlineKeyboardButton("🧮 الحاسبات", callback_data="open_calcs"))
+    kb.add(types.InlineKeyboardButton("🧮 معركة الشعبية", callback_data="open_calcs"))
     return kb
 
 
@@ -1949,7 +1949,7 @@ def _dispatch(call):
 
     if data == "open_calcs":
         bot.edit_message_text(
-            "🧮 *الحاسبات*\n\nاختر الحاسبة:",
+            "🧮 *معركة الشعبية*\n\nاختر الحاسبة:",
             uid, mid, reply_markup=calcs_menu_kb(), parse_mode="Markdown",
         )
         return
@@ -3107,7 +3107,7 @@ def on_inline_query(inline_query):
                     id="disabled_calc",
                     title="🔒 الحاسبة متوقفة",
                     description="حاسبة الشعبية متوقفة مؤقتاً من الإدارة.",
-                    thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
+                    thumbnail_url="https://img.icons8.com/color/48/000000/bot.png",
                     input_message_content=types.InputTextMessageContent(
                         message_text="🔒 حاسبة الشعبية متوقفة مؤقتاً.",
                     ),
@@ -3120,6 +3120,9 @@ def on_inline_query(inline_query):
         mode = "team" if "فريق" in q_lower or "team" in q_lower else "pop"
         points_fn = team_points if mode == "team" else pop_points
         title_prefix = "⚔️ معركة الفريق:" if mode == "team" else "🔥 المعركة الفردية:"
+
+        # تحديد الصورة بذكاء: هل هي معركة فريق أم فردية؟
+        calc_thumb = "https://i.ibb.co/Dg9QvpfV/photo-5789385765350477155-y.jpg" if mode == "team" else "https://i.ibb.co/rR8Hq8Mc/photo-5789385765350477156-y.jpg"
 
         own_pts = points_fn(pop1)
         opp_pts = points_fn(pop2)
@@ -3139,7 +3142,7 @@ def on_inline_query(inline_query):
                 id=f"calc_{pop1}_{pop2}_{mode}",
                 title=f"{title_prefix} فوز +{win_gain} | خسارة -{loss}",
                 description=f"شعبيتك: {pop1:,} | الخصم: {pop2:,}",
-                thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
+                thumbnail_url=calc_thumb, # الصورة المخصصة للحاسبة
                 input_message_content=types.InputTextMessageContent(
                     message_text=text, parse_mode="Markdown"
                 )
@@ -3156,7 +3159,7 @@ def on_inline_query(inline_query):
                 id="disabled_xo",
                 title="🔒 لعبة XO متوقفة",
                 description="اللعبة متوقفة مؤقتاً من قبل الإدارة.",
-                thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
+                thumbnail_url="https://img.icons8.com/color/48/000000/bot.png",
                 input_message_content=types.InputTextMessageContent(
                     message_text="🔒 لعبة XO متوقفة مؤقتاً. تابعنا لمعرفة وقت العودة!",
                 ),
@@ -3182,7 +3185,7 @@ def on_inline_query(inline_query):
                 id=q,
                 title="🎮 إرسال تحدّي XO (أنشأته مسبقاً)",
                 description=f"لعبة ضد {name}",
-                thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
+                thumbnail_url="https://i.ibb.co/0RvZpJJh/photo-5789385765350477158-y.jpg", # صورة الـ X
                 input_message_content=types.InputTextMessageContent(
                     message_text=board_text, parse_mode="Markdown",
                 ),
@@ -3213,7 +3216,7 @@ def on_inline_query(inline_query):
             id=gid_x,
             title="🎮 إرسال تحدّي XO (أنت ❌ وتلعب أولاً)",
             description="اضغط هنا لإرسال اللوحة في الشات وبدء التحدي",
-            thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
+            thumbnail_url="https://i.ibb.co/0RvZpJJh/photo-5789385765350477158-y.jpg", # صورة الـ X
             input_message_content=types.InputTextMessageContent(message_text=text_x, parse_mode="Markdown"),
             reply_markup=kb_x,
         ))
@@ -3221,7 +3224,7 @@ def on_inline_query(inline_query):
             id=gid_o,
             title="🎮 إرسال تحدّي XO (أنت ⭕ والخصم يبدأ)",
             description="اضغط هنا لإرسال اللوحة، وسيبدأ الخصم باللعب",
-            thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
+            thumbnail_url="https://i.ibb.co/3mSFP5VB/photo-5789385765350477157-y.jpg", # صورة الـ O
             input_message_content=types.InputTextMessageContent(message_text=text_o, parse_mode="Markdown"),
             reply_markup=kb_o,
         ))
@@ -3231,8 +3234,8 @@ def on_inline_query(inline_query):
         kb_guide = types.InlineKeyboardMarkup(row_width=2)
         kb_guide.row(types.InlineKeyboardButton("🎮 العب XO", switch_inline_query_current_chat="xo"))
         kb_guide.row(
-            types.InlineKeyboardButton("🔥 فردي", switch_inline_query_current_chat="50000 20000"),
-            types.InlineKeyboardButton("⚔️ فريق", switch_inline_query_current_chat="فريق ")
+            types.InlineKeyboardButton(" معركة الشعبية فردي", switch_inline_query_current_chat="50000 20000"),
+            types.InlineKeyboardButton("معركة الشعبية فريق", switch_inline_query_current_chat="فريق 150000 80000")
         )
         kb_guide.row(types.InlineKeyboardButton("❌ إخفاء الدليل", callback_data="hide_guide"))
 
@@ -3240,11 +3243,15 @@ def on_inline_query(inline_query):
             id="help_inline",
             title="📖 الدليل الشامل والذكي",
             description="اضغط هنا لعرض أزرار الاختصارات السريعة 💡",
-            thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png",
+            thumbnail_url="https://img.icons8.com/color/48/000000/bot.png", # صورة الدليل ثابتة كما طلبت
             input_message_content=types.InputTextMessageContent(
                 message_text=(
                     "✨ *دليل الاستخدام الذكي والسريع* ✨\n\n"
-                    "اضغط على أحد الأزرار بالأسفل، وسيقوم البوت بتعبئة صندوق الدردشة تلقائياً نيابة عنك لتسهيل اللعب والحساب!\n\n"
+                    "1- اختر من احد الازرار بالاسفل \n"
+                    "2- لعبة XO تلقائي راح يظهر لك اختر X او اختر O \n"
+                    "3- معركة الشعبية فرديه فقط عدل عدد شعبيتك و شعبيت الخصم \n"
+                    "4- معركة الشعبية فريق يجب كتابة كلمة فريق و اكتب عدد الشعبية \n"
+                    "5- يجب تعديل عدد الارقام  و يجب يكون بينهم مسافه \n\n"
                     "👇 *اختر ما تريد:* "
                 ),
                 parse_mode="Markdown"
@@ -3252,37 +3259,6 @@ def on_inline_query(inline_query):
             reply_markup=kb_guide
         ))
 
-    try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
-    except: pass
-
-    bot_user = get_bot_username() or "يوزر_البوت"
-    
-    # إنشاء أزرار الدليل (الترتيب الشبكي الأنيق والتوجيه التلقائي)
-    kb_guide = types.InlineKeyboardMarkup(row_width=2)
-    # الصف الأول: لعبة XO
-    kb_guide.row(types.InlineKeyboardButton("🎮 العب XO", switch_inline_query_current_chat="xo"))
-    # الصف الثاني: حاسبة فردي وحاسبة فريق بجوار بعضهما
-    kb_guide.row(
-        types.InlineKeyboardButton("🔥 فردي", switch_inline_query_current_chat="50000 20000"),
-        types.InlineKeyboardButton("⚔️ فريق", switch_inline_query_current_chat="فريق ")
-    )
-    # الصف الثالث: زر الإخفاء الأحمر
-    kb_guide.row(types.InlineKeyboardButton("❌ إخفاء الدليل", callback_data="hide_guide"))
-
-    results.append(types.InlineQueryResultArticle(
-        id="help_inline",
-        title="📖 الدليل الشامل والذكي",
-        description="اضغط هنا لعرض أزرار الاختصارات السريعة 💡",
-        input_message_content=types.InputTextMessageContent(
-            message_text=(
-                "✨ *دليل الاستخدام الذكي والسريع* ✨\n\n"
-                "اضغط على أحد الأزرار بالأسفل، وسيقوم البوت بتعبئة صندوق الدردشة تلقائياً نيابة عنك لتسهيل اللعب والحساب!\n\n"
-                "👇 *اختر ما تريد:* "
-            ),
-            parse_mode="Markdown"
-        ),
-        reply_markup=kb_guide # ربط الأزرار بالرسالة
-    ))
     try: bot.answer_inline_query(inline_query.id, results, cache_time=0, is_personal=True)
     except: pass
 

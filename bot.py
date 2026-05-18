@@ -3197,10 +3197,10 @@ def on_inline_query(inline_query):
 
     bot_user = get_bot_username() or "يوزر_البوت"
 
-    # 4. خيارات التحدي (تظهر إذا كان النص فارغاً أو به كلمات التحدي)
-    if q_lower in ("", "xo", "اكس", "او", "لعب"):
+    # 4. خيارات التحدي (تظهر فقط إذا كتب اللاعب كلمات التحدي)
+    if q_lower in ("xo", "اكس", "او", "لعب"):
         get_or_create_user(uid, name)
-
+        
         gid_x = secrets.token_urlsafe(8)
         gid_o = secrets.token_urlsafe(8)
         create_game_symbol(gid_x, uid, name, "X")
@@ -3243,7 +3243,7 @@ def on_inline_query(inline_query):
             id="help_inline",
             title="📖 الدليل الشامل والذكي",
             description="اضغط هنا لعرض أزرار الاختصارات السريعة 💡",
-            thumbnail_url="https://img.icons8.com/color/48/000000/bot.png", # صورة الدليل ثابتة كما طلبت
+            thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png", # صورة الدليل ثابتة كما طلبت
             input_message_content=types.InputTextMessageContent(
                 message_text=(
                     "✨ *دليل الاستخدام الذكي والسريع* ✨\n\n"

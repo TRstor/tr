@@ -1551,7 +1551,7 @@ def _dispatch(call):
         # أمر إخفاء الدليل
         if data == "hide_guide":
             try:
-                bot.edit_message_text("❌ *تم إخفاء الدليل.*", inline_message_id=call.inline_message_id, parse_mode="Markdown")
+                bot.edit_message_text("❌ *تم إخفاء الشرح .*", inline_message_id=call.inline_message_id, parse_mode="Markdown")
                 bot.answer_callback_query(call.id, "تم الإخفاء ✅")
             except Exception:
                 pass
@@ -3200,7 +3200,7 @@ def on_inline_query(inline_query):
     # 4. خيارات التحدي (تظهر فقط إذا كتب اللاعب كلمات التحدي)
     if q_lower in ("xo", "اكس", "او", "لعب"):
         get_or_create_user(uid, name)
-        
+
         gid_x = secrets.token_urlsafe(8)
         gid_o = secrets.token_urlsafe(8)
         create_game_symbol(gid_x, uid, name, "X")
@@ -3241,12 +3241,12 @@ def on_inline_query(inline_query):
 
         results.append(types.InlineQueryResultArticle(
             id="help_inline",
-            title="📖 الدليل الشامل والذكي",
+            title="📖 الشرح",
             description="اضغط هنا لعرض أزرار الاختصارات السريعة 💡",
             thumbnail_url="https://i.ibb.co/Q3pC1Y7t/image.png", # صورة الدليل ثابتة كما طلبت
             input_message_content=types.InputTextMessageContent(
                 message_text=(
-                    "✨ *دليل الاستخدام الذكي والسريع* ✨\n\n"
+                    "✨ *شرح خفيف لطيف * ✨\n\n"
                     "1- اختر من احد الازرار بالاسفل \n"
                     "2- لعبة XO تلقائي راح يظهر لك اختر X او اختر O \n"
                     "3- معركة الشعبية فرديه فقط عدل عدد شعبيتك و شعبيت الخصم \n"

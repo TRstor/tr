@@ -3214,7 +3214,7 @@ def on_inline_query(inline_query):
 
         results.append(types.InlineQueryResultArticle(
             id=gid_x,
-            title="🎮 إرسال تحدّي XO (أنت ❌ وتلعب أولاً)",
+            title=" (أنت ❌ وتلعب أولاً)",
             description="اضغط هنا لإرسال اللوحة في الشات وبدء التحدي",
             thumbnail_url="https://i.ibb.co/0RvZpJJh/photo-5789385765350477158-y.jpg", # صورة الـ X
             input_message_content=types.InputTextMessageContent(message_text=text_x, parse_mode="Markdown"),
@@ -3222,7 +3222,7 @@ def on_inline_query(inline_query):
         ))
         results.append(types.InlineQueryResultArticle(
             id=gid_o,
-            title="🎮 إرسال تحدّي XO (أنت ⭕ والخصم يبدأ)",
+            title=" (أنت ⭕ والخصم يبدأ)",
             description="اضغط هنا لإرسال اللوحة، وسيبدأ الخصم باللعب",
             thumbnail_url="https://i.ibb.co/3mSFP5VB/photo-5789385765350477157-y.jpg", # صورة الـ O
             input_message_content=types.InputTextMessageContent(message_text=text_o, parse_mode="Markdown"),
@@ -3249,9 +3249,9 @@ def on_inline_query(inline_query):
                     "✨ *شرح خفيف لطيف * ✨\n\n"
                     "1- اختر من احد الازرار بالاسفل \n"
                     "2- لعبة XO تلقائي راح يظهر لك اختر X او اختر O \n"
-                    "3- معركة الشعبية فرديه فقط عدل عدد شعبيتك و شعبيت الخصم \n"
-                    "4- معركة الشعبية فريق يجب كتابة كلمة فريق و اكتب عدد الشعبية \n"
-                    "5- يجب تعديل عدد الارقام  و يجب يكون بينهم مسافه \n\n"
+                    "3- معركة الشعبية فرديه فقط غير الارقام \n"
+                    "4- معركة الشعبية فريق يجب كتابة كلمة فريق  \n"
+                    "5- يجب تعديل عدد الارقام و يكون بينهم مسافه \n\n"
                     "👇 *اختر ما تريد:* "
                 ),
                 parse_mode="Markdown"
